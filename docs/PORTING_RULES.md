@@ -76,6 +76,6 @@ the Hex-Rays export `data/x2.exe.c` / `data/x2.exe.h`, and verify it - not "make
 | Anti-cheat (nProtect/HackShield class), BugTrap / KncCrashRpt / SMTP crash reporting | stubbed, always "ok" |
 | Auto patcher (WinINet), machine-id, DX enumeration, CPU/GPU benchmark, registry | stubbed with fixed answers |
 | Disk files in `data/` | `@els/kom` over `fetch` (HTTP range) or the file system |
-| MPEG-1 movies (`data/movie`) | software MPEG-1 decoder -> texture |
+| MPEG-1 movies (`data/movie`, played by `bdvid32.dll` in the exe) | software MPEG-1 decoder (`packages/assets`, verified against FFmpeg) -> texture |
 
 The list of stubbed modules is part of the ledger so that a reader can see what is *not* original behaviour.

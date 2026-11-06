@@ -19,7 +19,7 @@
 | 1a | `@els/kom`：KOM 封存檔讀取（173 個檔、97,891 個項目，大小與 Adler-32 全數正確） | 完成 |
 | 1a | `@els/lua`：LuaJIT 2.0.2 位元碼載入器 + 直譯器 + 標準函式庫 | 部分完成（見下） |
 | 1b | Lua 載入器與文字設定檔。**更正**：x2.exe 沒有 Lua 原始碼編譯器（`lj_parse` 未連結，`cpparser` 對任何非位元碼的內容直接丟出 `cannot load malformed bytecode`），所以不做編譯器；改為 ① `loadChunk`／`luaL_loadfilex(iEncoding)`／`dofile_UTF8` 與 exe 一致；② 移植 KOG 自製的文字設定檔直譯器 `KLuaManagerProxy`（`GameOption*.txt`、伺服器群組檔、教學系統檔、控制台指令） | 完成（`KLuaManagerProxy` 沒有原生 oracle，只能以反組譯碼手算驗證） |
-| 2 | 資產解碼器（TGA/DDS/X/Y/XET/TET/粒子腳本/KIM/ESS/MPEG-1） | **進行中**：圖片（TGA/DDS/BMP/PNG）、XET/TET、字串表（ESS）、物品資料庫（KIM）、X 檔容器（MSZIP）與通用 X 讀取器、KME/KSM/KAC、粒子與 XMeshPlayer 腳本（解析端，37 個檔案、13,882 個區塊與獨立讀取器逐欄位一致）已完成並以全部資產驗證；粒子／XMeshPlayer 執行期、MPEG-1 未做（見下）；網格語意由階段 3 的 D3DX 實作承接 |
+| 2 | 資產解碼器（TGA/DDS/X/Y/XET/TET/粒子腳本/KIM/ESS/MPEG-1） | **完成（解碼端）**：圖片（TGA/DDS/BMP/PNG）、XET/TET、字串表（ESS）、物品資料庫（KIM）、X 檔容器（MSZIP）與通用 X 讀取器、KME/KSM/KAC、粒子與 XMeshPlayer 腳本（解析端，37 個檔案、13,882 個區塊與獨立讀取器逐欄位一致）、**AVI + MPEG-1 影片**（30 個 `data/movie/*.avi`、18,514 張畫面與 FFmpeg 逐取樣點完全相同）都已完成並以全部資產驗證；粒子／XMeshPlayer 執行期與播放影片的 Bandi 式播放器（`CMovieData`）需要繪圖與 UI，留給後續階段；網格語意由階段 3 的 D3DX 實作承接 |
 | 3 | WebGPU 的 D3D9 相容層（`packages/d3d9`） | **進行中，核心已完成**：`IDirect3DDevice9`（固定管線、全部狀態、貼圖格式、render target、可程式化的頂點階段）、D3DX 數學／貼圖／網格／骨架／動畫／影格階層載入器、`XRenderer.fx` 的 effect 模擬（19 個 technique、80 個 `vs_1_1` 著色器 → WGSL）；153 個測試在 Dawn + SwiftShader 上執行（`docs/img/d3d9-demo.png`）。引擎端的 `CKTDGXRenderer`／`CKTDGEffectStateManager` 類別尚未移植，也沒有真正的 D3D9／D3DX 可比對（假設列在 `docs/FINDINGS.md` 12.5） |
 | 4 | UI 框架（`DLG_*.lua`） | 未開始 |
 | 5 | `lua_tinker` 等價的 host API | 已完成**地面實況分析**（`docs/HOST_API.md`），尚未實作 |
@@ -45,6 +45,7 @@
 | X/Y 檔容器（`bzip`/MSZIP） | 25,204 個壓縮項目全部解開；其中 25,153 個與 fflate 結果逐位元組相同，其餘 51 個含有 fflate/zlib 不接受的「沒有 NLEN 的 stored block」，由自寫的 inflate 處理。 |
 | 通用 DirectX X 讀取器 | 25,313 個檔案（25,208 binary、105 text）全部解析，0 錯誤；1,049 萬個三角形面、1,205 萬個頂點（共 107,183 個網格）的索引與大小一致性檢查 0 違規。 |
 | KME / KSM / KAC（KOG 自有格式） | 109 + 1,031 個檔案全部解析，0 錯誤、0 個不變量違規（索引、屬性、骨架、影格樹、時間遞增）；16,428 組動畫、967,449 條動畫、1.096 億個 key。 |
+| AVI + MPEG-1 影片（`data/movie`，原版由 Bandisoft 的 `bdvid32.dll` 播放） | 30 個檔案、18,514 張畫面（999 張 I、17,515 張 P；400×220、24 fps、無音訊）依 ISO 11172-2 自行實作解碼，與 FFmpeg（透過 PyAV）逐取樣點完全相同（Y/Cb/Cr 的 CRC-32 全數吻合，約 22 秒）。另有 9 個用 FFmpeg 編碼器產生的合成串流（B 畫面、非 16 倍數尺寸、大位移向量、每巨集區塊量化值變動、16 位元 escape、長跳過序列、全像素向量、自訂量化矩陣）與手工位元流（slice 從列中間開始、stuffing）一併比對，37 個測試、40 個變異測試全部殺死。**假設**：`bdvid32.dll` 內部的 YUV→RGB 轉換看不到，採 BT.601；原版的播放時序與 Bandi API 行為尚未實作。 |
 
 **誠實的限制**：以上只證明「檔案格式讀得對」。D3DX 載入網格時的語意（多網格檔案合併與 frame 矩陣、頂點 weld / optimize、X 檔四元數慣例、動畫控制器的 track 混合）已在階段 3 實作，但沒有 D3DX 可以比對：只有 Wine 的 native 測試（載入器結構、`D3DXFrameFind`、`UpdateSkinnedMesh`）可當 oracle，其餘假設列在 `docs/FINDINGS.md` 12.5（原始分析在第 9 節）；`OptimizeKeys` 仍未移植。
 
@@ -53,7 +54,7 @@
 ```
 packages/kom      @els/kom   KOM 封存檔（zlib、XORCRC 演算法 2、Adler-32、HTTP range 來源）
 packages/lua      @els/lua   LuaJIT 2.0.2 位元碼 VM 與標準函式庫（對照 x2.exe 內的 lj_* 實作）、`KLuaManagerProxy`（文字設定檔直譯器）
-packages/assets   @els/assets  圖片（TGA/DDS/BMP/PNG）、XET/TET、字串表（general.ess）、物品資料庫（item.kim）、MSZIP、DirectX X 讀取器、KME/KSM/KAC 解碼器、粒子／XMeshPlayer 腳本解析器
+packages/assets   @els/assets  圖片（TGA/DDS/BMP/PNG）、XET/TET、字串表（general.ess）、物品資料庫（item.kim）、MSZIP、DirectX X 讀取器、KME/KSM/KAC 解碼器、粒子／XMeshPlayer 腳本解析器、AVI 解封裝與 MPEG-1 影片解碼器
 packages/d3d9     @els/d3d9  Direct3D 9 + D3DX 建立在 WebGPU 上（裝置、固定管線、D3DX 數學／貼圖／網格／骨架／動畫、XRenderer.fx effect 模擬）
 tests/lua         差異測試（兩個 VM 執行同一份 luajit -b -s 位元碼）
 tools             驗證、分析與產生文件的工具（見 docs/ARCHITECTURE.md）
@@ -72,9 +73,11 @@ npm install --no-audit --no-fund --prefix /home/user/work/boot bun@1.4.4   # npm
 ./tools/setup-oracle.sh                 # 建置 LuaJIT 2.0.2 oracle 到 /home/user/work/luajit-2.0
 python3 tools/kom_extract.py /home/user/work/ex lua,LUA  # 取出 4,498 個腳本
 ./tools/lua-difftest.sh                 # 15 個差異測試（t10–t14 為模糊測試、t15 為載入器）
-./node_modules/.bin/bun test packages   # 不需要 GPU 的單元測試（312 個；d3d9 的 GPU 測試會自行略過）
-./tools/gpu.sh ./node_modules/.bin/bun test packages   # 全部 438 個測試（含 153 個 d3d9 測試，在 Dawn + SwiftShader 上執行）
+./node_modules/.bin/bun test packages   # 不需要 GPU 的單元測試（349 個；d3d9 的 GPU 測試會自行略過）
+./tools/gpu.sh ./node_modules/.bin/bun test packages   # 全部 475 個測試（含 153 個 d3d9 測試，在 Dawn + SwiftShader 上執行）
 ./node_modules/.bin/bun run tools/verify-ksm.ts   # KME/KSM/KAC 全部資產驗證（約 45 秒）；其餘見 package.json 的 verify:*
+pip install --target /home/user/work/pyav av numpy   # PyAV 內含 FFmpeg：MPEG-1 影片的 oracle
+PYTHONPATH=/home/user/work/pyav python3 tools/oracle-mpeg1.py --out /tmp/oracle.json data/movie/*.avi && ./node_modules/.bin/bun run tools/verify-mpeg1.ts --hashes /tmp/oracle.json   # 30 部影片、18,514 張畫面（約 22 秒）
 ./tools/corpus-diff.sh 1                # stub 環境全腳本差異測試（flavor 1/2/3，各約 3 分鐘）
 ./node_modules/.bin/tsc -p tsconfig.json --noEmit        # 型別檢查
 ```

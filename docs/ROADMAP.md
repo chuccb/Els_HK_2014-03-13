@@ -40,7 +40,7 @@ Census of the KOMs (`bun run tools/census.ts`): `tga` 23,784 (2.4 GB), `dds` 31,
 | `item.kim` item database (57,106 items, 3,811 sets) | done: flat image decoded with the exe's accessors (`KItemFormatTemplet` 188-byte records + pool); whole file accounted for (FINDINGS section 8). Also the oracle for the Phase 5 `Item.lua` -> `AddItemTemplet` host API | `kim.ts`, `tools/verify-kim.ts` |
 | particle / XMeshPlayer text scripts (37 `.txt` entries, 10,399 sequences + 3,483 templets) | parsers done, ported from `CKTDGParticleSystem::Compile` / `CKTDGXMeshPlayer::Compile` with their tokenizers (quirks kept); all 37 files parse and equal an independent line reader field by field; library semantics (replace by name) and which file feeds which of the eight systems (FINDINGS section 10). The run-time simulation (instantiation, `OnFrameMove`, rendering) is not ported: it needs the renderer | `effectscript.ts`, `particle.ts`, `xmeshplayer.ts`, `tools/verify-effects.ts` |
 | audio | `ogg`/`wav` are decoded by the browser (WebAudio) | todo |
-| MPEG-1 movies | software decoder | todo |
+| MPEG-1 movies (30 loose `data/movie/*.avi`, AVI + `MPG1`, 400 x 220, 24 fps, I/P only, played by the exe through Bandisoft's `bdvid32.dll`) | done: RIFF AVI demuxer + MPEG-1 video decoder written from ISO 11172-2 (I / P / B, slices anywhere, custom matrices, full-pel, any size) + `Mpeg1Movie` (random access); **all 18,514 pictures of the 30 files are sample-for-sample identical to FFmpeg**, plus 9 synthetic streams (B pictures, odd sizes, escapes ...) and hand-made streams; 37 tests, mutation-checked. The YUV -> RGB conversion of `bdvid32.dll` is unknown (BT.601 assumed); the Bandi-like player is Phase 4 (FINDINGS section 13) | `avi.ts`, `mpeg1.ts`, `mpeg1-tables.ts`, `movie.ts`, `tools/verify-mpeg1.ts`, `tools/oracle-mpeg1.py` |
 
 Acceptance: every file of the type decodes; outputs compared with independent decoders or checksums where possible.
 
@@ -53,7 +53,7 @@ the client asks of Direct3D and every flagged assumption are in FINDINGS section
 
 | Item | Status | Verification |
 |---|---|---|
-| device core: state machine with the D3D9 defaults the exe restores (103 render states, 18 texture-stage states x 8, 13 sampler states x 16), transforms, lights, material, viewport / scissor, Clear (incl. rects, stencil), Present, Reset, render targets + depth surfaces, StretchRect, UpdateTexture, vertex / index buffers with D3D `Lock` semantics (DISCARD / NOOVERWRITE, renaming hazards), user-pointer draws, triangle fans | done | `packages/d3d9/test` (153 tests incl. D3DX and the effect, all on Dawn + SwiftShader; they skip without an adapter; the whole suite is 438 tests, 312 of which need no GPU) |
+| device core: state machine with the D3D9 defaults the exe restores (103 render states, 18 texture-stage states x 8, 13 sampler states x 16), transforms, lights, material, viewport / scissor, Clear (incl. rects, stencil), Present, Reset, render targets + depth surfaces, StretchRect, UpdateTexture, vertex / index buffers with D3D `Lock` semantics (DISCARD / NOOVERWRITE, renaming hazards), user-pointer draws, triangle fans | done | `packages/d3d9/test` (153 tests incl. D3DX and the effect, all on Dawn + SwiftShader; they skip without an adapter; the whole suite is 475 tests, 349 of which need no GPU) |
 | fixed-function pipeline: vertex transform + all light types + material sources + fog (vertex, table, pre-transformed), texture coordinate generation + texture transforms, the full texture-stage cascade (all `D3DTOP`, arguments, TEMP / CURRENT / TFACTOR, 8 stages), specular add, alpha test | done | `draw`, `state`, `lighting`, `cascade` tests against analytic values |
 | pipeline state: blend (+ separate alpha), depth (func / write / bias), stencil, cull, scissor, colour-write mask; samplers: wrap / mirror / clamp, point / linear / anisotropic, mip filter + LOD bias + max level | done | `state`, `texture` tests |
 | texture / surface formats: A8R8G8B8, X8R8G8B8, A1R5G5B5, X1R5G5B5, R5G6B5, A4R4G4B4, L8, A8L8, A8, R8G8B8, DXT1 / 3 / 5 (BC1 / 2 / 3, CPU decode when the adapter lacks BC), D16 / D24 / D32 depth, float render targets | done | `formats`, `rendertarget` tests (BC within +-1) |
@@ -67,7 +67,8 @@ the client asks of Direct3D and every flagged assumption are in FINDINGS section
 ## Phase 4 - UI framework
 
 `CKTDGUIDialog` family driven by the `DLG_*.lua` scripts (textures from `.tet` templates), fonts, IME, controls, layout at
-the original resolutions.
+the original resolutions. Includes `CKTDGUIControl::CMovieData`: a Bandi-like movie player over `Mpeg1Movie` (Open / GetVideoInfo /
+Play / Stop / Pause / Seek / GetStatus with PLAYEND / IsNextFrame at 24 fps wall-clock / GetFrame into a texture; FINDINGS section 13.5).
 
 ## Phase 5 - `lua_tinker`-equivalent host API
 

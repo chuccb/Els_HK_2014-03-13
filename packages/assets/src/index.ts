@@ -58,3 +58,9 @@ export {
   XMESH_CARTOON_TEX_TYPES, XSKIN_ANIM_PLAYTYPES, XMESH_EVENT_TYPES, XMESH_PROPERTY_NAMES,
 } from "./xmeshplayer.ts";
 export type { XMeshPlayerScript, XMeshTemplet, XMeshEvent, XMeshEventKind } from "./xmeshplayer.ts";
+export { Mpeg1Decoder, Mpeg1Error, inverseDct, splitPictures, visiblePlanes, yuv420ToBgra, ZIGZAG } from "./mpeg1.ts";
+export type { Mpeg1Frame, Mpeg1SequenceInfo, Mpeg1Stats } from "./mpeg1.ts";
+export { AviError, parseAvi, streamChunks } from "./avi.ts";
+export type { AviChunk, AviFile, AviStream } from "./avi.ts";
+export { Mpeg1Movie } from "./movie.ts";
+export type { MovieInfo } from "./movie.ts";

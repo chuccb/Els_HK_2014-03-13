@@ -19,6 +19,7 @@
     "verify:ksm": "bun run tools/verify-ksm.ts",
     "verify:ess": "bun run tools/verify-ess.ts",
     "verify:kim": "bun run tools/verify-kim.ts",
+    "verify:mpeg1": "bun run tools/verify-mpeg1.ts",
     "verify:lua": "./tools/lua-difftest.sh && ./tools/corpus-diff.sh 1",
     "docs": "python3 tools/bindings.py && python3 tools/ledger.py",
     "setup:gpu": "./tools/setup-gpu.sh"

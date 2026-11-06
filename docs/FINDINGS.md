@@ -311,10 +311,8 @@ strings are never read, 0 bytes are unexplained (a field I would have missed sho
 44,745 items carry base stats, 30,205 socket options, 469 special abilities (615 entries), 120 particles, 93 attached meshes, 44 slash
 trace colours. Defaults of absent blocks are the exe's zero-initialised dummies (`ms_vOne` = (1,1,1) for render scales).
 
-Not done in Phase 2 (see section 9 for what the mesh work added): particle and XMeshPlayer text scripts (a custom block / `key = value`
-DSL: `particlesystem "Name" 1.00 { eventsequence "..." { particleType = PT_2D_PLANE ... Fade so From 0.000 to 0.300 Position = XYZ(...) } }`,
-parsed by `CKTDGParticleSystem::Compile` 328F5DB0 and `CKTDGXMeshPlayer::Compile` 32917A60 after a tokenizer),
-MPEG-1, the `XETProxy` / `TETProxy` Lua authoring classes (registered with `lua_tinker`, but none of the 4,498 shipped scripts calls
+Not done when this section was written (since then: meshes in section 9, the particle and XMeshPlayer text scripts in section 10, MPEG-1
+in section 13): the `XETProxy` / `TETProxy` Lua authoring classes (registered with `lua_tinker`, but none of the 4,498 shipped scripts calls
 them; the shipped tables are already binary).
 
 ## 9. Meshes, animations and the X-file container (Phase 2)
@@ -794,3 +792,94 @@ Dawn (the `webgpu` npm package, prebuilt `dawn.node`) needs a Vulkan loader and 
 `VK_ICD_FILENAMES` / `LD_LIBRARY_PATH` set (they must be in the environment before the process starts; a missing ICD file gives a null adapter). Dawn hands each adapter out once, so every test device
 gets a fresh adapter. SwiftShader supports BC textures and 8192-pixel 2D textures; uncaptured validation errors arrive asynchronously (`await dev.takeErrorsAsync()` in the tests).
 
+## 13. MPEG-1 movies and the Bandi video library (Phase 2)
+
+### 13.1 What the exe does
+
+The only video in the client is `CKTDGUIControl::CMovieData` (ctor L367000, `OnFrameMove` L368330, `OnFrameRender` L368562, `SetMovieFileName`
+L368902 / `_LUA` L368955, object size 0x78). There is no DirectShow, MCI or Media Foundation anywhere in x2.exe.c: playback goes through the
+closed Bandisoft library `bdvid32.dll` (`data/bdvid32.dll`, loose next to the exe) wrapped by `CBandiVideoLibrary` (L445180..) and
+`CBandiVideoTexture_DX9` (L445440..):
+
+* `Create(L"bdvid32.dll")`, `Verify("KOG_ELSWORD_20131203", "1b9b533c")` (licence id / key), path = working directory + `\movie\` + name, then
+  `Open`, `GetVideoInfo` (-> texture size), `Play`; the texture wrapper `Open(w, h)` creates a D3D9 texture (`CalcTexSize` rounds to a power
+  of two when asked).
+* `OnFrameMove`: `GetStatus == BVL_STATUS_PLAYEND` -> `Seek(0)`, then `Play` when looping else `Stop`; `IsNextFrame` -> lock the texture and
+  `GetFrame(buffer, pitch, pixel_format = texture format)`. So the library does the colour conversion into the caller's format, and the
+  frame clock (24 fps wall-clock) is the library's.
+* `OnFrameRender`: clear a render-target texture, `m_pBvt->Draw(0, 0, size)`, then draw that target at `pos / m_ResolutionScale`.
+* Lua surface: `CMovieData` (`SetLoop`, `SetMovieFileName_LUA`, `SetRect_LUA` ...), `CKTDGUIDialog::CreateMovie`,
+  `CKTDGUIStatic::AddMovieData_LUA` / `GetMovie`; `CX2StateServerSelect::ProcessIntroMovieEnd` (L15553) looks related, link not verified.
+
+Data: exactly 30 loose files `data/movie/movie_create_<character>_<class>.avi` (47 MB); no video inside any of the 173 KOMs
+(`find_movies` over all entries). Each is a RIFF AVI with one `vids` stream, handler `MPG1`, BITMAPINFOHEADER 400 x 220 24 bpp, a `JUNK`
+chunk after `strf`, `avih` 41,666 us per frame (24 fps), an `idx1` whose key-frame flags equal the I pictures, and a `movi` list of only
+`00dc` chunks: one picture each, no audio. Content: 459..734 pictures per file, **18,514 in total = 999 I + 17,515 P**; no B and no D
+pictures, default quantiser matrices, **one slice per picture covering all 14 macroblock rows** (the encoder never restarts a slice), a constant
+quantiser inside each picture (no `macroblock_quant`), no 16 bit escape levels, vectors up to `f_code` 7 and always inside the picture,
+`constrained_parameters_flag` 0, variable bit rate (0x3ffff), `vbv_buffer_size` 9, `pel_aspect_ratio` code 14 (1.2015; the engine draws the
+400 x 220 texture into the rectangle Lua gives, so the code is not used). Over the 30 files: 6.48 M macroblocks, of which 4.96 M coded
+(1.12 M intra, 3.27 M with a forward vector, 0.57 M pattern only) and 1.52 M skipped, 163,351 escape levels, 2,646 `macroblock_escape` codes.
+
+### 13.2 The decoder (`packages/assets/src/mpeg1.ts`, `mpeg1-tables.ts`, `avi.ts`, `movie.ts`)
+
+There is no decoder code to port, so this is a decoder of ISO/IEC 11172-2 written from the standard: I, P and B pictures (the movies only use
+I and P), slices that start anywhere in a row and span rows, skipped macroblocks (P: zero vector; B: repeat of the previous prediction and
+vectors), custom quantiser matrices, full-pel vectors, picture re-ordering (an I / P reference is held back until the next one arrives),
+sizes that are not a multiple of 16 (the planes cover whole macroblocks, `width` / `height` are the visible size; `visiblePlanes` crops).
+D pictures (DC-only) are rejected with `Mpeg1Error`. `Mpeg1Decoder.decode(bytes)` takes whole pictures (an AVI chunk, or a whole elementary
+stream: it finds the pictures itself); `splitPictures` cuts an elementary stream into one-picture pieces.
+
+* `avi.ts`: RIFF walker (nested `LIST`s, `rec ` lists, odd chunk sizes padded to even offsets, `avih` / `strh` / `strf`, key frames from
+  `idx1`). `movie.ts`: `Mpeg1Movie.open(bytes)` -> `info` (size, frame count, rate 24/1, duration), sequential `next()` and random access
+  `frame(i)` / `seek(i)` (restarts at the nearest I picture with a sequence header, or at 0 when the stream has B pictures).
+* Choices the standard leaves open, which matter for the last bit: the IDCT is the 16 bit integer "simple" IDCT (`W1..W7` = 22725 21407
+  19266 16383 12873 8867 4520, row shift 11, column shift 20, DC shortcut) because that is what libavcodec uses, and the pictures can then be
+  compared sample for sample; blocks are `Int16Array` so out-of-range intermediate values wrap like the C code. Chroma vectors are the luma
+  vector / 2 truncated toward zero (full-pel vectors are doubled first). Mismatch control: every non-zero dequantised coefficient is made
+  odd (`(v - 1) | 1` only for non-zero values: libavcodec applies it to a 0 as well, which differs when `(2|level|+1) * qscale * matrix < 16`, i.e.
+  matrices with entries below 6; no shipped stream and no fixture has such a matrix), clamp +-2048.
+* Vectors that point outside the coded picture (the standard forbids them) read replicated edge samples; libavcodec instead skips the
+  prediction ("MPEG motion vector out of boundary"), so there is no oracle for that case.
+* Colour: `yuv420ToBgra` is ITU-R BT.601 limited range with chroma replicated. **This is an assumption**: what `bdvid32.dll` does inside
+  `GetFrame` (matrix, range, chroma upsampling filter, dithering, gamma) is not visible in the decompile. The decoded YUV is exact; the RGB
+  of the original may differ by a few levels.
+* The 400 x 220 pictures are decoded as 25 x 14 macroblocks (400 x 224); the bottom 4 rows are cropped. Speed: about 800 pictures per
+  second per core (`bun`), i.e. 30 files in 22 s including hashing, far faster than the 24 fps the movies need.
+
+### 13.3 Verification
+
+The oracle is FFmpeg's libavcodec through PyAV (`pip install --target /home/user/work/pyav av numpy`; the `av` 18.1.0 manylinux wheel bundles
+FFmpeg, decoder and encoder), `tools/oracle-mpeg1.py`: CRC-32 per plane and picture, optional raw I420 dump. libavcodec's default IDCT on x86
+and `idct=simple` give the same pictures on the movies (checked), so the default build is a fair reference.
+
+| Check | Result |
+|---|---|
+| `tools/verify-mpeg1.ts` over all 30 movies (against the recorded hashes, or `--hashes` a fresh FFmpeg run) | **18,514 of 18,514 pictures identical** (Y, Cb, Cr of the visible area), 0 files differ; the first run of the decoder on the first file was already exact |
+| `packages/assets/test/fixtures/mpeg1` (`tools/gen-mpeg1-fixtures.py`, 9 streams made with FFmpeg's encoder, 80 KB; the hashes of the 30 movies are recorded in `movies.json` + `movies.bin`, 240 KB, so `verify-mpeg1.ts` and the tests need no FFmpeg) | all identical: B pictures (forward / backward / bidirectional macroblocks, skipped B macroblocks, display re-ordering), a 50 x 34 picture, large vectors (f_code 3), per-macroblock quantiser changes, 16 bit escape levels, address increments above 33 (`macroblock_escape`), full-pel vectors, custom matrices (loaded by rewriting the sequence headers: the encoder of this build ignores the `intra_matrix` / `inter_matrix` options) |
+| hand made streams in the test | slices that start inside a row (the first address increment is relative to the row start), macroblock stuffing, intra macroblocks resetting the vector predictors in P and in B pictures, slices below the picture, D pictures / orphan pictures / P without reference |
+| `inverseDct` against the exact floating point IDCT | peak error 1, mean square error 0.01 (IEEE 1180 allows 0.06) |
+| random damage (300 corrupted / truncated copies of a stream) | only `Mpeg1Error` is ever thrown, no hang |
+| mutation check (`/home/user/work/scratch/mut_mpeg1.py`, 40 mutants of the decoder and the tables: oddification, shifts, rounding of the half-pel / bidirectional averages, chroma vector rounding, predictor resets, address escape, escapes, zigzag, table entries, reference order) | all 40 killed (the clamp 2047 -> 1023 mutant is caught by the real movies only; the synthetic streams cannot see it because a single huge coefficient saturates anyway) |
+
+The oracle does not cover: the colour conversion, the timing of the Bandi player, vectors outside the picture, the tiny-matrix corner above, D
+pictures, streams with more than one `sequence_header` change of size. The pictures of an I/P-only movie do not depend on any of these.
+
+### 13.4 Reproducing
+
+```sh
+./node_modules/.bin/bun run tools/verify-mpeg1.ts                                # the 30 movies against the recorded FFmpeg hashes, ~22 s, no FFmpeg needed
+pip install --target /home/user/work/pyav av numpy
+export PYTHONPATH=/home/user/work/pyav
+python3 tools/oracle-mpeg1.py --out /tmp/oracle.json data/movie/*.avi          # a fresh FFmpeg run; --dump DIR adds raw I420 (2.3 GB for all 30), --pack PREFIX re-records movies.*
+./node_modules/.bin/bun run tools/verify-mpeg1.ts --hashes /tmp/oracle.json      # against that run
+python3 tools/gen-mpeg1-fixtures.py                                              # regenerates the synthetic streams in packages/assets/test/fixtures/mpeg1
+gh api -H "Accept: application/vnd.github.raw" repos/FFmpeg/FFmpeg/contents/libavcodec/mpeg12data.c > /home/user/work/scratch/ff/mpeg12data.c
+python3 tools/gen-mpeg1-tables.py                                                # regenerates mpeg1-tables.ts (byte identical)
+```
+
+### 13.5 What is left for the engine (Phase 4)
+
+A Bandi-like movie player for `CMovieData`: `Open` / `GetVideoInfo` / `Play` / `Stop` / `Pause` / `Seek` / `GetStatus` (`PLAYEND`) /
+`IsNextFrame` / `GetFrame` with a 24 fps wall-clock over `Mpeg1Movie`, uploading `yuv420ToBgra` rows (or a YUV -> RGB shader) into the
+`CBandiVideoTexture_DX9` texture of the D3D9 layer. The 30 movies have no audio track, so `SetVolume` is a no-op.

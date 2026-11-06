@@ -43,3 +43,6 @@
 ^CryptoPP	todo	-	-	crypto primitives of the protocol: WebCrypto or a port, decided with the network layer
 ^(SerializeHelper|KSerializer)	todo	-	-	packet (de)serialisation: the wire format is needed for apps/server
 
+^CBandiVideoLibrary$	partial	packages/assets/src/movie.ts (Mpeg1Movie), mpeg1.ts, avi.ts	tools/verify-mpeg1.ts: 30 movies, 18,514 pictures identical to FFmpeg; packages/assets/test/mpeg1.test.ts (37 tests)	wrapper of the closed bdvid32.dll (Create / Verify / Open / GetVideoInfo / Play / Stop / Pause / Seek / GetStatus / IsNextFrame / GetFrame); the decoding half is replaced by Mpeg1Movie (AVI demux + MPEG-1 decoder of the standard, FINDINGS 13); the player (24 fps wall-clock, PLAYEND, Seek) and the colour conversion of GetFrame (BT.601 assumed) are Phase 4
+^CBandiVideoTexture(_DX9)?$	todo	packages/d3d9 (texture side)	-	D3D9 texture the library draws into (Open(w, h), CalcTexSize, Lock + GetFrame rows, Draw); needs the engine-side movie player; yuv420ToBgra in packages/assets/src/mpeg1.ts produces the rows
+^CKTDGUIControl::CMovieData$	todo	packages/assets/src/movie.ts (decoder only)	-	UI control that owns the Bandi library + texture (OnFrameMove / OnFrameRender / SetMovieFileName[_LUA] / SetLoop / SetRect_LUA); Phase 4 (UI framework); the 30 movies it plays decode exactly (FINDINGS 13)

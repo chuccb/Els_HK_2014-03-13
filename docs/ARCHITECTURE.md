@@ -50,12 +50,16 @@ without NLEN and chunks that reference the previous 32 KiB), `xfile.ts` (generic
 block, decoded from the exe's loaders with the same range checks), `xscene.ts` (`loadXScene`: the frames, meshes, skin weights and
 animation sets of an X file as typed data, the input of the D3DX mesh functions in `@els/d3d9`). Skinning and animation evaluation are not
 written yet, see ROADMAP phases 2 and 3.
-Effect scripts: `effectscript.ts` (the shared tokenizer with the exe's quirks, `ProcessNumber/Vector/Color`, the CRT `rand` and
+Movies: `avi.ts` (RIFF AVI demuxer: headers, `movi` chunks, `idx1` key frames), `mpeg1.ts` + `mpeg1-tables.ts` (MPEG-1 video decoder of ISO 11172-2:
+`Mpeg1Decoder.decode(bytes)` -> `Mpeg1Frame` YUV 4:2:0 planes in display order, `yuv420ToBgra`, `visiblePlanes`, `splitPictures`; the tables are generated
+by `tools/gen-mpeg1-tables.py`) and `movie.ts` (`Mpeg1Movie.open(aviBytes)`: `info`, `next()`, `frame(i)`, `seek(i)`); the 30 shipped movies decode
+identically to FFmpeg (FINDINGS section 13). Effect scripts: `effectscript.ts` (the shared tokenizer with the exe's quirks, `ProcessNumber/Vector/Color`, the CRT `rand` and
 `RandomNumber`, `EFFECT_SYSTEMS` = which file feeds which of the eight systems), `particle.ts` (`parseParticleScript` -> sequences with
 their properties and events, `ParticleLibrary`) and `xmeshplayer.ts` (`parseXMeshPlayerScript` -> templets with Global / Anim / Die
 timelines, `XMeshLibrary`): the compile side of `CKTDGParticleSystem` / `CKTDGXMeshPlayer`; the run-time simulation is not ported.
-Tests: `packages/assets/test` (233 tests) and `packages/lua/test` (`loader.test.ts` 14, `proxy.test.ts` 38); all with `bun test packages`; corpus tools: `decode-images.ts` + `verify-images.py` (Pillow),
-`verify-xet-tet.ts`, `verify-xfiles.ts`, `verify-xparse.ts`, `verify-ksm.ts`, `verify-ess.ts`, `verify-kim.ts`, `verify-effects.ts`.
+Tests: `packages/assets/test` (270 tests) and `packages/lua/test` (`loader.test.ts` 14, `proxy.test.ts` 38); all with `bun test packages`; corpus tools: `decode-images.ts` + `verify-images.py` (Pillow),
+`verify-xet-tet.ts`, `verify-xfiles.ts`, `verify-xparse.ts`, `verify-ksm.ts`, `verify-ess.ts`, `verify-kim.ts`, `verify-effects.ts`, `verify-mpeg1.ts` (+ the FFmpeg oracle
+`oracle-mpeg1.py`, the fixture generator `gen-mpeg1-fixtures.py`).
 
 ### `@els/d3d9` (`packages/d3d9`)
 `Direct3DDevice9` (PascalCase, D3D's names, `HRESULT` results; `CreateX` returns `{hr, resource}`, `Lock` returns `{hr, data}`) over a WebGPU
@@ -163,7 +167,7 @@ python3 tools/index_decomp.py data/x2.exe.c /home/user/work/analysis/functions.t
 python3 tools/bindings.py && python3 tools/ledger.py                                # docs/HOST_API.md, docs/LEDGER.md
 ./node_modules/.bin/bun test packages                                                 # unit tests that need no GPU: asset decoders, Lua loader, KLuaManagerProxy (the d3d9 GPU tests skip)
 ./tools/setup-gpu.sh                                                                   # software Vulkan for Dawn -> /home/user/work/swsh (about 2 s)
-./tools/gpu.sh ./node_modules/.bin/bun test packages                                   # everything: 438 tests, incl. the 153 d3d9 tests on Dawn + SwiftShader
+./tools/gpu.sh ./node_modules/.bin/bun test packages                                   # everything: 475 tests, incl. the 153 d3d9 tests on Dawn + SwiftShader
 ./node_modules/.bin/bun run tools/gen-d3d9-enums.ts --check                            # enums.generated.ts is current
 ./node_modules/.bin/bun run tools/census-xscene.ts                                     # integrity of all 25,313 X / Y scenes
 ./tools/gpu.sh ./node_modules/.bin/bun run tools/census-skin.ts                        # hierarchy loader + skin conversion + animation over all 7,395 skinned files, ~3 min
@@ -178,4 +182,7 @@ python3 -m venv /home/user/work/venv && /home/user/work/venv/bin/pip install pil
 ./node_modules/.bin/bun run tools/verify-ess.ts                       # string table
 ./node_modules/.bin/bun run tools/verify-kim.ts                       # item database, ~2 s
 ./node_modules/.bin/bun run tools/verify-effects.ts                   # particle / XMeshPlayer scripts, ~4 s
+pip install --target /home/user/work/pyav av numpy                                      # FFmpeg (libavcodec) bundled in the `av` wheel: the MPEG-1 oracle
+PYTHONPATH=/home/user/work/pyav python3 tools/oracle-mpeg1.py --out /home/user/work/mpeg1_oracle.json data/movie/*.avi
+./node_modules/.bin/bun run tools/verify-mpeg1.ts --hashes /home/user/work/mpeg1_oracle.json   # 30 movies, 18,514 pictures, ~22 s
 ```
