@@ -1,0 +1,68 @@
+# Rules for the LuaJIT 2.0.2 runtime embedded in x2.exe (regex on the function name, first match wins).
+# columns: regex<TAB>status<TAB>ts<TAB>verification<TAB>note        (status: done | partial | stub | n/a | todo)
+# --- core: tables, metamethods, errors, debug info, strings
+^lj_tab_free$	n/a	-	-	garbage collector; tables are JS objects
+^lj_tab_	done	packages/lua/src/table.ts	t02; corpus-diff (content, `#` and pairs order of every global table of all 4,498 scripts)	array/hash parts, node chains, rehash and lj_tab_len bit-exact
+^lj_meta_(init|cache|tailcall|equal_cd)$	n/a	-	-	metamethod-name interning / negative cache (pure optimisation) / FFI
+^lj_meta_comp$	done	packages/lua/src/vm.ts metaComp	t04; corpus-diff flavors 1-3	LuaJIT operand and metamethod order (not Lua 5.1's); ISGE/ISGT are "not ISLT/ISLE" (true for NaN)
+^lj_meta_	done	packages/lua/src/vm.ts (index, setIndex, arith, concat, len, equals, call, forPrep)	t01, t04; corpus-diff	
+^lj_obj_equal$	done	packages/lua/src/vm.ts rawEquals	t04	
+^lj_err_lex$	todo	-	-	needs the source compiler (ROADMAP phase 1b)
+^lj_err_	done	packages/lua/src/vm.ts resolveError, lib/util.ts argError	t06; corpus-diff (all error texts)	
+^lj_debug_getinfo$	partial	packages/lua/src/lib/misc.ts debug.getinfo	-	only source/short_src/what/linedefined/func/nups; scripts never call it
+^lj_debug_	done	packages/lua/src/vm.ts frameLoc, slotName, funcName, shortName	t06; corpus-diff	all scripts are stripped: `chunk:0:` locations
+^lj_str_(resize|free|needbuf|pushvf|pushf)$	n/a	-	-	string interning table / C varargs formatting
+^lj_str_cmp$	done	packages/lua/src/vm.ts metaComp (byte-string compare)	t04	
+^lj_str_new$	done	packages/lua/src/table.ts strHash	corpus-diff pairs order	string hash decides hash-part order
+^lj_str_	done	packages/lua/src/numfmt.ts	t03, t07	%.14g and integer formatting, half-even ties
+^lj_func_closeuv$	done	packages/lua/src/vm.ts (Upval.close)	t01	
+^lj_func_	n/a	-	-	closures/prototypes are JS objects
+^lj_state_growstack	done	packages/lua/src/vm.ts growStack	t06	stack overflow is a Lua error
+^lj_state_	n/a	-	-	state lifetime / error recovery is done with exceptions
+^lj_lib_register$	n/a	-	-	library registration = makeLib
+^lj_lib_	done	packages/lua/src/lib/util.ts	t06	argument checkers with the exact messages
+^(bcread_|lj_bcread$)	done	packages/lua/src/bytecode.ts loadBytecode	tools/verify-lua-bytecode.ts: 4,498 scripts / 26,565 prototypes identical to `jit.bc`	
+^(lj_strscan|strscan_)	partial	packages/lua/src/vm.ts strToNumber	t01, t07	signed inf/nan spellings are missing
+^lj_math_random_step$	done	packages/lua/src/lib/misc.ts Prng	t07	same xorshift stream as LuaJIT 2.0
+^lj_cont_	n/a	-	-	continuations are replaced by JS recursion (yield across metamethods unsupported)
+^lj_dispatch_	n/a	-	-	hooks / JIT dispatch table
+^lj_udata_	n/a	-	-	userdata objects are JS objects
+^lj_mem_|^lj_alloc|^(tmalloc_|prepend_alloc|segment_holding|add_segment|release_unused)	n/a	-	-	allocator
+^lj_gc_|^gc_	n/a	-	-	garbage collector (weak tables and __gc are not supported)
+# --- lexer / parser / dump (phase 1b)
+^(lj_lex_|fillbuf|save_grow|lj_parse|cpparser|reader_)	todo	-	-	source compiler: ROADMAP phase 1b (needed for GameOption.txt, TutorSystem.lua, loadstring)
+^(lua_load|lua_loadx|luaL_load)	partial	packages/lua/src/lib/base.ts loadChunk	t08	bytecode only; the BOM/`iEncoding` check of luaL_loadfilex is not ported
+^lua_dump$	todo	-	-	string.dump / lua_dump (bytecode writer)
+^lj_cf_dofile_UTF8$	partial	packages/lua/src/lib/base.ts dofile	-	same as dofile, no BOM requirement
+# --- base library
+^lj_cf_(dofile|loadfile|load|loadstring)$	partial	packages/lua/src/lib/base.ts	t08	bytecode only until phase 1b
+^lj_cf_collectgarbage$	partial	packages/lua/src/lib/base.ts	t08	'count'/'collect' only; 'step' always false
+^lj_cf_(getfenv|setfenv)$	partial	packages/lua/src/lib/base.ts	t08	setfenv(0, t) is a no-op
+^lj_cf_(rawset|rawequal|unpack|select|error|gcinfo|newproxy|print)$	done	packages/lua/src/lib/base.ts	t06, t08; corpus-diff	
+^lj_ff_(assert|type|getmetatable|setmetatable|tonumber|pairs|ipairs|ipairs_aux)$	done	packages/lua/src/lib/base.ts	t01, t02, t06; corpus-diff	
+^ffh_pairs$	done	packages/lua/src/lib/base.ts pairs	t06	checkAny before the table check
+^lj_ff_(pcall|xpcall)$	done	packages/lua/src/vm.ts syntheticProto (bytecode closures)	t05, t06	pcall()/xpcall() with no arguments give a different message
+^(lj_ff_coroutine_yield|ffh_resume)$	done	packages/lua/src/vm.ts resume / lib/misc.ts	t05	
+# --- libraries
+^lj_ff_string_	done	packages/lua/src/lib/string.ts	t03	
+^lj_cf_string_dump$	todo	-	-	needs a bytecode writer
+^lj_cf_string_	done	packages/lua/src/lib/string.ts, lib/pattern.ts	t03; corpus-diff (found the %q bug)	format follows lj_cf_string_format/addquoted
+^(lj_ff_table_getn|lj_cf_table_)	done	packages/lua/src/lib/table.ts	t02	
+^(lj_ff_math_(abs|floor|ceil|sqrt|modf|frexp|ldexp|rad|min|max)|lj_cf_math_random|lj_cf_math_randomseed)$	done	packages/lua/src/lib/misc.ts	t07	exactly rounded operations
+^(lj_ff_math_|lj_cf_math_|lj_vm_(floor|ceil|trunc|mod|modi|log2|exp|pow|powi|foldfpm|foldarith|sinh|cosh|tanh))	partial	packages/lua/src/lib/misc.ts, vm.ts arith	t07	transcendental functions use V8's libm instead of x87/CRT: last-ulp differences are possible (x87 fyl2x/f2xm1 are not reproducible bit-exactly anyway)
+^(lj_ff_bit_|lj_cf_bit_)	done	packages/lua/src/lib/misc.ts	t07	
+^lj_cf_coroutine_	partial	packages/lua/src/lib/misc.ts	t05	no yield across metamethods / native iterators
+^lj_cf_os_	partial	packages/lua/src/lib/misc.ts	t08	time/date/clock/getenv; execute/remove/rename/tmpname/exit/setlocale are stubs
+^(lj_cf_io_|io_|luaopen_io)	partial	packages/lua/src/lib/misc.ts	t08, t09	read-only files from the host, in-memory writes; popen unsupported
+^lj_cf_debug_	partial	packages/lua/src/lib/misc.ts	t09	names only for locals/upvalues (scripts are stripped); traceback approximate
+^lj_cf_package_	partial	packages/lua/src/lib/misc.ts	t08, t09	require/module/seeall/loaders/searchpath; no C modules
+^lj_cf_jit_	stub	packages/lua/src/lib/misc.ts	t09	jit.* reports an interpreter-only VM
+^luaopen_(base|string|table|math|bit|os|package|debug|jit)$	done	packages/lua/src/lib/*.ts	t09 (library surface identical to the oracle)	includes the exe's LUA_COMPAT_GFIND (string.gfind) and LUA_COMPAT_MOD (math.mod)
+# --- not ported on purpose
+^(lj_vm_(record|rethook|inshook|hotloop|callhook|hotcall|exit_handler|exit_interp|ffi_|cpuid|errno|asm_begin))	n/a	-	-	JIT hooks / FFI / CPU probing
+^(lj_vm_|lj_ff_|lj_cf_ffi_|lj_cf_jit_)	n/a	-	-	assembler VM entry points: covered by the interpreter loop in packages/lua/src/vm.ts
+^(lj_ctype|lj_cdata|lj_ccall|lj_cconv|lj_carith|lj_clib|lj_cparse|lj_crecord|cp_|ctype_|luaopen_ffi)	n/a	-	-	FFI (flag 0 in all 4,498 scripts)
+^(lj_trace|lj_record|lj_opt|lj_asm|lj_ir|lj_snap|lj_mcode|lj_gdb|lj_ffrecord|recff_|rec_|fold_|asm_|emit_|snap_|trace_|setptmode|luaJIT_setmode|callhook)	n/a	-	-	trace compiler, IR, assembler and snapshots (interpreter only; the JIT is semantically transparent)
+^lua_(newthread|gettop|settop|pushvalue|remove|insert|replace|checkstack|xmove|is|type|equal|rawequal|lessthan|to|obj|push|get|raw|create|new|set|call|pcall|status|gc|next|concat|error|sethook|gethook|getstack|getinfo|getlocal|setlocal|setallocf|setencoding|getencoding|upvalue)	n/a	-	-	C API used by the engine's bindings (lua_tinker): replaced by the TypeScript host API of phase 5
+^luaL_	n/a	-	-	C auxiliary library used by the engine's bindings: replaced by the host API of phase 5
+^(luaopen_|lua_|lj_|io_|panic$|adjuststack$|alloc_)	n/a	-	-	other embedded-runtime internals without an equivalent

@@ -57,9 +57,15 @@ unless marked *(assumption)*.
 * Lua **source** exists in exactly three places: `data/TutorSystem.lua` (loose, UTF-8 BOM) and `GameOption.txt` /
   `GameOptionPreset.txt` inside the KOMs (Algorithm 2, UTF-8 BOM, `GAME_OPTION_CURRENT = { ... OPTION_LEVEL["OL_HIGH"] ... }`).
   Running them unmodified needs a Lua source compiler (not written yet, see ROADMAP "1b").
-* The other 41 Algorithm-2 entries (`.txt`/`.kim`) are not Lua: `particlesystem "GameMajor" 1.00 { ... }` particle scripts
-  (`Game*/UI*Particle*.txt`), `XMESHPLAYER` scripts (`*XMeshPlayer*.txt`) and the 18.7 MB binary `item.kim` ("KIM" magic).
-  They are parsed by C++ code of the exe and are phase 2 work.
+* The KOMs hold 41 Algorithm-2 `.txt`/`.kim` entries: 2 of them are the Lua sources above (`GameOption.txt`,
+  `GameOptionPreset.txt`); the other 39 are not Lua: `particlesystem "GameMajor" 1.00 { ... }` particle scripts
+  (`Game*/UI*Particle*.txt`), `XMESHPLAYER` scripts (`*XMeshPlayer*.txt`), a 0-byte `bossraid_dummy.txt`, and the 18.7 MB
+  binary `item.kim` ("KIM" magic). They are parsed by C++ code of the exe and are phase 2 work.
+* The exe's LuaJIT is stock 2.0.2 plus a few KOG additions: `dofile_UTF8` (`luaL_loadfilex(L, name, mode, iEncoding)`:
+  encoding 0 accepts a UTF-8 BOM, 1 *requires* one unless the file is bytecode (`invalid encoding <chunk>` otherwise), 2 does no
+  check), `lua_setencoding`/`lua_getencoding` (a flag in `global_State`), and the compat aliases `string.gfind` and `math.mod`
+  (both reproduced; the library surface of the TS VM is identical to the oracle, test `t09_surface`). The lexer is stock
+  (`lj_lex_setup` skips a BOM and a `#` first line, detects `ESC` bytecode).
 
 ### LuaJIT 2.0.2 behaviour reproduced (from the decompile)
 
@@ -93,7 +99,7 @@ unless marked *(assumption)*.
 | Check | Result |
 |---|---|
 | `tools/verify-lua-bytecode.ts`: TS loader + disassembler vs `jit.bc` listing of the oracle, all scripts | 4,498 scripts / 26,565 prototypes / 8.4 M listing lines identical |
-| `tools/lua-difftest.sh`: 8 hand-written differential tests (basics, tables, strings, metatables, coroutines, errors, math, misc) | 8/8 identical |
+| `tools/lua-difftest.sh`: 9 hand-written differential tests (basics, tables, strings, metatables, coroutines, errors, math, misc, library surface) | 9/9 identical |
 | `tools/corpus-diff.sh`: every game script run under a stub environment on native LuaJIT and on the TS VM; log of host calls, global table contents (order-independent hash + iteration-order hash) and results of calling every defined function must be identical | see the table at the end of this file |
 
 Not verified / known gaps (also tracked in `docs/ROADMAP.md`):
@@ -103,7 +109,14 @@ Not verified / known gaps (also tracked in `docs/ROADMAP.md`):
 * `setfenv(0, t)` is a no-op; `collectgarbage('step')` always returns false; `__gc` is never called; weak tables
   (`__mode`) are strong.
 * No Lua *source* compiler yet: `load`, `loadstring`, `loadfile` accept bytecode only.
-* `debug`, `io`, `os` are approximations (`debug.traceback` text, `debug.getinfo` fields, `os.date` formats).
+* `debug`, `io`, `os`, `package` are approximations: `debug.traceback` text, `debug.getinfo` fields, `os.date` formats,
+  `io.input/output` do not switch the default files, `io.popen` raises, `os.execute/remove/rename/tmpname/exit/setlocale` are
+  stubs, no C modules. The *names* in every library table are identical to the oracle.
+* `string.dump` / `lua_dump` (bytecode writer) is not implemented.
+* `math.sin/cos/tan/asin/acos/atan/atan2/exp/log/log10/pow/sinh/cosh/tanh` and the `^` operator use V8's libm; the exe uses the
+  CRT and x87 sequences (`lj_vm_exp2_x87`, `lj_vm_pow_sse`), so results can differ in the last ulp for some inputs (x87
+  `fyl2x`/`f2xm1` are not bit-reproducible across CPUs either). Exactly rounded operations (`+ - * / sqrt floor ceil abs fmod`)
+  are identical.
 * `pcall()` / `xpcall()` with *no arguments* report "attempt to call a nil value" instead of "bad argument #1 to '?' (value
   expected)" (pcall/xpcall are synthetic bytecode closures).
 * `strToNumber` handles only part of `lj_strscan` (signed `inf`/`infinity`/`nan` spellings are missing).
@@ -117,3 +130,55 @@ Not verified / known gaps (also tracked in `docs/ROADMAP.md`):
   tests; headless Chromium cannot be launched.
 * Sandbox resets keep only the repository directory: regenerate `/home/user/work` with `tools/setup-oracle.sh`,
   `python3 tools/kom_extract.py /home/user/work/ex lua,LUA`, `tools/index_decomp.py`.
+
+## 6. Stub-environment corpus run (what it proves and what it found)
+
+`tools/corpus-diff.sh <flavor>` runs every one of the 4,498 scripts twice, once on the native LuaJIT 2.0.2 oracle and once in the
+TS VM (both on the same `luajit -b -s` bytecode), under `tools/lua/stubrun.lua`: unknown globals are stub userdata that log every
+call/assignment and return (flavor 1) another stub, (flavor 2) nothing, (flavor 3) the number 0; then the main chunk's result, every new
+global (tables: size, `#`, an order-independent content hash, a key-iteration-order hash, the first keys) and the outcome of calling
+every defined function twice (no arguments / six stub arguments) are logged. Native and TS logs must be byte-identical.
+
+| flavor | a stub call returns | identical scripts | functions called (ok / err) | main chunks ok / err | host calls logged |
+|---|---|---|---|---|---|
+| 1 | another stub | 4,498 / 4,498 | 44,043 (19,456 / 24,587) | 4,486 / 7 | 805,348 |
+| 2 | nothing | 4,498 / 4,498 | 44,054 (17,966 / 26,088) | 4,483 / 10 | 698,591 |
+| 3 | the number 0 | 4,498 / 4,498 | 44,010 (8,847 / 35,163) | 2,925 / 1,568 | 247,490 |
+
+Bugs this found in the VM (all fixed, each now has a regression test):
+
+1. `%q` (testcastle.lua, flavor 1): the exe's `addquoted` escapes `"`, `\` and newline with a backslash and writes the control characters
+   0-31 and 127 as `\d`, `\dd` or `\ddd` (three digits if the value is >= 100 or the next character is a digit); the first
+   implementation followed Lua 5.1. Test: `t03_strings`.
+2. Ordered comparisons (ANU.lua, flavor 1): LuaJIT passes the A operand first (`lj_meta_comp(L, o1, o2, op)`), so the error reads
+   `attempt to compare number with userdata` for `2 > stub`, and `a > b` / `a >= b` use `__le` / `__lt` negated (not Lua 5.1's swapped
+   `__lt` / `__le`). Port of `lj_meta_comp` (x2.exe.c L2482024). Test: `t04_meta`.
+3. NaN (the dragon scripts, flavor 3, `GetNowHP() / GetMaxHP()` = 0/0): `ISGE` is "not ISLT" and `ISGT` is "not ISLE", i.e. true
+   for unordered operands; the parser emits them when it negates a condition (`if not (a < b)`, `if a <= b` with an else branch).
+   Test: `t01_basic`.
+
+What the corpus does **not** show: the real host objects (every engine call is a stub), long-running behaviour (limit: 3,000 log
+lines and 120 function calls per script), yields inside metamethods, garbage collection, numerics beyond what the scripts compute
+at load time. Coverage of function bodies is shallow (most calls with stub arguments fail at the first index of a stub).
+
+## 7. Host API and script loading (from the decompile)
+
+* The exe registers its Lua API with `lua_tinker`: **122 classes, 1,418 methods, 34 fields, 93 global objects, 5 global functions,
+  19 global constants** (`tools/bindings.py` -> `docs/HOST_API.md`, `docs/host_api.tsv`, one row per binding with the C++ function and
+  its IDA address). 68 methods are virtual (the decompiler shows `vcall'{offset}` thunks; they are resolved through the vtable
+  structs of `x2.exe.h`), 5 are bound to a no-op (`__empty_global_delete`). Names the decompiler shows only as the address of a shared string
+  are resolved in `docs/bindings-overrides.tsv` (marked `(inferred)` when they come from the usage in scripts, not from the binary).
+* 46 of the 33,294 functions could not be decompiled (`#error "call analysis failed"`); they are listed in `docs/LEDGER.md` and need
+  disassembly if the port depends on them.
+* Enum constants (`XUF_DODUM_*`, world ids, ...) are defined by `Enum.lua` / `DungeonEnum.lua` (`CX2Main::LoadLuaEnum`); the exe registers
+  only the nation flags (`NF_NONE` 0, `NF_KR` 256, `NF_JP` 512, `NF_TW` 768, `NF_HK` 769, `NF_US` 1024, `NF_CN` 1536, ...).
+* Each manager's `OpenScriptFile` declares the globals its script may use (`g_pItemManager`, `g_pWorld`, `g_pUnitManager`, ...) and then
+  runs the file; `CX2ItemManager::OpenItemScriptFile` first runs the item scripts against two lightweight *proxy* classes that only
+  know `AddItemTemplet` and `AddSetItemData_LUA`.
+* The exe's own code names 500 `.lua` files; following `IncludeLua("...")` (134 calls, all with constant names) and string constants
+  that name another script reaches 555 of the 4,498 scripts. The rest are loaded through names the exe composes at run time (worlds,
+  dungeons, NPCs, dialogs by id) or are dead data; `docs/SCRIPT_GRAPH.md` is therefore a lower bound.
+* Scripts call methods that the exe does not register (`AddSpawnMonsterGroup` x522 in 27 scripts, `AddRandomSocketGroupInfo`,
+  `AddWeddingHallItem`, `AddSetItemDataTrans_LUA`, ...): none of those scripts is reachable from the exe's loader except
+  `GameEditCommandList.lua` (one GM command, `OccurLag_LUA`). The original would raise `attempt to call method ... (a nil value)`.
+

@@ -10,9 +10,10 @@
   ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "bun test",
+    "test": "./tools/lua-difftest.sh",
     "verify:kom": "bun run tools/verify-kom.ts",
-    "verify:lua": "bun run tools/verify-lua.ts"
+    "verify:lua": "./tools/lua-difftest.sh && ./tools/corpus-diff.sh 1",
+    "docs": "python3 tools/bindings.py && python3 tools/ledger.py"
   },
   "devDependencies": {
     "@els/kom": "workspace:*",

@@ -32,6 +32,9 @@ the Hex-Rays export `data/x2.exe.c` / `data/x2.exe.h`, and verify it - not "make
 * **Everything that can be verified automatically must be.** New code lands with one of: a differential test against the
   oracle, a corpus verification script in `tools/` (like `verify-kom.ts`), or a unit test with expected values taken from
   the decompile or from the data. State what was *not* verified in the commit message / docs.
+* **The host API is exactly what the exe registers.** `docs/host_api.tsv` (generated from the decompile) lists every class, method,
+  field, global function, constant and object that scripts can see. Do not add anything that is not in it, even when a script
+  calls it: the original raises `attempt to call method 'X' (a nil value)` (see `docs/HOST_API.md`, "members the exe does not register").
 * **Be explicit about gaps.** A known deviation goes into `docs/FINDINGS.md` ("Known gaps") the moment it is discovered.
 * TypeScript is strict (`strict`, `isolatedModules`, `verbatimModuleSyntax`). Binary data is `Uint8Array`/`DataView`; Lua
   strings are JS *byte strings* (one UTF-16 code unit per byte, 0-255). No `any` in package APIs.
@@ -43,7 +46,7 @@ the Hex-Rays export `data/x2.exe.c` / `data/x2.exe.h`, and verify it - not "make
 2. Read the decompile *and its callees/data* (`x2.exe.h` for structs and enums). Note stack/`__usercall` quirks.
 3. Write the TS with a comment `// x2.exe.c L<line> <name> (<addr>)`.
 4. Add the verification (see above) and run `bun run typecheck && bun run test`.
-5. Update `docs/ledger.tsv`; run `python3 tools/ledger.py`.
+5. Update `docs/ledger.tsv` (embedded LuaJIT functions) or `docs/ledger-classes.tsv` (C++ classes); run `python3 tools/ledger.py`.
 
 ## 4. Platform boundaries (stubs)
 

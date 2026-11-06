@@ -1,0 +1,18 @@
+# The decompiler shows some string literals only as "the address of a shared string" (`&CX2State::`vftable'[95]`: IDA labelled the
+# data around the string with the neighbouring vtable). The key is that expression; the value is the Lua name it must be.
+# `~name` = inferred (not read from the binary): the registered class of the object plus the members the scripts use on the global
+# of that name (tools/bindings.py, "Script-visible globals"). Add more keys here when the catalog still shows `<by address: ...>`.
+CKTDGLineMap::`vftable'[10]	~g_pLineMap
+CX2State::`vftable'[95]	~g_pMain
+lua_tinker::ptr2user<CX2Main>::`vftable'[1]	~g_pData
+CX2StringFilter::`vftable'[1]	~StringFilter
+CX2RidingPetManager::`vftable'[1]	~g_pRidingPetManager
+CX2QuestManager::`vftable'[1]	~g_pQuestManager
+fOrthoScale	~g_pWorld
+CX2WorldManager::`vftable'[1]	~g_pWorldManager
+CX2SlotManager::`vftable'[23]	~g_pCX2SlotManager
+CX2CubeOpenImageManager::`vftable'[1]	~g_pCubeOpenImageManager
+lua_tinker::ptr2user<CX2TrainingCenterTable>::`vftable'[1]	~g_pKRewardTable
+CX2CouponBox::`vftable'[50]	~g_pCouponBox
+CX2WeddingManager::`vftable'[2]	~g_pWeddingManager
+CKTDGUIDialogManager::`vftable'[9]	~g_pDGManager

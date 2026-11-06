@@ -1,5 +1,5 @@
 -- Reference oracle: lists the bytecode of every game script with stock LuaJIT 2.0 (jit.bc), built with the
--- client's private dump header (see tools/lua/README.md).
+-- client's private dump header (see docs/ARCHITECTURE.md, "Reproducing the verification").
 --   LUA_PATH=<luajit>/src/?.lua luajit native_dump_bc.lua <dir> <listfile> > out.txt
 local bc = require("jit.bc")
 local dir, listfile = arg[1], arg[2]

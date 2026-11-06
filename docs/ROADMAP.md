@@ -13,11 +13,12 @@ Status legend: `done` verified, `partial` works but not fully verified, `todo`.
 |---|---|---|
 | 1a `@els/kom`: KOM archive reader (zlib, XORCRC algorithm 2, Adler-32, HTTP range source) | done | all 173 archives / 97,891 entries: size + Adler-32 OK (`tools/verify-kom.ts`) |
 | 1a `@els/lua`: LuaJIT 2.0.2 bytecode loader/disassembler | done | identical to the oracle's `jit.bc` listing for all 4,498 scripts (`tools/verify-lua-bytecode.ts`) |
-| 1a `@els/lua`: interpreter (all 93 opcodes except JIT-only ones), error context, coroutines, metamethods | partial | 8 differential tests + corpus run, see FINDINGS section 4 |
-| 1a standard libraries (base, string incl. patterns/format, table, math, bit, coroutine, os/io/debug subset, package/module) | partial | same; `debug`/`io`/`os` approximate |
+| 1a `@els/lua`: interpreter (every opcode that can occur in a precompiled file; the JIT-only `I*`/`J*` loop and function variants never occur), error context, coroutines, metamethods | partial | 9 differential tests + the stub-environment corpus (3 flavors x 4,498 scripts, all byte-identical to the native oracle), see FINDINGS sections 4 and 6 |
+| 1a standard libraries (base, string incl. patterns/format, table, math, bit, coroutine, os/io/debug subset, package/module) | partial | same; the library surface (names) equals the oracle's; `debug`/`io`/`os`/`package` are approximate |
 | 1b Lua **source** compiler (port of `lj_lex.c` / `lj_parse.c`), needed for `data/TutorSystem.lua`, `GameOption*.txt`, `loadstring` | todo | bit-exact bytecode vs `luajit -b -s` on a source corpus |
 | 1c yield inside metamethods / `for ... in` iterators implemented in Lua, weak tables, `__gc` | todo | differential tests |
-| 1d performance baseline: per-frame cost of the AI/state scripts under the VM | todo | benchmark script |
+| 1d performance baseline: per-frame cost of the AI/state scripts under the VM (the in-process corpus run executes ~44k script functions in about a minute) | todo | benchmark script |
+| 1e numerics: `pow`/`exp`/`log`/trig through the CRT / x87 sequences of the exe instead of V8's libm (last-ulp differences) | todo | differential test against values captured from the exe |
 
 ## Phase 2 - Asset decoders (`packages/assets`)
 
@@ -31,7 +32,7 @@ Census of the KOMs (`bun run tools/census.ts`): `tga` 23,784 (2.4 GB), `dds` 31,
 | DDS (DXT1/3/5, A8R8G8B8, ...) | upload as WebGPU BC textures or software-decode | todo |
 | X meshes (`.x`, `.y`) | formats of `CKTDXDeviceXMesh` / `CKTDXDeviceXSkinMesh`, MSZIP-compressed blocks | todo |
 | XET / TET | text templates parsed by the exe | todo |
-| particle / XMeshPlayer scripts, KSM/KME-like formats, `item.kim`, `general.ess` | custom parsers in the exe | todo |
+| particle / XMeshPlayer text scripts (39 `.txt` entries, e.g. `GameMajorParticle*.txt`), `item.kim` (18 MB, "KIM"), `general.ess` (string table, algorithm known) | custom parsers in the exe (`CKTDGParticleSystem`, `CKTDGXMeshPlayer`, `CKTDXStringTable`) | todo |
 | audio | `ogg`/`wav` are decoded by the browser (WebAudio) | todo |
 | MPEG-1 movies | software decoder | todo |
 
@@ -49,9 +50,27 @@ the original resolutions.
 
 ## Phase 5 - `lua_tinker`-equivalent host API
 
-The ~89k global names the scripts use (`g_pObjectMesh`, `D3DXVECTOR3`, `STATE_CHANGE_TYPE`, ...): constants/enums, classes and
-methods of the exe's bindings, discovered from the `lua_tinker` registration code in the decompile and from the scripts that
-call them. Generated tables + hand ports of the C++ behaviours.
+Ground truth, extracted from the decompile by `tools/bindings.py` (`docs/HOST_API.md`, `docs/host_api.tsv`): the exe registers
+**122 classes with 1,418 methods and 34 fields, 93 global objects, 5 global functions and 19 global constants** in 81 functions
+(`CKTDXApp::RegisterLuabind`, `CX2Main::RegisterLuabind`, and the `OpenScriptFile` of every manager, which declares the globals
+`g_pItemManager`, `g_pWorld`, ... for the script it is about to run). Every method row carries the C++ function and its IDA address.
+`docs/SCRIPT_API_USAGE.md` (`tools/api-census.ts`) shows what the 4,498 scripts actually use, `docs/SCRIPT_GRAPH.md`
+(`tools/script-graph.ts`) which scripts the exe loads. Findings that shape the work:
+
+* The scripts are mostly **declarative data** (item/NPC/quest/skill/world templets, particle and UI definitions) fed to the C++
+  managers through `AddXxxTemplet(...)` calls; only 176 global names are read without being assigned by a script, and 55 of
+  them are the `g_p*` manager objects. The work is therefore the *managers* (templet parsing and validation), not a large API.
+* Enum constants (`XUF_DODUM_*`, world ids, ...) come from `Enum.lua` / `DungeonEnum.lua` (`CX2Main::LoadLuaEnum`), not from the
+  exe; the exe itself registers only `NF_*` (nation flags: `NF_HK` = 769) and a few more constants.
+* Scripts call methods the exe does **not** register (`AddSpawnMonsterGroup` x522, `AddRandomSocketGroupInfo`, `AddWeddingHallItem`,
+  ...). Those scripts belong to other builds and are not reachable from this exe's loader (checked on the load graph); the port must
+  not invent the missing methods: the original fails with `attempt to call method 'X' (a nil value)`.
+* Method names of the exe and of the scripts must match exactly, including typos (`AddSocektGroupDataForCashAvatar_LUA`).
+* Argument types come from the `lua_tinker::functor/mem_functor` templates (`float`, `D3DXVECTOR3`, `char const *`, enums, ...);
+  `D3DXVECTOR2/3/COLOR` are userdata with `x/y/z` fields registered through `class_mem`.
+
+Plan: generate typed TS stubs from `docs/host_api.tsv`, then implement the managers in the order the boot and the slice need them
+(see phase 6); the ledger (`docs/LEDGER.md`) tracks the C++ classes.
 
 ## Phase 6 - Boot, login, character select (the slice)
 

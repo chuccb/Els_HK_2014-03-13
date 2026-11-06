@@ -1,0 +1,9 @@
+# Rules for the C++ engine classes of x2.exe (regex on the class name, first match wins; default: todo).
+# columns: regex<TAB>status<TAB>ts<TAB>verification<TAB>note
+^KGCMassFileManager	done	packages/kom	tools/verify-kom.ts: 97,891 entries, 0 failures	CRC, adler32, MSZIP/KOM v1-v4 container, per-entry encryption variants
+^CKTDXStringTable	todo	-	-	general.ess decode: algorithm known (docs/FINDINGS.md), not ported
+^lua_tinker	todo	-	-	phase 5 host API
+^(std|,std|const,std|boost|const,boost|ATL|dbg|`)	n/a	-	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
+^CryptoPP	todo	-	-	crypto primitives of the protocol: WebCrypto or a port, decided with the network layer
+^(SerializeHelper|KSerializer)	todo	-	-	packet (de)serialisation: the wire format is needed for apps/server
+

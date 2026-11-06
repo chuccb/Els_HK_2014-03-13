@@ -73,8 +73,11 @@ Design points that matter for faithfulness:
 | `verify-lua-bytecode.ts` + `lua/native_dump_bc.lua` | loader/disassembler vs the native `jit.bc` listing |
 | `setup-oracle.sh` | builds the LuaJIT 2.0.2 oracle (patched for 32-bit `long`, client header) |
 | `lua-difftest.sh` + `tests/lua/*.lua` | differential tests; both VMs run the same `luajit -b -s` bytecode |
-| `corpus-diff.sh` + `lua/stubrun.lua` | stub-environment differential run of all 4,498 game scripts |
-| `lua-run.ts` | run a `.luac` in the TS VM |
+| `corpus-diff.sh` + `lua/stubrun.lua` + `corpus-run.ts` | stub-environment differential run of all 4,498 game scripts (native xargs -P2 vs one in-process TS run, ~3 minutes per flavor) |
+| `lua-run.ts` + `lib/lua-host.ts` | run a `.luac` in the TS VM (`arg` like the standalone interpreter); the shared runner of the corpus tool |
+| `bindings.py` | extracts the `lua_tinker` registrations from `data/x2.exe.c` -> `docs/HOST_API.md`, `docs/host_api.tsv` (phase 5 ground truth) |
+| `api-census.ts`, `script-graph.ts` | what the scripts use of the host API (`docs/SCRIPT_API_USAGE.md`) and which scripts the exe loads (`docs/SCRIPT_GRAPH.md`) |
+| `ledger.py` | coverage ledger keyed by IDA address -> `docs/LEDGER.md` (rules in `docs/ledger.tsv`, `docs/ledger-classes.tsv`) |
 | `index_decomp.py`, `komlib.py`, `kom_extract.py`, `luadecrypt.py`, `census.ts` | reverse-engineering helpers (function index, extraction, census) |
 
 ## Reproducing the verification from a clean checkout
@@ -84,9 +87,14 @@ npm install --no-audit --no-fund              # installs bun, typescript, fflate
 ./tools/setup-oracle.sh                       # LuaJIT 2.0.2 oracle -> /home/user/work/luajit-2.0
 ./node_modules/.bin/bun run tools/verify-kom.ts
 python3 tools/kom_extract.py /home/user/work/ex lua,LUA
+ls /home/user/work/ex | sort > /home/user/work/lualist.txt
 LUA_PATH=/home/user/work/luajit-2.0/src/?.lua /home/user/work/luajit-2.0/src/luajit tools/lua/native_dump_bc.lua \
-  /home/user/work/ex <(ls /home/user/work/ex) > /home/user/work/native_bc.txt     # list of script names
+  /home/user/work/ex /home/user/work/lualist.txt > /home/user/work/native_bc.txt
 ./node_modules/.bin/bun run tools/verify-lua-bytecode.ts /home/user/work/native_bc.txt
-./tools/lua-difftest.sh
-./tools/corpus-diff.sh 1
+./tools/lua-difftest.sh                       # 9 differential tests
+./tools/corpus-diff.sh 1 && ./tools/corpus-diff.sh 2 && ./tools/corpus-diff.sh 3    # stub-environment corpus, 3 flavors
+python3 tools/index_decomp.py data/x2.exe.c /home/user/work/analysis/functions.tsv
+./node_modules/.bin/bun run tools/api-census.ts --md docs/SCRIPT_API_USAGE.md --json /home/user/work/analysis/api_census.json --usage /home/user/work/analysis/member_usage.json
+./node_modules/.bin/bun run tools/script-graph.ts --md docs/SCRIPT_GRAPH.md
+python3 tools/bindings.py && python3 tools/ledger.py                                # docs/HOST_API.md, docs/LEDGER.md
 ```

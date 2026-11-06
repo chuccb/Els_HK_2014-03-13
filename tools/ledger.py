@@ -28,10 +28,37 @@ FUNCS = sys.argv[1] if len(sys.argv) > 1 else "/home/user/work/analysis/function
 
 
 def name_of(sig: str) -> str:
+    """Function name of a Hex-Rays signature, e.g. `int __cdecl A::B<int, char>::f(int)` -> `A::B<int, char>::f`."""
     i = sig.find("(")
     head = re.sub(r"@<\w+>", "", sig[:i] if i >= 0 else sig)
-    toks = head.replace("*", " ").replace("&", " ").split()
+    toks, cur, depth = [], "", 0
+    for ch in head:
+        if ch == "<":
+            depth += 1
+        elif ch == ">":
+            depth = max(0, depth - 1)
+        if ch in " *&" and depth == 0:
+            if cur:
+                toks.append(cur)
+                cur = ""
+        else:
+            cur += ch
+    if cur:
+        toks.append(cur)
     return toks[-1] if toks else sig
+
+
+def class_of(name: str) -> str:
+    """Class (or namespace) of `A::B<T>::method`: everything before the last top-level `::`."""
+    depth, cut = 0, -1
+    for i, ch in enumerate(name):
+        if ch == "<":
+            depth += 1
+        elif ch == ">":
+            depth = max(0, depth - 1)
+        elif ch == ":" and depth == 0 and name[i : i + 2] == "::":
+            cut = i
+    return name[:cut] if cut > 0 else name
 
 
 def load_rules(path):
@@ -94,7 +121,7 @@ n_cpp = 0
 for addr, s, e, sig, name in funcs:
     if "::" not in name:
         continue
-    cls = name.rsplit("::", 1)[0]
+    cls = class_of(name)
     c = classes.setdefault(cls, {"n": 0, "first": addr, "line": s, "lines": 0})
     c["n"] += 1
     c["lines"] += e - s + 1
@@ -141,6 +168,11 @@ md.append("")
 if unclassified:
     md.append(f"### Unclassified ({len(unclassified)})\n")
     md.append(", ".join(f"`{n}`@{a}" for a, n in sorted(unclassified)) + "\n")
+failed = [(a, s, sig) for a, s, e, sig, n in funcs if sig.startswith("#error")]
+md.append(f"## Functions the decompiler could not handle ({len(failed)})\n")
+md.append("`#error` bodies in the export (mostly \"call analysis failed\"): their logic is not available in `x2.exe.c` and needs disassembly of "
+          "`data/x2.exe` if the port depends on them.\n")
+md.append(", ".join(f"{a} (L{s})" for a, s, sig in failed) + "\n")
 md.append("## C++ engine classes\n")
 md.append(f"{len(classes)} classes / {n_cpp} methods. Status by class: " +
           ", ".join(f"{k} {v}" for k, v in sorted(cstat_classes.items())) + "; by method: " +
