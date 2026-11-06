@@ -7,6 +7,8 @@
 import { D3DBLEND, D3DBLENDOP, D3DCMP, D3DCULL, D3DFILL, D3DMCS, D3DRS, D3DSAMP, D3DSHADE, D3DSTENCILOP, D3DTA, D3DTADDRESS, D3DTEXF, D3DTOP, D3DTSS, D3DTS, D3DZB, D3DFOG, D3DVBF, D3DTSS_TCI } from "./enums.ts";
 import { matIdentity } from "./d3dx-math.ts";
 import type { Mat4 } from "./d3dx-math.ts";
+import { VS_REGISTERS } from "./vshader.ts";
+import type { Direct3DVertexShader9 } from "./vshader.ts";
 
 const cvt = new DataView(new ArrayBuffer(4));
 /** `*(DWORD *)&f` */
@@ -208,10 +210,14 @@ export class FixedFunctionState {
   viewport: Viewport = { x: 0, y: 0, width: 0, height: 0, minZ: 0, maxZ: 1 };
   scissor: Rect = { left: 0, top: 0, right: 0, bottom: 0 };
   clipPlanes: Float32Array[] = Array.from({ length: 6 }, () => new Float32Array(4));
+  /** the emulated vertex shader (vshader.ts) and its float constant registers c0..c255 (float4 each); null = fixed function */
+  vertexShader: Direct3DVertexShader9 | null = null;
+  readonly vsConstF = new Float32Array(VS_REGISTERS * 4);
   /** Bumped whenever the state that feeds each uniform block changes (the device re-uploads lazily). */
   versionTransform = 0;
   versionLighting = 0;
   versionMisc = 0;
+  versionVsConst = 0;
 
   constructor(hasDepthStencil = true) { this.renderStates = defaultRenderStates(hasDepthStencil); }
 

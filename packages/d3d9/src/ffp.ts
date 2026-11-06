@@ -15,6 +15,8 @@
 import { D3DCMP, D3DDECLUSAGE, D3DFOG, D3DLIGHT, D3DMCS, D3DTA, D3DTOP, D3DTSS_TCI, D3DTTFF } from "./enums.ts";
 import { LOC } from "./vertex.ts";
 import type { BufferLayout } from "./vertex.ts";
+import { VS_PRELUDE } from "./vshader.ts";
+import type { EmulatedVertexShader } from "./vshader.ts";
 
 export const MAX_STAGES = 8;
 export const MAX_LIGHTS = 8;
@@ -60,6 +62,8 @@ export interface ProgramDesc {
   /** D3DCMP_* of the alpha test, 0 = disabled */
   alphaFunc: number;
   flatShade: boolean;
+  /** an emulated vertex shader replaces the fixed-function vertex stage (vshader.ts); null = fixed function */
+  vs: EmulatedVertexShader | null;
 }
 
 export function programKey(d: ProgramDesc): string {
@@ -69,6 +73,7 @@ export function programKey(d: ProgramDesc): string {
   if (d.lighting) parts.push(`${d.lights.join("")}/${d.matSource.join("")}`);
   parts.push(`fog${d.fogSource[0]}${d.fogMode}`);
   parts.push(`at${d.alphaFunc}`);
+  if (d.vs) parts.push(`vs:${d.vs.name}`);
   for (const s of d.stages) {
     parts.push(`${s.index}:${s.colorOp},${s.colorArg0},${s.colorArg1},${s.colorArg2},${s.alphaOp},${s.alphaArg0},${s.alphaArg1},${s.alphaArg2},${s.resultTemp ? 1 : 0},${s.texCoordSet},${s.tci},${s.ttffCount},${s.projected ? 1 : 0},${s.hasTexture ? 1 : 0}`);
   }
@@ -115,9 +120,9 @@ function attrExpr(a: { kind: "f32" | "u32" | "i32"; bgra: boolean }, name: strin
 function usedTexCoordSets(d: ProgramDesc): Set<number> { return new Set(d.stages.map((s) => s.index)); }
 
 export function generateWgsl(d: ProgramDesc): string {
-  const vs = generateVertex(d);
+  const vs = d.vs ? generateUserVertex(d, d.vs) : generateVertex(d);
   const fs = generateFragment(d);
-  return `${PRELUDE}\n${texDecls(d)}\n${vs}\n${fs}`;
+  return `${PRELUDE}${d.vs ? VS_PRELUDE : ""}\n${texDecls(d)}\n${vs}\n${fs}`;
 }
 
 function varyings(d: ProgramDesc, forFragmentInput: boolean): string {
@@ -266,6 +271,49 @@ fn sphereUV(u: vec3f, n: vec3f) -> vec2f {
   let m = 2.0 * sqrt(r.x * r.x + r.y * r.y + (r.z + 1.0) * (r.z + 1.0));
   return vec2f(r.x / m + 0.5, -r.y / m + 0.5);
 }
+@vertex fn vs_main(in: VIn) -> VOut {
+  ${b.join("\n  ")}
+}`;
+}
+
+/**
+ * The vertex stage of an emulated vertex shader: gather the inputs by semantic, run the shader, saturate the colour outputs, apply the
+ * half-pixel offset to the position and hand the texture coordinate outputs `oT[i]` to the pixel stage `i`.
+ */
+function generateUserVertex(d: ProgramDesc, shader: EmulatedVertexShader): string {
+  const inputs: string[] = [];
+  for (const l of d.layouts) for (const a of l.attributes) inputs.push(`@location(${a.location}) a${a.location}: ${wgslVec(a.kind)},`);
+  const field = (loc: number, name: string): string => {
+    const a = attr(d, loc);
+    return a ? `si.${name} = ${attrExpr(a, `a${a.location}`)};` : `si.${name} = vec4f(0.0, 0.0, 0.0, 1.0);`;
+  };
+  const b: string[] = [];
+  b.push("var si: SIn;");
+  b.push(field(LOC.POSITION, "pos"), field(LOC.BLENDWEIGHT, "weights"), field(LOC.BLENDINDICES, "indices"), field(LOC.NORMAL, "normal"), field(LOC.PSIZE, "psize"));
+  b.push(field(LOC.COLOR0, "color0"), field(LOC.COLOR1, "color1"), field(LOC.TANGENT, "tangent"));
+  for (let k = 0; k < 8; k++) {
+    const a = attr(d, LOC.TEXCOORD0 + k);
+    b.push(a ? `si.tex[${k}] = ${attrExpr(a, `a${a.location}`)};` : `si.tex[${k}] = vec4f(0.0, 0.0, 0.0, 1.0);`);
+  }
+  b.push("let so = user_vs(si);");
+  b.push("var o: VOut;");
+  b.push("var clip = so.pos;");
+  b.push("clip.x = clip.x + clip.w * xf.screen.x;");
+  b.push("clip.y = clip.y - clip.w * xf.screen.y;");
+  b.push("o.pos = clip;");
+  b.push("o.c0 = clamp(so.c0, vec4f(0.0), vec4f(1.0));");
+  b.push("o.c1 = clamp(so.c1, vec4f(0.0), vec4f(1.0));");
+  for (const s of d.stages) b.push(`o.t${s.index} = so.t[${s.index}];`);
+  b.push(d.fogSource === "shader" ? "o.fog = so.fog;" : "o.fog = 1.0;");
+  b.push("return o;");
+  return `
+struct VIn {
+  ${inputs.join("\n  ")}
+}
+struct VOut {
+  ${varyings(d, false)}
+}
+${shader.wgsl}
 @vertex fn vs_main(in: VIn) -> VOut {
   ${b.join("\n  ")}
 }`;

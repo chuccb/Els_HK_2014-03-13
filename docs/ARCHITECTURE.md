@@ -76,10 +76,13 @@ documents its design and assumptions; FINDINGS section 12 is the reference.
 | `d3dx-mesh.ts` | `ID3DXMesh` and the mesh functions (`D3DXLoadMeshFromXInMemory` = merge all meshes of the X file with their frame transforms baked in, `D3DXBuildMesh` = one X mesh as D3DX loads it, `Optimize`, `WeldVertices`, `GetAttributeTable`, `DrawSubset`, `Intersect`, `ComputeBoundingSphere`) |
 | `d3dx-animation.ts` | `D3DXCreateKeyframedAnimationSet` and `D3DXCreateAnimationController`: tracks, priority groups, keyed speed / weight / position / enable / priority-blend events (the exact cross-fade of `CKTDGXSkinAnim::ChangeAnim` is a test), `AdvanceTime`, `CloneAnimationController` |
 | `d3dx-skin.ts` | `ID3DXSkinInfo` (+ software `UpdateSkinnedMesh`), `ConvertToIndexedBlendedMesh`, `D3DXFrame*`, `ID3DXAllocateHierarchy` and `D3DXLoadMeshHierarchyFromXInMemory` (frames, mesh containers, skin info, controller from an X file) |
+| `vshader.ts` | the programmable vertex stage of the device: an emulated vertex shader is WGSL (`user_vs`) over the 256 float4 constant registers; what it replaces and what stays fixed-function is in the header (FINDINGS 12.7) |
+| `xrenderer-shaders.ts` | the 34 HLSL functions of `XRenderer.fx` (`vs_1_1`: rigid and 1-4 bone skinning of real colour, cartoon, black / colour edge, 8 light-flow families) as WGSL, the register layout `XR`, and the token hashes that tie them to the shipped file |
+| `effect.ts` | `D3DXCreateEffect` / `ID3DXEffect` for `XRenderer.fx`: parses the shipped HLSL text (parameters, techniques, passes, state assignments, shader arrays), `Begin` / `BeginPass` / `CommitChanges` / `EndPass` / `End`, `ID3DXEffectStateManager`, `DeviceStateManager` |
 
 `@els/assets` gained `xscene.ts` (`loadXScene`: frames, meshes, skin weights and animation sets of an X file as typed data) and
 `encodePng`. Tests are GPU tests: `./tools/gpu.sh ./node_modules/.bin/bun test packages/d3d9` (software Vulkan from `tools/setup-gpu.sh`);
-without an adapter they skip themselves and only `pure.test.ts` runs.
+without an adapter they skip themselves and only `pure.test.ts` and the effect-file parse test of `xrenderer.test.ts` run.
 
 ### `@els/lua` (`packages/lua`)
 A register-based interpreter for LuaJIT 2.0.2 bytecode, following `lj_*` of the exe:
@@ -160,7 +163,7 @@ python3 tools/index_decomp.py data/x2.exe.c /home/user/work/analysis/functions.t
 python3 tools/bindings.py && python3 tools/ledger.py                                # docs/HOST_API.md, docs/LEDGER.md
 ./node_modules/.bin/bun test packages                                                 # unit tests that need no GPU: asset decoders, Lua loader, KLuaManagerProxy (the d3d9 GPU tests skip)
 ./tools/setup-gpu.sh                                                                   # software Vulkan for Dawn -> /home/user/work/swsh (about 2 s)
-./tools/gpu.sh ./node_modules/.bin/bun test packages                                   # everything, incl. the 113 d3d9 tests on Dawn + SwiftShader
+./tools/gpu.sh ./node_modules/.bin/bun test packages                                   # everything: 438 tests, incl. the 153 d3d9 tests on Dawn + SwiftShader
 ./node_modules/.bin/bun run tools/gen-d3d9-enums.ts --check                            # enums.generated.ts is current
 ./node_modules/.bin/bun run tools/census-xscene.ts                                     # integrity of all 25,313 X / Y scenes
 ./tools/gpu.sh ./node_modules/.bin/bun run tools/census-skin.ts                        # hierarchy loader + skin conversion + animation over all 7,395 skinned files, ~3 min

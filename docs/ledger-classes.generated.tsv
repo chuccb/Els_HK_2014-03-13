@@ -151,7 +151,7 @@ CX2OldGageManager	25	3758	32C593F0	todo
 CX2StateDungeonResult	25	6154	32F335A0	todo		
 CX2TalkBoxManagerImp	25	3268	332224D0	todo		
 CX2PVPGame	25	1919	3325F1D0	todo		
-CKTDGEffectStateManager	24	785	328B2E20	todo	packages/d3d9 (device side)	the ID3DXEffectStateManager that routes the XRenderer effect's state changes through CKTDGStateManager: comes with the XRenderer.fx emulation (FINDINGS 12.1)
+CKTDGEffectStateManager	24	785	328B2E20	todo	packages/d3d9/src/effect.ts (ID3DXEffectStateManager, DeviceStateManager)	the class is not ported (engine code: 512-entry state stack over CKTDGStateManager, shadow vertex-shader constant array with a dirty range flushed by _CommitChanges); the effect side it plugs into is emulated and tested with recording managers (FINDINGS 12.7)
 CKTDGParticleSystem	24	4671	328C17A0	partial	packages/assets/src/particle.ts (parseParticleScript, ParticleLibrary), effectscript.ts (EFFECT_SYSTEMS)	OpenScriptFile (KOM read by @els/kom), Compile, ProcessParticleSystemBlock, ProcessEventSequenceBlock and the replace-by-name registration ported; CreateSequence, OnFrameMove / OnFrameRender and the Lua thunks are not
 CKTDGUIControl::CPictureData	24	1108	328C2240	todo		
 CKTDGCamera	24	1176	328F0C50	todo		
@@ -238,7 +238,7 @@ CX2NPCUnitViewerUI	14	1784	3324ED50	todo
 namespace'::_Find_meow_of::_Bitmap_impl	14	1177	3329DBD0	todo		
 CKTDIManager	13	321	328CF0E0	todo		
 CKTDGDynamicVBManager	13	2736	328E2DB0	todo	packages/d3d9 (device side)	dynamic vertex buffer ring: not ported; the device implements what it needs (DYNAMIC | WRITEONLY buffers, DISCARD / NOOVERWRITE, FVFs 66 / 258 / 322 / 324, triangle fans) and tests it (packages/d3d9/test/draw.test.ts)
-CKTDGXRenderer	13	2265	329724B0	todo	-	the only effect user (XRenderer.fx, 19 techniques, vs_1_1 + fixed-function pixel stages): ID3DXEffect emulation + WGSL ports are the next step of phase 3 (ROADMAP)
+CKTDGXRenderer	13	2265	329724B0	partial	packages/d3d9/src/effect.ts, xrenderer-shaders.ts, vshader.ts	the effect it loads in OnResetDevice (329749E0) - XRenderer.fx with 19 techniques, 19 parameters and 80 vs_1_1 shaders - is emulated (FINDINGS 12.7); the class itself is not ported: render types, SetColor / SetRenderPassFog, the shader-index rule of _CommitChanges, the draw paths, the Cartoon*.bmp ramps
 CX2Room::SlotData	13	693	3298F320	todo		
 CX2WorldObjectParticle	13	697	32A2ABB0	todo		
 CX2WorldObjectLightFlow	13	345	32A2B130	todo		
@@ -923,7 +923,7 @@ std::vector<CKTDGLineMap::TRIGGER_DATA_MESH>	2	148	32906020	n/a	-	C++ runtime li
 std::vector<CKTDGLineMap::TRIGGER_SEGMENT>	2	149	32906240	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDGLineMap::TRIGGER_SEGMENT	2	32	32909190	todo		
 std::vector<CKTDXDeviceXET *>	2	134	32913FD0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDGXRenderer::RenderParam	2	97	329141C0	todo	-	the only effect user (XRenderer.fx, 19 techniques, vs_1_1 + fixed-function pixel stages): ID3DXEffect emulation + WGSL ports are the next step of phase 3 (ROADMAP)
+CKTDGXRenderer::RenderParam	2	97	329141C0	partial	packages/d3d9/src/effect.ts, xrenderer-shaders.ts, vshader.ts	the effect it loads in OnResetDevice (329749E0) - XRenderer.fx with 19 techniques, 19 parameters and 80 vs_1_1 shaders - is emulated (FINDINGS 12.7); the class itself is not ported: render types, SetColor / SetRenderPassFog, the shader-index rule of _CommitChanges, the draw paths, the Cartoon*.bmp ramps
 std::vector<CKTDGXMeshPlayer::CXMeshPlayerToken>	2	167	32914D60	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDGXMeshPlayer::CXMeshEvent_AniName	2	106	3291A1D0	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
 CKTDGXMeshPlayer::CXMeshEvent_AniSpeed	2	30	3291A260	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not

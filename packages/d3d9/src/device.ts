@@ -6,8 +6,12 @@
  * results so the ported engine code can stay line-for-line.  Rendering is recorded into one command encoder per frame and a render
  * pass is (re)started whenever the render target changes or a clear has to precede further drawing.
  *
+ * Programmable vertex stage: `SetVertexShader` takes an *emulated* shader (WGSL written from the HLSL of XRenderer.fx, vshader.ts;
+ * D3D9 byte code does not exist here) and `SetVertexShaderConstantF` fills its 256 float4 registers; the pixel stage stays
+ * fixed-function, as in the exe.  `effect.ts` is the `ID3DXEffect` that drives it (docs/FINDINGS.md 12.7).
+ *
  * Not emulated (reported once via `warn`): wireframe/point fill, point sprites, clip planes, border/mirror-once addressing,
- * dual-source blending, bump mapping, multiple render targets, multisampling.
+ * dual-source blending, bump mapping, multiple render targets, multisampling, table fog together with a vertex shader.
  */
 import { D3DCLEAR, D3DCMP, D3DFMT, D3DFOG, D3DFVF, D3DLIGHT, D3DMCS, D3DPOOL, D3DPT, D3DRS, D3DSAMP, D3DTA, D3DTOP, D3DTS, D3DTSS, D3DTSS_TCI, D3DTTFF, D3DUSAGE, D3DTEXF, D3DFILL, D3DSHADE, D3DZB, D3DDECLUSAGE, d3dtsWorldMatrix, D3DTS_WORLD, D3DCOLORWRITEENABLE } from "./enums.ts";
 import { matInverse, matMultiply, matTranspose, vec3Normalize, vec3TransformNormal, vec3Transform } from "./d3dx-math.ts";
@@ -20,6 +24,8 @@ import { generateWgsl, LIGHTB, MISC, programKey, XFORM } from "./ffp.ts";
 import type { FogSource, ProgramDesc, StageDesc } from "./ffp.ts";
 import { blendState, colorWriteMask, compareFunc, cullState, samplerDescriptor, samplerKey, stencilOp, topology, vertexCountFor } from "./pipeline-state.ts";
 import { Direct3DIndexBuffer9, Direct3DSurface9, Direct3DTexture9, Direct3DVertexBuffer9, Direct3DVertexDeclaration9 } from "./resources.ts";
+import { Direct3DVertexShader9, VS_REGISTERS } from "./vshader.ts";
+import type { EmulatedVertexShader } from "./vshader.ts";
 import type { D3DRect, ResourceHost } from "./resources.ts";
 import { defaultCaps } from "./caps.ts";
 import type { D3DCAPS9 } from "./caps.ts";
@@ -106,6 +112,9 @@ export class Direct3DDevice9 implements ResourceHost {
   private xform: { alloc: ArenaAlloc; verT: number; screen0: number; screen1: number; screen2: number; screen3: number } | null = null;
   private light: { alloc: ArenaAlloc; ver: number; nLights: string } | null = null;
   private misc: { alloc: ArenaAlloc; ver: number } | null = null;
+  private vsc: { alloc: ArenaAlloc; ver: number } | null = null;
+  /** the constant block bound by fixed-function draws (never read) */
+  private readonly vsZero: GPUBuffer;
   private scratch = new Float32Array(Math.max(XFORM.size, LIGHTB.size, MISC.size));
 
   constructor(opts: DeviceOptions) {
@@ -122,7 +131,8 @@ export class Direct3DDevice9 implements ResourceHost {
 
     const VF = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
     const ub = (binding: number, floats: number): GPUBindGroupLayoutEntry => ({ binding, visibility: VF, buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: floats * 4 } });
-    this.bgl0 = this.gpu.createBindGroupLayout({ entries: [ub(0, XFORM.size), ub(1, LIGHTB.size), ub(2, MISC.size)] });
+    this.bgl0 = this.gpu.createBindGroupLayout({ entries: [ub(0, XFORM.size), ub(1, LIGHTB.size), ub(2, MISC.size), ub(3, VS_REGISTERS * 4)] });
+    this.vsZero = this.gpu.createBuffer({ size: VS_REGISTERS * 16, usage: GPUBufferUsage.UNIFORM });
     const e1: GPUBindGroupLayoutEntry[] = [];
     for (let i = 0; i < 8; i++) {
       e1.push({ binding: i * 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } });
@@ -292,6 +302,28 @@ export class Direct3DDevice9 implements ResourceHost {
     for (const e of elements) { if (e.stream === DECL_END.stream) break; list.push(e); }
     return { hr: D3D_OK, decl: new Direct3DVertexDeclaration9(this, list) };
   }
+  /**
+   * Stands in for `CreateVertexShader`: there is no byte code in this layer, a shader is WGSL written from the HLSL (vshader.ts).
+   * The WGSL is validated when the first draw compiles it.
+   */
+  CreateEmulatedVertexShader(def: EmulatedVertexShader): { hr: number; shader: Direct3DVertexShader9 | null } {
+    if (!def.wgsl.includes("fn user_vs")) return { hr: D3DERR_INVALIDCALL, shader: null };
+    return { hr: D3D_OK, shader: new Direct3DVertexShader9(def) };
+  }
+  SetVertexShader(shader: Direct3DVertexShader9 | null): number { this.state.vertexShader = shader; return D3D_OK; }
+  GetVertexShader(): Direct3DVertexShader9 | null { return this.state.vertexShader; }
+  /** `data` holds `count` float4 registers (4 * count floats) starting at register `start` */
+  SetVertexShaderConstantF(start: number, data: ArrayLike<number>, count: number): number {
+    if (start < 0 || count < 0 || start + count > VS_REGISTERS || data.length < count * 4) return D3DERR_INVALIDCALL;
+    for (let i = 0; i < count * 4; i++) this.state.vsConstF[start * 4 + i] = data[i]!;
+    this.state.versionVsConst++;
+    return D3D_OK;
+  }
+  GetVertexShaderConstantF(start: number, count: number): { hr: number; data: Float32Array } {
+    if (start < 0 || count < 0 || start + count > VS_REGISTERS) return { hr: D3DERR_INVALIDCALL, data: new Float32Array(0) };
+    return { hr: D3D_OK, data: this.state.vsConstF.slice(start * 4, (start + count) * 4) };
+  }
+
   CreateTexture(width: number, height: number, levels: number, usage: number, format: number, pool: number): { hr: number; tex: Direct3DTexture9 | null } {
     if (!formatInfo(format) || width <= 0 || height <= 0) return { hr: D3DERR_NOTAVAILABLE, tex: null };
     const fi = formatInfo(format)!;
@@ -422,7 +454,7 @@ struct O { @builtin(position) pos: vec4f, @location(0) uv: vec2f }
     this.state.viewport = { x: 0, y: 0, width, height, minZ: 0, maxZ: 1 };
     this.state.scissor = { left: 0, top: 0, right: width, bottom: height };
     this.streams.fill(null); this.indices = null; this.textures.fill(null); this.decl = null; this.fvf = 0;
-    this.xform = null; this.light = null; this.misc = null;
+    this.xform = null; this.light = null; this.misc = null; this.vsc = null;
     return D3D_OK;
   }
 
@@ -447,7 +479,7 @@ struct O { @builtin(position) pos: vec4f, @location(0) uv: vec2f }
     this.encoder = null;
     this.arena.reset();
     this.epoch++;
-    this.xform = null; this.light = null; this.misc = null;
+    this.xform = null; this.light = null; this.misc = null; this.vsc = null;
     if (this.bindGroups1.size > 4096) this.bindGroups1.clear();
     if (this.bindGroups0.size > 256) this.bindGroups0.clear();
   }
@@ -850,12 +882,18 @@ ${ds ? "struct F { @location(0) c: vec4f, @builtin(frag_depth) d: f32 }\n@fragme
       });
     }
     let fogSource: FogSource = "none", fogMode: number = D3DFOG.NONE;
+    const vs = st.vertexShader?.def ?? null;
     if (rs[D3DRS.FOGENABLE]) {
-      if (rs[D3DRS.FOGTABLEMODE] !== D3DFOG.NONE) { fogSource = "table"; fogMode = rs[D3DRS.FOGTABLEMODE]!; }
+      if (vs) {
+        // a vertex shader supplies the vertex fog factor (oFog); pixel (table) fog would need the shader's view depth
+        if (rs[D3DRS.FOGTABLEMODE] !== D3DFOG.NONE) this.warn("vs-tablefog", "table fog together with a vertex shader is not emulated");
+        else if (rs[D3DRS.FOGVERTEXMODE] !== D3DFOG.NONE && vs.writes.fog) fogSource = "shader";
+      } else if (rs[D3DRS.FOGTABLEMODE] !== D3DFOG.NONE) { fogSource = "table"; fogMode = rs[D3DRS.FOGTABLEMODE]!; }
       else if (rs[D3DRS.FOGVERTEXMODE] !== D3DFOG.NONE) { fogSource = "vertex"; fogMode = rs[D3DRS.FOGVERTEXMODE]!; }
     }
     return {
-      layouts, rhw, xyzw, lighting, lights,
+      vs,
+      layouts, rhw: vs ? false : rhw, xyzw: vs ? false : xyzw, lighting: vs ? false : lighting, lights: vs ? [] : lights,
       matSource: [ms(D3DRS.DIFFUSEMATERIALSOURCE), ms(D3DRS.SPECULARMATERIALSOURCE), ms(D3DRS.AMBIENTMATERIALSOURCE), ms(D3DRS.EMISSIVEMATERIALSOURCE)],
       specular: !!rs[D3DRS.SPECULARENABLE], localViewer: !!rs[D3DRS.LOCALVIEWER], normalize: !!rs[D3DRS.NORMALIZENORMALS],
       fogSource, fogMode, rangeFog: !!rs[D3DRS.RANGEFOGENABLE],
@@ -932,8 +970,18 @@ ${ds ? "struct F { @location(0) c: vec4f, @builtin(frag_depth) d: f32 }\n@fragme
       for (let i = 0; i < 8; i++) f[MISC.lodBias + i] = dwordToFloat(st.samp[i * NUM_SAMP + D3DSAMP.MIPMAPLODBIAS]!);
       this.misc = { alloc, ver: st.versionMisc };
     }
+    // ---- vertex shader constants (only a draw with an emulated vertex shader reads them)
+    let vsBuffer = this.vsZero, vsOffset = 0, vsId = "z";
+    if (desc.vs) {
+      if (!this.vsc || this.vsc.ver !== st.versionVsConst) {
+        const alloc = this.arena.alloc(VS_REGISTERS * 16, BLOCK_ALIGN);
+        this.blockView(alloc, VS_REGISTERS * 4).set(st.vsConstF);
+        this.vsc = { alloc, ver: st.versionVsConst };
+      }
+      vsBuffer = this.vsc.alloc.chunk.gpu; vsOffset = this.vsc.alloc.offset; vsId = String(this.vsc.alloc.chunk.id);
+    }
     const x = this.xform.alloc, l = this.light.alloc, m = this.misc.alloc;
-    const key = `${x.chunk.id}.${l.chunk.id}.${m.chunk.id}`;
+    const key = `${x.chunk.id}.${l.chunk.id}.${m.chunk.id}.${vsId}`;
     let group = this.bindGroups0.get(key);
     if (!group) {
       group = this.gpu.createBindGroup({
@@ -942,11 +990,12 @@ ${ds ? "struct F { @location(0) c: vec4f, @builtin(frag_depth) d: f32 }\n@fragme
           { binding: 0, resource: { buffer: x.chunk.gpu, offset: 0, size: XFORM.size * 4 } },
           { binding: 1, resource: { buffer: l.chunk.gpu, offset: 0, size: LIGHTB.size * 4 } },
           { binding: 2, resource: { buffer: m.chunk.gpu, offset: 0, size: MISC.size * 4 } },
+          { binding: 3, resource: { buffer: vsBuffer, offset: 0, size: VS_REGISTERS * 16 } },
         ],
       });
       this.bindGroups0.set(key, group);
     }
-    return { group, offsets: [x.offset, l.offset, m.offset] };
+    return { group, offsets: [x.offset, l.offset, m.offset, vsOffset] };
   }
 
   private samplerFor(slot: number): GPUSampler {

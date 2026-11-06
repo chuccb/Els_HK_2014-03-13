@@ -613,12 +613,12 @@ produced by the D3D9 device and the D3DX functions on a software WebGPU device.
 
 ### 12.3 What is verified, and how
 
-`packages/d3d9/test` (113 tests in 13 files, run with `./tools/gpu.sh bun test packages/d3d9`; all on Dawn + SwiftShader; expectations are analytic or computed on the CPU):
+`packages/d3d9/test` (153 tests in 14 files, run with `./tools/gpu.sh bun test packages/d3d9`; all on Dawn + SwiftShader; expectations are analytic or computed on the CPU):
 vertex formats and the draw path (all primitive types, indexed / user-pointer / base vertex, triangle fans), clear / viewport / scissor / colour mask / stencil
 (D3D compare is `(ref & mask) FUNC (buffer & mask)`, DECR wraps 0 -> 255), blend / alpha test / depth / cull, the full texture-stage cascade, all light types with
 attenuation, spot cone and the four colour sources, vertex / table / pre-transformed fog, texture coordinate generation and 2D / 3D texture transforms, sampler address /
 filter / LOD / anisotropy, 12 uncompressed formats and BC1 / 3 / 5 (within +-1 of the CPU decode), render-target textures, `StretchRect`, `UpdateTexture`, `Reset`, D3DX math (identities, the operand
-order of `D3DXQuaternionMultiply`), D3DX textures, meshes, animation and skinning (below). Mutating the code (flipping a blend factor, dropping a stage) makes the corresponding test fail; the tests that
+order of `D3DXQuaternionMultiply`), D3DX textures, meshes, animation and skinning (below), the `XRenderer.fx` effect with its shaders (12.7). Mutating the code (flipping a blend factor, dropping a stage) makes the corresponding test fail; the tests that
 saved pictures were looked at once. What is *not* verified is anything that needs the real D3D9 (see 12.5).
 
 **The one oracle there is for D3DX.** Wine's `dlls/d3dx9_36/tests/mesh.c` (read through `api.github.com`, repository `wine-mirror/wine`) holds expectations that Wine must also meet on *native* Windows.
@@ -712,16 +712,82 @@ the file** (3ds Max leftovers such as `Object274`, `Cylinder01`, `COLLISION1`); 
 11. A mesh with vertex colours that lists only some vertices: the unlisted ones are white with alpha 1 here (the reader fills 1,1,1,1) whereas Wine's loader writes `0x00ffffff` (alpha 0); one mesh in the data has vertex
     colours and the question is untested. Several `FrameTransformMatrix` in one frame: the last replaces the earlier ones in the hierarchy loader (native-checked) but `D3DXLoadMeshFromX` accumulates them (Wine's
     test, not implemented; the data has none).
+12. `XRenderer.fx` / `ID3DXEffect` (12.7; no D3DX, no fxc): the numbering of the constant registers (invisible outside the effect); that `CommitChanges` re-evaluates only the assignments that depend on a parameter
+    changed since and uploads only the changed register groups (all of them after a shader change); that the assignments of a pass are applied in source order and an unassigned state keeps the device's value;
+    `FogColor = (float4)` -> DWORD by round to nearest; `SetMatrix` on an array parameter fails (the exe uses `SetMatrixArray`); `SetInt` into a float parameter converts; a shader index outside the array is
+    `D3DERR_INVALIDCALL` (the exe never does it). The shader bodies were ported from the HLSL text statement by statement; fxc may evaluate the same expressions in another order (MAD, different `rsq` / `normalize` rounding),
+    so the last float bit of an interpolant can differ from the real thing. A zero normal in `normalize` is NaN in WGSL and `rsq(0) = +inf` times 0 in `vs_1_1` - also NaN, but not tested.
 
 ### 12.6 Not emulated / todo
 
 Reported once through the device's `warn`: wireframe / point fill, point sprites, clip planes, border and mirror-once addressing (clamp is used), dual-source blending, bump mapping,
 multiple render targets, multisampling, float textures other than as render targets. Not implemented at all: `GetRenderTargetData` / `CreateOffscreenPlainSurface` (DXUT cursor and screenshots only),
-JPEG textures, DXT compression, `CreateCompressedAnimationSet` (the exe's KSM path uses keyframed sets), `D3DXCreateLine`, and `XRenderer.fx` with its `ID3DXEffect` surface (next). Also open: the
+JPEG textures, DXT compression, `CreateCompressedAnimationSet` (the exe's KSM path uses keyframed sets), `D3DXCreateLine`. `ID3DXEffect` exists only as far as `XRenderer.fx` needs it (12.7): no `CreateVertexShader`
+from byte code (a shader is WGSL), no pixel shaders (the exe has none), no other effect file (`GCSkin.fx`, `RenderState.fx`, `XPosteffect.fx` are never referenced), no annotations / `CloneEffect` / `ValidateTechnique`.
+Table fog together with a vertex shader needs the view depth of the vertex, which a shader does not provide: reported once through `warn` and not applied. Also open: the
 reference pictures. The layer was developed without any screenshot of the real client; a few frames of the loading screen, the character select and a field would let the
 assumptions above (and the sampling / filtering details) be checked pixel for pixel.
 
-### 12.7 Test infrastructure
+### 12.7 XRenderer.fx: the effect emulation (`effect.ts`, `xrenderer-shaders.ts`, `vshader.ts`)
+
+The exe loads exactly one effect, `XRenderer.fx` (data041.kom, 1,555 lines of HLSL, 12.1), as *source* and lets D3DX compile it at start-up. Here there is no D3DX, no byte code and no
+compiler, so the effect is emulated at the level the exe can observe and nothing more:
+
+* **The file is read, not copied.** `parseEffect` tokenises the shipped text (comments, `#define` / `#ifdef`, parameters with semantics and initialisers, `VertexShader name[N] = { compile vs_1_1 Entry(arg), ... }`,
+  techniques, passes, and every state assignment with the right-hand sides the file uses: enumerators, integer literals, `(parameter)`, `(array[parameter])`). Parameters, techniques, passes and states therefore come from
+  the file: 19 parameters, 19 techniques (the file's order differs from the engine's table, which is irrelevant: both sides use names), 12 shader arrays with 80 entries.
+* **Only the shader bodies are ported by hand.** The 34 HLSL functions (`VS_Skin`, `VS_Fog` and 32 entry points) exist as WGSL in `xrenderer-shaders.ts`, chosen by entry-point name and the `iNumBones` argument. So that the port never runs
+  with a meaning it was not written from, the parser hashes the tokens of every function (FNV-1a, `XR_FUNCTION_HASHES`); a file with another body, an unknown entry point / state / enumerator, an undefined function or a
+  truncated file is refused with `D3DXERR_INVALIDDATA` and a message in `errors`. Comments, white space and layout do not matter (tested).
+* **The device got a programmable vertex stage** (`vshader.ts`; `CreateEmulatedVertexShader`, `SetVertexShader`, `SetVertexShaderConstantF` with 256 float4 registers, and the getters). With a shader set, the fixed-function transform,
+  lighting, texture-coordinate generation / transforms and `TEXCOORDINDEX` are ignored (they belong to the fixed-function *vertex* stage); the viewport transform and the half-pixel offset still apply to what the shader writes;
+  stage `i` of the (still fixed-function) pixel cascade reads `oT[i]`; `oD0` / `oD1` are saturated like `vs_1_1` does; fog comes from `oFog` when `FOGENABLE` is set, `FOGTABLEMODE` is NONE, `FOGVERTEXMODE` is not NONE and the shader writes it.
+  Inputs are by semantic (a missing one reads (0, 0, 0, 1)); a `D3DCOLOR` element arrives as (r, g, b, a) so that `D3DCOLORtoUBYTE4(v) = v.zyxw * 255.001953` gives the bone indices stored in bytes 0..3. `Reset` clears shader and registers.
+
+**Register layout** (this port's; a real compile numbers the registers per shader and nothing outside the effect sees them). Matrices are stored as D3D stores them (register k of a matrix = row k) and used as `v * M`:
+`c0-c79` `g_amWorldPalette[20]`, `c80-83` `g_mWorldViewProj`, `c84-87` `g_mViewProj`, `c88` `g_Color`, `c89` `g_LightPos`, `c90` `g_OutLineColor`, `c91` `g_LightFlowPoint`, `c92` `g_TexOffSet01`, `c93` `g_fFog`,
+`c94` `g_fEye`, `c95` (`g_fTexOffSet2X`, `g_fTexOffSet2Y`, `g_fOutLineWide`, `g_fLightFlowImpact`), `c96` (`g_fLightFlowWide`, `g_fDensity`, 0, 0). A shader uploads only the groups it reads.
+
+**What the shaders compute** (from the HLSL; the semantics that are easy to get wrong are tested against CPU models):
+`VS_Skin` takes the indices from `(int[4]) D3DCOLORtoUBYTE4(BlendIndices)`; 1 bone ignores the weights, 2 and 3 bones use `w0, w1 (, w2)` as stored and do **not** renormalise, 4 bones use `w0, w1, w2` and `1 - w0 - w1 - w2`
+for the last. `mul(float3 normal, float4x4)` is HLSL's implicit truncation to float3x4: the normal is rotated and never translated (the 4th lane is `n . column 3`, 0 for affine matrices), but `dot(vNor, g_LightPos)` and
+`normalize` run over all four lanes. Rigid `RealColor` / `Cartoon` use `g_mWorldViewProj` for the position and `palette[0]` for fog / normals; every skinned shader and the edge / world-flow shaders go through `g_mViewProj`;
+the *local* flow shaders measure the stored position, the *world* ones the transformed position. Cartoon: `Tex1 = (d, d)` with `d = dot(normalize(n'), g_LightPos)` and no offset on stage 1; the edge shaders push the position
+out along the *unnormalised* transformed normal by `g_fOutLineWide`. `VS_Fog` = `max(x + length(wPos - g_fEye) * y, z + wPos.y * w) - g_fDensity` with a 4-component `length`. Light flow:
+`Diffuse.a = g_Color.a / (0.00001 + distance / g_fLightFlowWide)` with `abs(coordinate - g_fLightFlowImpact)` or the 4-component `distance` to `g_LightFlowPoint`.
+
+**The techniques** (assignments are applied in file order through the state manager):
+
+| technique | passes | shader array | what the passes set |
+|---|---|---|---|
+| `REAL_COLOR` | 1 | RealColor | stage 0 Modulate(Texture, Diffuse) for colour and alpha, stages 1 / 2 pass the colour on; fog states |
+| `CARTOON`, `ADD_CARTOON` | 1 | Cartoon | stage 0 as above; stage 1 Modulate / Add (Current, Texture), `AddressU[1] = Clamp`: the ramp texture is read at (d, d) |
+| `CARTOON_BLACK_EDGE`, `ADD_CARTOON_BLACK_EDGE` | 2 | Cartoon, BlackEdge | p1: `TextureFactor = 0xff000000`, stage 0 = TFACTOR, stages 1 / 2 disabled, `CullMode = CW` (the back faces are the outline) |
+| `CARTOON_COLOR_EDGE`, `ADD_CARTOON_COLOR_EDGE` | 2 | Cartoon, ColorEdge | p1: the same with Diffuse = `g_OutLineColor` |
+| `BLACK_EDGE`, `COLOR_EDGE` | 1 | BlackEdge, ColorEdge | the outline pass alone |
+| `LIGHT_FLOW_{WORLD,LOCAL}_{X,Y,Z,POINT}` | 1 | {X,Y,Z,Point}Flow{World,Local} | alpha blend SRCALPHA / DESTALPHA, `AlphaOp[0] = Add(Current, Diffuse)`, `ColorArg1[0] = Diffuse`; no fog states |
+| `CARTOON_FADE`, `CARTOON_FADE_NONTEX` | 1 | RealColor | `ColorOp[0] = BLENDDIFFUSEALPHA(Texture, Diffuse)` / `SelectArg1 Diffuse`, `AlphaOp[0] = Disable` |
+
+**How the engine drives it** (x2.exe.c): `CKTDGXRenderer::OnResetDevice` (329749E0, L434486) calls `D3DXCreateEffect(dev, data, size, 0, 0, 2048 = D3DXFX_NOT_CLONEABLE, 0, &eff, 0)`, `SetStateManager(g_pEffectStateManager)`,
+`GetTechniqueByName` x19, `GetParameterByName` x19, `SetTechnique(REAL_COLOR)`, `SetInt(g_iShaderIndex, 0)`, `SetVector(g_Color, 0)` and loads the ten `Cartoon*.bmp` ramps. `BeginRender` (L432699): `Begin(&n, 7)`
+(7 = `D3DXFX_DONOTSAVESTATE | DONOTSAVESHADERSTATE | DONOTSAVESAMPLERSTATE`, from the D3DX headers), `_CommitChanges`, `BeginPass(0)`; draws; `EndPass`, `BeginPass(1)` ..., `End`. `_CommitChanges` (L434781):
+the shader index is `min(bones, 4)`, plus 5 when fog is on and the technique is not a light flow; `SetInt(g_iShaderIndex)` when it changed; inside a pass `effect->CommitChanges()` and then the manager's dirty constant range is flushed to the device
+(`CKTDGEffectStateManager`, a clone of the DXSDK `CStateManager` with a 512-entry state stack and a shadow constant array). The port keeps that division: a state manager is an object with five methods
+(`ID3DXEffectStateManager`; `DeviceStateManager` forwards them to the device, tests use recorders), and without one the effect writes to the device and puts back what it changed at `End` according to the Begin flags
+(three independent bits, tested).
+
+**Verification** (`packages/d3d9/test/xrenderer.test.ts`, 40 tests, expectations computed from the HLSL on the CPU): the parsed file (names the exe asks for, pass counts, every function hashed) and its refusals; the recorded
+state assignments of `REAL_COLOR`, the edge techniques and all flow techniques; `CommitChanges` sending only what depends on a changed parameter; the call protocol; save / restore without a manager; **every one of the 80
+shaders compiles and draws**; texture coordinates and offsets of the three stages; `g_Color`, alpha and the `g_mWorldViewProj` position; the cartoon ramp (normalisation, no translation of normals, clamping); fade; edge hulls
+(extent, colour, winding under `CullMode = CW`); skinning with 1-4 bones, D3DCOLOR indices out of a decoy-filled palette, with and without fog, and the blended normal; fog (constant, distance with a 4-component `length`,
+height, clamping); the eight light-flow families rigid and two skinned; and the device hook itself (constants per draw, bounds, default inputs, saturation, `oT` routing, bypass of the fixed-function stage, `oFog` rules,
+a broken shader reported through `takeErrorsAsync`). Mutating the shaders (bone-index swizzle, a missing `normalize`, a translated normal, a dropped last weight, `length(xpos.xyz)`, a wrong flow register) makes tests fail.
+What this cannot show: that fxc's code gives the same last bits, and that D3DX's effect framework behaves as assumed in 12.5 item 12 (no oracle).
+
+**Not ported**: the engine classes around it - `CKTDGXRenderer` (render types, `SetColor`, `SetRenderPassFog`, the shader-index rule, the draw paths) and `CKTDGEffectStateManager` (state stack over `CKTDGStateManager`); the
+index rule is replicated only inside the test (`shaderIndex`). They are ordinary engine code over this layer and belong with the engine classes of the later phases.
+
+### 12.8 Test infrastructure
 
 Dawn (the `webgpu` npm package, prebuilt `dawn.node`) needs a Vulkan loader and driver; the sandbox has neither a GPU nor a browser, so `tools/setup-gpu.sh` extracts SwiftShader (`libvk_swiftshader.so`,
 `vk_swiftshader_icd.json`, `libvulkan.so.1`) from the `@sparticuz/chromium` npm package into `/home/user/work/swsh/sw` and `tools/gpu.sh` runs a command with
