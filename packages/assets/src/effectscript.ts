@@ -10,16 +10,19 @@
  *     begins a comment that runs to the next LF; `"` starts a string; everything else starts a word.
  *   - a word ends at white space, or at one of `( ) , " { }` or a `/` that does not start `//`; those delimiters flush the word and (but
  *     the quote) become a one-character token of their own. `//` inside a word starts a comment and DROPS the word; `--` is only a
- *     comment at the start of a token. A one-character token that starts a token (`(`, `{`, `=`, ...) is a word too: `{abc` is ONE
- *     token, because only the next byte decides.
+ *     comment at the start of a token (the dropped word stays in the buffer: it is emitted after all when the text ends before another
+ *     token starts). A one-character token that starts a token (`(`, `{`, `=`, ...) is a word too: `{abc` is ONE token, because only
+ *     the next byte decides; `x=5` is one token `X=5`, `x =5` the tokens `X` and `=5`.
  *   - a string keeps both quotes in its text (`"a b"`). A `"` that directly follows a word flushes the word but forgets to clear the
- *     buffer, so the text of the string is appended to the old word (and its opening quote is lost): `name"x"` is the single token
- *     `NAMEx"`. Real scripts never do this; the port keeps it because it is what the exe does.
+ *     buffer, so the text of the string is appended to the old word (and its opening quote is lost): `name"x"` gives the tokens
+ *     `NAME` and `NAMEX"` (the second one is a word to the classifier, so it is upper-cased). Real scripts never do this; the port keeps
+ *     it because it is what the exe does.
  *   - `AddToken` drops empty texts and classifies the rest (`DetermineTokenType`: first byte, then the upper-cased word against the
  *     keyword/property lists, see the two grammars).
  *   - after the last byte the pending buffer is flushed once more WITHOUT clearing it after the previous flush: a file that ends in
- *     white space after a word (almost always `}` + CR LF) therefore ends with that token twice, a file that ends inside a comment
- *     ends with a stray `/` or `-` token. The parsers tolerate the duplicate (a missing last `}` is closed by it).
+ *     white space after a word (almost always `}` + CR LF) therefore ends with that token twice (a string too: it is flushed when its
+ *     closing quote arrives, and the buffer stays), a file that ends inside a comment ends with a stray `/` or `-` token. The parsers
+ *     tolerate the duplicate (a missing last `}` is closed by it); a file that ends right after its last byte has no duplicate.
  * The XMeshPlayer copy also numbers the lines (`m_iLineNumber`, the line of the first byte processed after the previous token); the
  * number is only kept for diagnostics.
  *
