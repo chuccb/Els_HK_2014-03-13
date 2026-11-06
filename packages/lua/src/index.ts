@@ -13,6 +13,11 @@ export {
   tostringMeta, rawToString, strToNumber, toNumber, tostr, getMetatable, metaOf, EMPTY, YieldSignal,
 } from "./vm.ts";
 export { loadChunk, loadFileChunk } from "./lib/base.ts";
+export {
+  LuaManagerProxy, ProxyValue, ProxyTable, LuaValueType, LuaParseResult, EState, BadLexicalCast,
+  lexicalCastDouble, lexicalCastInt, lexicalCastString, cvttsd2si,
+} from "./proxy.ts";
+export type { ProxyFailure } from "./proxy.ts";
 export type { BaseHost } from "./lib/base.ts";
 export type { OsHost } from "./lib/misc.ts";
 
