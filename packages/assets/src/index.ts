@@ -7,6 +7,8 @@ export { decodeDds, decodeBc1, decodeBc2, decodeBc3, readDdsHeader, ddsSourceFor
 export type { DdsHeader, DdsPixelFormat } from "./dds.ts";
 export { decodeBmp } from "./bmp.ts";
 export { decodePng } from "./png.ts";
+export { compareIgnoreCase, parseTet, parseXet, readFormatString, TET_MAGIC, XET_MAGIC } from "./xet.ts";
+export type { TetFile, TetRect, XetAniData, XetAniEvent, XetChangeTexture, XetFile, XetMultiStage } from "./xet.ts";
 
 import { ImageFormatError, sniffImage } from "./image.ts";
 import type { DecodedImage } from "./image.ts";
