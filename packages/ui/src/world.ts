@@ -13,6 +13,7 @@ import { CKTDGUIRadioButton } from "./radiobutton.ts";
 import { CKTDGUIDialog } from "./dialog.ts";
 import { DeviceManager } from "./device.ts";
 import { CKTDGUIStatic } from "./static.ts";
+import { CKTDGUISlot, CX2Slot, CX2SlotManager } from "./slot.ts";
 
 export interface UIWorldOptions extends HostOptions {
   /** the KOM archives (`AddMassFile`) */
@@ -32,6 +33,9 @@ const IMPLEMENTATIONS: [string, object][] = [
   ["CKTDGUIButton", CKTDGUIButton],
   ["CKTDGUIRadioButton", CKTDGUIRadioButton],
   ["CKTDGUICheckBox", CKTDGUICheckBox],
+  ["CKTDGUISlot", CKTDGUISlot],
+  ["CX2SlotManager", CX2SlotManager],
+  ["CX2SlotManager::CX2Slot", CX2Slot],
   ["CKTDGUIControl::CPictureData", CPictureData],
 ];
 
@@ -63,8 +67,12 @@ export class UIWorld implements UIContext {
     this.world.loadEnums();
   }
 
-  /** `new CKTDGUIDialog(pStage, script, 0, layer)`: builds the dialog the script describes */
-  openDialog(scriptFileName: string, layer = 0): CKTDGUIDialog {
+  /**
+   * `new CKTDGUIDialog(pStage, script, 0, layer)`: builds the dialog the script describes.  The UI class that owns the dialog binds itself
+   * to Lua before it builds it (`owner.registerLuaBind()`: a slot manager becomes the global `g_pCX2SlotManager`).
+   */
+  openDialog(scriptFileName: string, layer = 0, owner?: { registerLuaBind(): void }): CKTDGUIDialog {
+    owner?.registerLuaBind();
     return new CKTDGUIDialog(this, { scriptFileName, layer });
   }
 }

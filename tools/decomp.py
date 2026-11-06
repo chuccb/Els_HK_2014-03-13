@@ -24,6 +24,7 @@ NOISE = re.compile(
     r"^\s*[A-Za-z_:<>*0-9, &]+ \**v?[A-Za-z_0-9]*; // "  # local declarations with a register / stack comment
     r"|operator delete|__fastfail|_Myres = 7|_Mysize = 0|Bx\._Buf\[0\] = 0;$|memset\(&w|memset\(&_|- 4 > 0x1F|- 4 <= 0x1F"
     r"|_Tidy_deallocate|_Myres > 7|_Myres <= 7|\* ?\(\(_DWORD \*\).*_Ptr - 1\)|Ptr = \*\(\(wchar_t \*\*\)|>= 0x1000|\+= 35;|\+ 37;|^\s*[{}]\s*$"
+    r"|^\s*\*\(\(_?[DW]?WORD \*\)v\d+ \+ \d+\) = [07];$|^\s*\*\(_OWORD \*\)\(?v\d+( \+ \d+)?\)? = 0;$|^\s*\*\(_WORD \*\)v\d+ = 0;$"
 )
 max_lines = 10**9
 if "--max" in sys.argv:

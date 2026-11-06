@@ -1,0 +1,467 @@
+/**
+ * The slots: `CKTDGUISlot` (the control that shows an item picture and can be dragged) and the game-layer `CX2SlotManager` /
+ * `CX2SlotManager::CX2Slot` / `CX2SlotItem` that DLG scripts reach through the global `g_pCX2SlotManager`.
+ *
+ * `CX2SlotManager::RegisterLuaBind` (32E5E840) puts the manager into the global `g_pCX2SlotManager`; the UI classes that derive from it
+ * (the inventory, the shops, the quick slot ...) call it before they build their dialog, so the script of the dialog finds it.  The
+ * script asks it for slots (`CreateItemSlot` 32E5E540: a `CX2SlotItem`, 0x128 bytes), hands each back (`AddSlot` 32E5E510: the slot learns
+ * its manager, the manager keeps a list) and describes it (`CX2Slot::SetSlotData_LUA` 32E5DAE0, which first lets the slot read its own
+ * keys: `CX2Slot::LuaGetValue` 32E5DD90 for SLOT_ID, ENABLE, SHOW, SLOT_TYPE, then `CX2SlotItem::LuaGetValue` 331CAAA0 for SORT_TYPE,
+ * FASHION, EQUIP_POS, SLOT_DESC; afterwards POS and SIZE).  A `SLOT_BACK_DLG_FILE` key would open a second dialog in the manager's
+ * layer; no script of the client has one, so that is reported as not ported.
+ *
+ * `CKTDGUISlot::CKTDGUISlot` 329507F0, SetItemTex_LUA 32953E40 (-> SetItemTex(file, key) 329535F0), SetItemTex_LUA2 32953B00,
+ * SetMouseOverTex_LUA 32954140, SetPoint_LUA 329543F0, SetMouseOverPoint_LUA 32954030, SetString_LUA 32954570,
+ * SetAllPointDatabyNormalPoint 329534D0, ChangeState 32950FB0, SetEnable 329535C0, SetShow 329544F0.
+ */
+import { Color, KLuaManager, Vec2 } from "@els/host";
+import type { CKTDGUISlot_Methods, CX2SlotManager_Methods, CX2SlotManager__CX2Slot_Methods } from "@els/host";
+import { CKTDGUIControl, UCT, UIM, UIPointData, readStringData, setTexureData, wholeTextureData } from "./control.ts";
+import type { CPictureData, UIContext, UIStringData, UITextureData } from "./control.ts";
+import type { DeviceSound, DeviceTexture } from "./device.ts";
+
+const f = Math.fround;
+
+/** `CKTDGUISlot::SLOT_CONTROL_STATE` */
+export const SCS = { NORMAL: 0, DOWN: 1, MOUSEOVER: 2, ONDRAG: 3, DISABLE: 4, END: 5 } as const;
+
+/** the texture the slot shows when an item's picture does not open (`CKTDGUISlot::vftable[42]`) */
+export const SLOT_NO_IMAGE = "HQ_Shop_Ui_Noimage.dds";
+
+/** `CKTDGUISlotData` (the data a slot shows; only the flag the slot sets is modelled) */
+export interface UISlotData {
+  m_bDataUpdated: boolean;
+}
+
+export class CKTDGUISlot extends CKTDGUIControl implements Partial<CKTDGUISlot_Methods> {
+  /** `CKTDGUISlot::s_pDragSlot`: the slot that is being dragged */
+  static s_pDragSlot: CKTDGUISlot | null = null;
+
+  m_pItemTex: UITextureData | null = null;
+  m_pMouseOverTex: UITextureData | null = null;
+  m_pStringData: UIStringData | null = null;
+  m_pNormalPoint: UIPointData | null = null;
+  m_pMouseOverPoint: UIPointData | null = null;
+  m_pDraggingPoint: UIPointData | null = null;
+  m_bDragable = true;
+  readonly m_cDraggingSlotColor = new Color(1, 1, 1, 1);
+  readonly m_cDraggedSlotColor = new Color(1, 1, 1, 0.4);
+  readonly m_cNormalSlotColor = new Color(1, 1, 1, 1);
+  readonly m_cMouseOverColor = new Color(1, 1, 1, 1);
+  /** `m_mapAdditionalPictureDataList` (`std::map<int, CPictureData*>`) */
+  readonly m_mapAdditionalPictureDataList = new Map<number, CPictureData>();
+  m_pDroppedSlot: CKTDGUISlot | null = null;
+  m_eControlState: number = SCS.NORMAL;
+  m_pSndMouseOver: DeviceSound | undefined;
+  m_pSndMouseUp: DeviceSound | undefined;
+  m_pSndMouseDown: DeviceSound | undefined;
+  m_CustomMsgMouseOut = -1;
+  m_CustomMsgMouseOver = -1;
+  m_CustomMsgMouseDown = -1;
+  m_CustomMsgMouseUp = -1;
+  m_CustomMsgMouseRightUp = -1;
+  m_CustomMsgDropped = -1;
+  m_bMouseOut = false;
+  m_pSlotData: UISlotData | null = null;
+  m_iID = -1;
+  /** `UIEdge.tga` */
+  readonly m_pEdgeTexture: DeviceTexture | undefined;
+
+  constructor(ctx: UIContext) {
+    super(ctx);
+    this.m_ControlType = UCT.SLOT;
+    this.m_pEdgeTexture = ctx.devices.openTexture("UIEdge.tga");
+  }
+
+  override textureData(out: UITextureData[]): void {
+    for (const t of [this.m_pItemTex, this.m_pMouseOverTex]) if (t) out.push(t);
+  }
+
+  /**
+   * `ChangeState(state, bForce)` (32950FB0): a new state resets the running texture animation (unless forced); the normal point becomes
+   * the end point (the current one at once when it has no transition time) and the slot's colour follows the state; mouse over and mouse
+   * out send the custom messages; a dragged slot takes the focus and becomes `s_pDragSlot`.
+   */
+  ChangeState(state: number, bForce: boolean): void {
+    if (this.m_eControlState === state) {
+      if (!bForce) return;
+    } else {
+      this.m_eControlState = state;
+      if (!bForce) {
+        const d = this.m_NowTexChangeData;
+        d.m_SequenceID = 0;
+        d.m_fShowTime = 0;
+        d.m_bEndTexChange = false;
+        d.m_fRotateDegree = 0;
+        d.m_fScaleRotationDegree = 0;
+        d.m_Pos.set(0, 0);
+        d.m_Scale.set(1, 1);
+      }
+    }
+    const normal = this.m_pNormalPoint;
+    const toEnd = (): void => {
+      if (!normal) return;
+      this.m_EndPoint.assign(normal);
+      this.m_NowPoint.fChangeTime = 0;
+    };
+    const setColor = (c: Color): void => {
+      this.m_Color.set(c.r, c.g, c.b, c.a);
+    };
+    switch (state) {
+      case SCS.NORMAL:
+        if (this.m_bMouseOut) {
+          this.m_bMouseOut = false;
+          if (this.m_CustomMsgMouseOut !== -1) this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgMouseOut);
+        }
+        toEnd();
+        setColor(this.m_cNormalSlotColor);
+        break;
+      case SCS.DOWN:
+        setColor(this.m_cNormalSlotColor);
+        toEnd();
+        break;
+      case SCS.MOUSEOVER: {
+        setColor(this.m_cNormalSlotColor);
+        const over = this.m_pMouseOverPoint;
+        if (!over) throw new Error("CKTDGUISlot::ChangeState: the slot has no mouse over point (SetPoint makes it); the exe dereferences null");
+        over.color.set(this.m_cMouseOverColor.r, this.m_cMouseOverColor.g, this.m_cMouseOverColor.b, this.m_cMouseOverColor.a);
+        if (this.m_CustomMsgMouseOver !== -1) this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgMouseOver);
+        toEnd();
+        break;
+      }
+      case SCS.ONDRAG:
+        if (!this.m_bHasFocus) this.RequestFocus();
+        CKTDGUISlot.s_pDragSlot = this;
+        toEnd();
+        setColor(this.m_cDraggedSlotColor);
+        break;
+      case SCS.DISABLE:
+        if (this.m_bHasFocus && this.m_pDialog) this.m_pDialog.clearFocus();
+        setColor(this.m_cNormalSlotColor);
+        break;
+      default:
+        break;
+    }
+    if (this.m_EndPoint.fChangeTime === 0) this.m_NowPoint.assign(this.m_EndPoint);
+  }
+
+  /** `SetEnable(bool)` (329535C0), virtual: a disabled slot is in the disabled state */
+  override SetEnable(enable: boolean): void {
+    this.m_bEnable = enable;
+    this.m_eControlState = enable ? SCS.NORMAL : SCS.DISABLE;
+    this.ChangeState(this.m_eControlState, false);
+  }
+
+  /** `SetShow(bool)` (329544F0), virtual: hiding a dragged slot drops the drag */
+  override SetShow(show: boolean): void {
+    const dragged = this.m_eControlState === SCS.ONDRAG;
+    this.m_bShow = show;
+    if (dragged && !show && CKTDGUISlot.s_pDragSlot) {
+      CKTDGUISlot.s_pDragSlot.ChangeState(SCS.NORMAL, true);
+      CKTDGUISlot.s_pDragSlot = null;
+    }
+    this.ChangeState(this.m_eControlState, false);
+  }
+
+  /** `SetAllPointDatabyNormalPoint` (329534D0): the dragging and mouse over points the slot does not have yet are copies of the normal point */
+  private setAllPointDataByNormalPoint(): void {
+    const normal = this.m_pNormalPoint!;
+    if (!this.m_pDraggingPoint) {
+      const p = new UIPointData().assign(normal);
+      p.color.set(this.m_cDraggingSlotColor.r, this.m_cDraggingSlotColor.g, this.m_cDraggingSlotColor.b, this.m_cDraggingSlotColor.a);
+      this.m_pDraggingPoint = p;
+      p.pUITextureData = this.m_pItemTex;
+    }
+    if (!this.m_pMouseOverPoint) {
+      const p = new UIPointData().assign(normal);
+      this.m_pMouseOverPoint = p;
+      p.pUITextureData = this.m_pMouseOverTex;
+      // (the exe colours the dragging point here, not the one it just made)
+      const c = this.m_cMouseOverColor;
+      this.m_pDraggingPoint.color.set(c.r, c.g, c.b, c.a);
+    }
+  }
+
+  // ---- textures and points ---------------------------------------------------------------------------------------------------
+
+  /** the end of the item texture setters: the item texture is the one the normal and the dragging point draw, then the state is shown again */
+  private takeItemTex(data: UITextureData | null): void {
+    this.m_pItemTex?.release(this.ctx.devices);
+    this.m_pItemTex = data;
+    if (this.m_pNormalPoint) this.m_pNormalPoint.pUITextureData = data;
+    if (this.m_pDraggingPoint) this.m_pDraggingPoint.pUITextureData = this.m_pItemTex;
+    this.ChangeState(this.m_eControlState, true);
+  }
+
+  /**
+   * `SetItemTex(file, key)` (329535F0): the old item texture is destroyed; a texture that does not open is replaced by the whole
+   * `HQ_Shop_Ui_Noimage.dds` (nothing happens when that does not open either).
+   */
+  setItemTex(fileName: string, key: string): void {
+    this.m_pItemTex?.release(this.ctx.devices);
+    this.m_pItemTex = null;
+    let data = setTexureData(this.ctx, fileName, key);
+    if (data) {
+      this.m_pItemTex = data;
+      if (this.m_pNormalPoint) this.m_pNormalPoint.pUITextureData = data;
+    } else {
+      data = wholeTextureData(this.ctx, SLOT_NO_IMAGE);
+      if (!data) return;
+      this.m_pItemTex = data;
+      if (this.m_pNormalPoint) this.m_pNormalPoint.pUITextureData = data;
+    }
+    if (this.m_pDraggingPoint) this.m_pDraggingPoint.pUITextureData = this.m_pItemTex;
+    this.ChangeState(this.m_eControlState, true);
+  }
+
+  /**
+   * `SetItemTex(file)` (32953870): the whole image of the file, or (when it does not open) of `HQ_Shop_Ui_Noimage.dds`; a file that is
+   * not there as well changes nothing.
+   */
+  private setItemTexWhole(fileName: string): void {
+    let data = wholeTextureData(this.ctx, fileName);
+    if (!data && fileName !== SLOT_NO_IMAGE) data = wholeTextureData(this.ctx, SLOT_NO_IMAGE);
+    if (!data) return;
+    this.takeItemTex(data);
+  }
+
+  /** `SetItemTex_LUA(file, key)` (32953E40) */
+  SetItemTex(fileName: string, key: string): void {
+    this.setItemTex(fileName, key);
+  }
+
+  /** `SetItemTex_LUA2(file)` (32953B00), the Lua method `SetItemTex2`: the whole image of the file */
+  SetItemTex2(fileName: string): void {
+    this.setItemTexWhole(fileName);
+  }
+
+  /** `SetMouseOverTex_LUA(file, key)` (32954140): the mouse over point shows it */
+  SetMouseOverTex(fileName: string, key: string): void {
+    this.m_pMouseOverTex = this.replaceTexture(this.m_pMouseOverTex, fileName, key);
+    if (this.m_pMouseOverPoint) this.m_pMouseOverPoint.pUITextureData = this.m_pMouseOverTex;
+    this.ChangeState(this.m_eControlState, true);
+  }
+
+  /**
+   * `SetPoint_LUA()` (329543F0): the normal point (showing the item texture), then the dragging and the mouse over point it makes from
+   * it when the slot has none, the control's current point, and the state is shown again.
+   */
+  SetPoint(): void {
+    this.m_pNormalPoint = this.makePoint(this.m_pItemTex);
+    this.setAllPointDataByNormalPoint();
+    this.m_NowPoint.assign(this.m_pNormalPoint);
+    this.ChangeState(this.m_eControlState, true);
+  }
+
+  /** `SetMouseOverPoint_LUA()` (32954030): the point of the mouse over state, showing the mouse over texture */
+  SetMouseOverPoint(): void {
+    this.m_pMouseOverPoint = this.makePoint(this.m_pMouseOverTex);
+  }
+
+  /** `SetString_LUA()` (32954570): the slot's text (the old one is destroyed) */
+  SetString(): void {
+    this.m_pStringData = readStringData(this.ctx);
+  }
+
+  // ---- messages and options --------------------------------------------------------------------------------------------------
+
+  /** `SetCustomMsgMouseOut(int)` (328CD1E0) */
+  SetCustomMsgMouseOut(msg: number): void {
+    this.m_CustomMsgMouseOut = msg | 0;
+  }
+
+  /** `SetCustomMsgMouseOver(int)` (328CD210) */
+  SetCustomMsgMouseOver(msg: number): void {
+    this.m_CustomMsgMouseOver = msg | 0;
+  }
+
+  /** `SetCustomMsgMouseDown(int)` (328CD1A0) */
+  SetCustomMsgMouseDown(msg: number): void {
+    this.m_CustomMsgMouseDown = msg | 0;
+  }
+
+  /** `SetCustomMsgMouseUp(int)` (328CD170, shared with `CKTDGUIListBox::SetCustomMsgItemDoubleClick`) */
+  SetCustomMsgMouseUp(msg: number): void {
+    this.m_CustomMsgMouseUp = msg | 0;
+  }
+
+  /** `SetCustomMsgMouseRightUp(int)` (328CD230) */
+  SetCustomMsgMouseRightUp(msg: number): void {
+    this.m_CustomMsgMouseRightUp = msg | 0;
+  }
+
+  /** `SetCustomMsgDropped(int)` (328CD130, shared with `CKTDGUIListBox::SetCustomMsgSelection_End`) */
+  SetCustomMsgDropped(msg: number): void {
+    this.m_CustomMsgDropped = msg | 0;
+  }
+
+  /** `SetDraggingSlotColor(D3DXCOLOR)` (328CD390) */
+  SetDraggingSlotColor(color: Color): void {
+    this.m_cDraggingSlotColor.set(color.r, color.g, color.b, color.a);
+  }
+
+  /** `SetDraggedSlotColor(D3DXCOLOR)` (328CD310) */
+  SetDraggedSlotColor(color: Color): void {
+    this.m_cDraggedSlotColor.set(color.r, color.g, color.b, color.a);
+  }
+
+  /** `SetDragable(bool)` (328CD300) */
+  SetDragable(dragable: boolean): void {
+    this.m_bDragable = dragable;
+  }
+
+  /** `GetDragable()` (328C2120) */
+  GetDragable(): boolean {
+    return this.m_bDragable;
+  }
+
+  /** `SetID(int)` (328CD7E0) */
+  SetID(id: number): void {
+    this.m_iID = id | 0;
+  }
+
+  /** `GetDroppedSlot()` (328C2130): the slot that was dropped on this one */
+  GetDroppedSlot(): CKTDGUISlot | undefined {
+    return this.m_pDroppedSlot ?? undefined;
+  }
+
+  /** `SetSlotData(CKTDGUISlotData*)` (32954550) */
+  setSlotData(data: UISlotData): void {
+    this.m_pSlotData = data;
+    data.m_bDataUpdated = true;
+  }
+
+  /** `GetPicture(int)` (32951FC0) */
+  getPicture(index: number): CPictureData | undefined {
+    return this.m_mapAdditionalPictureDataList.get(index);
+  }
+
+  /** `AddPicture(int, CPictureData*)` (32CCFFD0): the first picture of a key stays */
+  addPicture(key: number, picture: CPictureData): void {
+    if (!this.m_mapAdditionalPictureDataList.has(key)) this.m_mapAdditionalPictureDataList.set(key, picture);
+  }
+}
+
+// ---- the game layer: slot manager and slots ----------------------------------------------------------------------------------------
+
+/** `CX2SlotManager::CX2Slot` (the Lua class `CX2Slot`): a slot of a slot manager */
+export class CX2Slot implements Partial<CX2SlotManager__CX2Slot_Methods> {
+  m_SlotID = -1;
+  m_pSlotManager: CX2SlotManager | null = null;
+  m_bEnable = true;
+  m_bShow = true;
+  m_bClickable = true;
+  m_SlotType = 0;
+  readonly m_Pos = new Vec2();
+  readonly m_Size = new Vec2();
+  /** `m_pDLGSlotFixBack` / `m_pDLGSlot` (dialog handles; no script of the client makes one) */
+  m_pDLGSlotFixBack: unknown = null;
+  m_pDLGSlot: unknown = null;
+  /** `X2_DIALOG_LAYER::XDL_NORMAL_1` */
+  m_NormalLayer = 1;
+
+  constructor(protected readonly ctx: UIContext) {}
+
+  /** `SetClickable(bool)` (32E5DA30), virtual */
+  SetClickable(clickable: boolean): void {
+    this.m_bClickable = clickable;
+  }
+
+  /** `GetClickable()` (32E5DA20), virtual */
+  getClickable(): boolean {
+    return this.m_bClickable;
+  }
+
+  /**
+   * `LuaGetValue(KLuaManager&)` (32E5DD90), virtual: SLOT_ID (default 0), ENABLE and SHOW (default true), SLOT_TYPE (default 0) and
+   * the dialog of SLOT_BACK_DLG_FILE
+   */
+  luaGetValue(m: KLuaManager): void {
+    this.m_SlotID = m.getInt("SLOT_ID") ?? 0;
+    this.m_bEnable = m.getBool("ENABLE") ?? true;
+    this.m_bShow = m.getBool("SHOW") ?? true;
+    this.m_SlotType = m.getInt("SLOT_TYPE") ?? 0;
+    const dlgFileName = m.getString("SLOT_BACK_DLG_FILE") ?? "";
+    if (dlgFileName.length !== 0) throw new Error(`CX2Slot::LuaGetValue: SLOT_BACK_DLG_FILE (${dlgFileName}) opens a second dialog, which is not ported`);
+  }
+
+  /**
+   * `SetSlotData_LUA()` (32E5DAE0): the slot reads its keys from the table on top of the stack, then POS and SIZE (both default to 0, 0)
+   */
+  SetSlotData(): void {
+    const m = new KLuaManager(this.ctx.world.rt, 1);
+    this.luaGetValue(m);
+    const pos = m.getVec2("POS");
+    this.m_Pos.set(pos?.x ?? 0, pos?.y ?? 0);
+    const size = m.getVec2("SIZE");
+    this.m_Size.set(size?.x ?? 0, size?.y ?? 0);
+  }
+}
+
+/** `CX2SlotItem` (the Lua class `CX2SlotItem`, a `CX2Slot`): a slot that holds an item */
+export class CX2SlotItem extends CX2Slot {
+  m_SortType = 0;
+  m_bFashion = false;
+  /** `CX2Unit::EQIP_POSITION::EP_NONE` */
+  m_EquipPos = 0;
+  m_SlotDesc = "";
+  m_ItemUID = -1n;
+  m_ItemTID = -1;
+  m_bReset = false;
+  m_Period = 0;
+  m_hEffectExchangeReady = -1;
+
+  constructor(ctx: UIContext) {
+    super(ctx);
+    this.m_SlotID = -1;
+  }
+
+  /** `LuaGetValue` (331CAAA0): the slot's keys, then SORT_TYPE, FASHION, EQUIP_POS and SLOT_DESC (a string id of general.ess; -1 when missing) */
+  override luaGetValue(m: KLuaManager): void {
+    super.luaGetValue(m);
+    this.m_SortType = m.getInt("SORT_TYPE") ?? 0;
+    this.m_bFashion = m.getBool("FASHION") ?? false;
+    this.m_EquipPos = m.getInt("EQUIP_POS") ?? 0;
+    const iIndex = m.getInt("SLOT_DESC") ?? -1;
+    this.m_SlotDesc = this.ctx.strings.get(iIndex); // GetGeneralString (the debug-info variant is not ported)
+  }
+}
+
+/** `CX2SlotManager` (the Lua class `CX2SlotManager`): what the scripts of the slot UIs (inventory, shops, quick slot ...) talk to */
+export class CX2SlotManager implements Partial<CX2SlotManager_Methods> {
+  m_pNowState: unknown = null;
+  readonly m_SlotList: CX2Slot[] = [];
+  readonly m_Pos = new Vec2();
+  m_pNowOverItemSlot: CX2SlotItem | null = null;
+  m_SlotManagerLayer = 1;
+  m_iDummyValue = -1;
+
+  constructor(protected readonly ctx: UIContext) {}
+
+  /** `RegisterLuaBind()` (32E5E840): the global `g_pCX2SlotManager` is this manager from now on */
+  registerLuaBind(): void {
+    this.ctx.world.rt.setObject("g_pCX2SlotManager", this, "CX2SlotManager");
+  }
+
+  /** `AddSlot(CX2Slot*)` (32E5E510), virtual: the slot learns its manager and joins the list (null is ignored) */
+  AddSlot(slot: CX2Slot | undefined): void {
+    if (!(slot instanceof CX2Slot)) return;
+    slot.m_pSlotManager = this;
+    this.m_SlotList.push(slot);
+  }
+
+  /** `CreateItemSlot()` (32E5E540): a new `CX2SlotItem` (the script owns it until `AddSlot`) */
+  CreateItemSlot(): CX2SlotItem {
+    return new CX2SlotItem(this.ctx);
+  }
+
+  /** `GetDummyValue_LUA()` (32A28C90) */
+  GetDummyValue(): number {
+    return this.m_iDummyValue;
+  }
+
+  /** `GetPos()` (32B7DDF0) */
+  getPos(): Vec2 {
+    return this.m_Pos;
+  }
+}

@@ -225,6 +225,26 @@ export function setTexureData(ctx: UIContext, fileName: string, keyName: string)
   return data;
 }
 
+/**
+ * The texture of a whole image, without a key (`CPictureData::SetTex_LUA2`, `CKTDGUISlot::SetItemTex(file)` build it by hand):
+ * `uvOrgTexture` is the image's rectangle in texels, so the UVs are 0..1, and `texSize` its size.  Null when the file does not open.
+ */
+export function wholeTextureData(ctx: UIContext, fileName: string): UITextureData | null {
+  const data = new UITextureData();
+  data.texName = fileName;
+  data.pTexture = ctx.devices.openTexture(fileName) ?? null;
+  if (!data.pTexture) return null; // the UITextureData is deleted
+  const w = f(data.pTexture.info.Width), h = f(data.pTexture.info.Height);
+  data.uvOrgTexture[0]!.set(0, 0);
+  data.uvOrgTexture[1]!.set(w, 0);
+  data.uvOrgTexture[2]!.set(0, h);
+  data.uvOrgTexture[3]!.set(w, h);
+  data.texSize.set(w, h);
+  data.setTextureUV();
+  data.keyFound = true;
+  return data;
+}
+
 /** `CKTDGUIControl::SetPointData_()` (32926010): the point data of the table on top of the stack */
 export function readPointData(ctx: UIContext): UIPointData {
   const m = new KLuaManager(ctx.world.rt, 1);
@@ -394,19 +414,8 @@ export class CPictureData implements Partial<CKTDGUIControl__CPictureData_Method
    * texels, so the UVs are 0..1).  A file that does not open changes nothing.
    */
   SetTex2(fileName: string): void {
-    if (fileName === "") return; // the exe's null-pointer test of the converted name
-    const data = new UITextureData();
-    data.texName = fileName;
-    data.pTexture = this.ctx.devices.openTexture(data.texName) ?? null;
-    if (!data.pTexture) return; // the UITextureData is deleted
-    const w = f(data.pTexture.info.Width), h = f(data.pTexture.info.Height);
-    data.uvOrgTexture[0]!.set(0, 0);
-    data.uvOrgTexture[1]!.set(w, 0);
-    data.uvOrgTexture[2]!.set(0, h);
-    data.uvOrgTexture[3]!.set(w, h);
-    data.texSize.set(w, h);
-    data.setTextureUV();
-    data.keyFound = true;
+    const data = wholeTextureData(this.ctx, fileName);
+    if (!data) return;
     if (this.pTexture) this.pTexture.release(this.ctx.devices); // the old one: `scalar deleting destructor`
     this.pTexture = data;
     if (this.pPoint) this.pPoint.pUITextureData = data;

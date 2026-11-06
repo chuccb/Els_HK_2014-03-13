@@ -6,6 +6,7 @@
 import { HostWorld } from "@els/host";
 import type { HostOptions, HostRuntime } from "@els/host";
 import { CKTDGUIDialog } from "./dialog.ts";
+import { CX2SlotManager } from "./slot.ts";
 import type { UITextureData } from "./control.ts";
 import { UIWorld } from "./world.ts";
 import type { UIWorldOptions } from "./world.ts";
@@ -56,7 +57,7 @@ export function makeUICensusWorld(opts: Omit<UIWorldOptions, "notPorted">) {
     let error: string | undefined;
     let dialog: CKTDGUIDialog | undefined;
     try {
-      dialog = ui.openDialog(name);
+      dialog = ui.openDialog(name, 0, new CX2SlotManager(ui)); // the UI that owns the dialog: a slot manager (g_pCX2SlotManager)
       if (!dialog.m_bSuccessInitOpenScript) error = ui.devices.massFiles.log.entries.at(-1)?.text ?? "script failed";
     } catch (e) {
       error = HostWorld.describeError(e);
@@ -126,7 +127,7 @@ export function runStrict(opts: Omit<UIWorldOptions, "notPorted">, names: string
     let dialog: CKTDGUIDialog | undefined;
     let error: string | undefined;
     try {
-      dialog = ui.openDialog(name);
+      dialog = ui.openDialog(name, 0, new CX2SlotManager(ui)); // the UI that owns the dialog: a slot manager (g_pCX2SlotManager)
       if (!dialog.m_bSuccessInitOpenScript) error = ui.devices.massFiles.log.entries.at(-1)?.text ?? "script failed";
     } catch (e) {
       error = HostWorld.describeError(e);

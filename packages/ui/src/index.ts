@@ -4,6 +4,7 @@ export * from "./static.ts";
 export * from "./button.ts";
 export * from "./radiobutton.ts";
 export * from "./checkbox.ts";
+export * from "./slot.ts";
 export * from "./dialog.ts";
 export * from "./world.ts";
 export * from "./stdmap.ts";
