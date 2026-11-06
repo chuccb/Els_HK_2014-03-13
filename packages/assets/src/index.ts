@@ -41,3 +41,18 @@ export function decodeImage(bytes: Uint8Array): DecodedImage {
 }
 export { Kim, KimFormatError, KIM_MAGIC, KIM_VERSION, UNIT_TYPE, decodeItemFlags, itemNameColor, setItemOptions, frameOffsetFor, renderRotateFor, renderScaleFor, commonItemModelNameFor, commonItemXETNameFor, slashTraceColors } from "./kim.ts";
 export type { KimItem, KimSetItem, KimItemFlags, KimVec3, KimStat, KimStatRelLV, KimSpecialAbility, KimAttachedParticle, KimAttachedMesh, KimPerUnit, KimSlashTrace, KimColor, KimOpenOptions } from "./kim.ts";
+export {
+  EffectScriptError, MsvcRand, randomNumber, randomInt, tokenize as tokenizeEffectScript, catof, removeQuotes, cInt, f32, DEG2RAD,
+  D3DBLEND_NAMES, D3DCULL_NAMES, BILLBOARD_TYPES, RENDER_TYPES, EFFECT_SYSTEMS,
+} from "./effectscript.ts";
+export type { Token, TokenType, MinMax, Range, Vec2, Vec3, Color4, ScriptKind, ScriptStats, EffectSystem } from "./effectscript.ts";
+export {
+  parseParticleScript, classifyParticleToken, newParticleSequence, ParticleLibrary, PARTICLE_TYPES, PARTICLE_MESH_RENDER_TYPES,
+  PARTICLE_EVENT_TYPES, PARTICLE_PROPERTY_NAMES,
+} from "./particle.ts";
+export type { ParticleScript, ParticleSequence, ParticleEvent, ParticleEventKind } from "./particle.ts";
+export {
+  parseXMeshPlayerScript, classifyXMeshToken, newXMeshTemplet, XMeshLibrary, XMESH_LIFE_TYPES, XMESH_MESH_TYPES,
+  XMESH_CARTOON_TEX_TYPES, XSKIN_ANIM_PLAYTYPES, XMESH_EVENT_TYPES, XMESH_PROPERTY_NAMES,
+} from "./xmeshplayer.ts";
+export type { XMeshPlayerScript, XMeshTemplet, XMeshEvent, XMeshEventKind } from "./xmeshplayer.ts";
