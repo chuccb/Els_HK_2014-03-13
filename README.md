@@ -67,7 +67,7 @@ npm install --no-audit --no-fund        # 安裝 bun、typescript、fflate 到 n
 ./tools/setup-oracle.sh                 # 建置 LuaJIT 2.0.2 oracle 到 /home/user/work/luajit-2.0
 python3 tools/kom_extract.py /home/user/work/ex lua,LUA  # 取出 4,498 個腳本
 ./tools/lua-difftest.sh                 # 9 個差異測試
-./node_modules/.bin/bun test packages/assets   # 資產解碼器單元測試（38 個）
+./node_modules/.bin/bun test packages/assets   # 資產解碼器單元測試（42 個）
 ./node_modules/.bin/bun run tools/verify-ksm.ts   # KME/KSM/KAC 全部資產驗證（約 45 秒）；其餘見 package.json 的 verify:*
 ./tools/corpus-diff.sh 1                # stub 環境全腳本差異測試（flavor 1/2/3，各約 3 分鐘）
 ./node_modules/.bin/tsc -p tsconfig.json --noEmit        # 型別檢查

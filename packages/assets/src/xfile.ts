@@ -3,7 +3,7 @@
  *
  * What the client uses (tools/verify-xfiles.ts): 25,204 `bzip` (binary + MSZIP), 105 `txt`, 4 `bin`. `D3DXLoadMeshFromXInMemory`
  * and `D3DXLoadSkinMeshFromXof` read them in the exe; this module reproduces the *file format* (templates + data objects)
- * and leaves the mesh semantics to xmesh.ts.
+ * and leaves the mesh semantics (frame transforms, skinning, animation evaluation) to a later layer (docs/ROADMAP.md, phase 2).
  *
  * Format summary (Microsoft "DirectX file format"; verified on the whole corpus):
  *   header  "xof " + version "0303" + format ("txt " | "bin " | "tzip" | "bzip") + float size ("0032" | "0064")

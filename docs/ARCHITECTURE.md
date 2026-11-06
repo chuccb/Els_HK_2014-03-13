@@ -47,7 +47,7 @@ Meshes: `mszip.ts` + `inflate.ts` (the `bzip` container of X files; own raw-defl
 without NLEN and chunks that reference the previous 32 KiB), `xfile.ts` (generic DirectX X reader, text + binary, template driven:
 `parseXFile` returns the object tree with typed members), `ksm.ts` (KOG's `KME` static mesh, `KSM` skinned mesh and `KAC` animation
 block, decoded from the exe's loaders with the same range checks). Mesh semantics (D3DX loading rules, skinning, animation
-evaluation) are not written yet, see ROADMAP phase 2. Tests: `packages/assets/test` (`bun test packages/assets`, 38 tests); corpus
+evaluation) are not written yet, see ROADMAP phase 2. Tests: `packages/assets/test` (`bun test packages/assets`, 42 tests); corpus
 tools: `decode-images.ts` + `verify-images.py` (Pillow), `verify-xet-tet.ts`, `verify-xfiles.ts`, `verify-xparse.ts`, `verify-ksm.ts`.
 
 ### `@els/lua` (`packages/lua`)
