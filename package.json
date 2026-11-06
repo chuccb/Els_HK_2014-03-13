@@ -16,6 +16,7 @@
     "docs": "python3 tools/bindings.py && python3 tools/ledger.py"
   },
   "devDependencies": {
+    "@els/assets": "workspace:*",
     "@els/kom": "workspace:*",
     "@els/lua": "workspace:*",
     "@types/bun": "1.4.4",
