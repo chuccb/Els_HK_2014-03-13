@@ -20,6 +20,8 @@ import type { StringTable } from "@els/assets";
 import { LuaError } from "@els/lua";
 import type { DeviceManager, DeviceSound, DeviceTexture } from "./device.ts";
 import type { CKTDGUIDialog } from "./dialog.ts";
+import type { UIFonts } from "./font.ts";
+import type { ImeSystem } from "./imeeditbox.ts";
 
 /** `CKTDGUIControl::UI_CONTROL_TYPE` */
 export const UCT = {
@@ -56,6 +58,10 @@ export interface UIContext {
   readonly world: HostWorld;
   /** `CKTDGUIDialog::s_pControlFocus`: the control that has the keyboard focus */
   controlFocus: CKTDGUIControl | null;
+  /** the font lookup of the dialog manager (`m_mapFontToUKFont`, `m_mapUKFontList`) */
+  readonly fonts: UIFonts;
+  /** the statics of the IME edit box class */
+  readonly ime: ImeSystem;
   /** `MessageBoxA(g_pKTDXApp->m_hWnd, text, caption, 0)` (a modal box the exe shows when a script asks for a control that is not there) */
   messageBox(text: string, caption: string): void;
 }

@@ -14,6 +14,8 @@ import { CKTDGUIDialog } from "./dialog.ts";
 import { DeviceManager } from "./device.ts";
 import { CKTDGUIStatic } from "./static.ts";
 import { CKTDGUISlot, CX2Slot, CX2SlotManager } from "./slot.ts";
+import { CKTDGUIIMEEditBox, ImeSystem } from "./imeeditbox.ts";
+import { UIFonts } from "./font.ts";
 
 export interface UIWorldOptions extends HostOptions {
   /** the KOM archives (`AddMassFile`) */
@@ -34,6 +36,7 @@ const IMPLEMENTATIONS: [string, object][] = [
   ["CKTDGUIRadioButton", CKTDGUIRadioButton],
   ["CKTDGUICheckBox", CKTDGUICheckBox],
   ["CKTDGUISlot", CKTDGUISlot],
+  ["CKTDGUIIMEEditBox", CKTDGUIIMEEditBox],
   ["CX2SlotManager", CX2SlotManager],
   ["CX2SlotManager::CX2Slot", CX2Slot],
   ["CKTDGUIControl::CPictureData", CPictureData],
@@ -44,6 +47,8 @@ export class UIWorld implements UIContext {
   readonly strings: StringTable;
   readonly world: HostWorld;
   controlFocus: CKTDGUIControl | null = null;
+  readonly fonts = new UIFonts();
+  readonly ime: ImeSystem;
   /** the message boxes the UI code opened, in order (the exe shows them modally) */
   readonly messageBoxes: { text: string; caption: string }[] = [];
 
@@ -52,6 +57,7 @@ export class UIWorld implements UIContext {
     massFiles.source = opts.source;
     if (opts.tickCount) massFiles.tickCount = opts.tickCount;
     this.devices = new DeviceManager(massFiles);
+    this.ime = new ImeSystem(massFiles.log);
     this.strings = opts.strings;
     this.world = new HostWorld({ readScript: (name) => massFiles.loadDataFile(name), massFiles, notPorted: opts.notPorted });
     const rt = this.world.rt;

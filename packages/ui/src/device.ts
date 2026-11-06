@@ -82,6 +82,10 @@ export class DeviceManager {
    * it `OpenSound` answers null for every sound that is not open yet, as the exe does when FMOD failed to initialise.
    */
   soundSystemInitialised = false;
+  /** `GetCaretBlinkTime()` in milliseconds (the system setting; Windows' default is 530) */
+  caretBlinkTime = 530;
+  /** `DXUTGetGlobalTimer()->GetAbsoluteTime()` in seconds (a clock that stands still unless the application wires a real one) */
+  absoluteTime: () => number = () => 0;
 
   constructor(massFiles: KGCMassFileManager = new KGCMassFileManager()) {
     this.massFiles = massFiles;
