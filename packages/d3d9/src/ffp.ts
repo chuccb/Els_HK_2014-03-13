@@ -240,7 +240,12 @@ function generateVertex(d: ProgramDesc): string {
     else b.push(`o.t${i} = ${src};`);
   }
   // ---- fog
-  if (d.fogSource === "vertex" || d.fogSource === "table") {
+  if (d.fogSource === "vertex" && d.rhw) {
+    // pre-transformed vertices carry their own fog factor in the alpha of the specular colour (1 = no fog)
+    b.push("o.fog = vcol1.a;");
+  } else if (d.fogSource === "table" && d.rhw) {
+    b.push("o.fog = pr.z;"); // pixel fog of transformed vertices: window-space depth
+  } else if (d.fogSource === "vertex" || d.fogSource === "table") {
     b.push(d.rangeFog ? "let fdepth = length(pv);" : "let fdepth = abs(pv.z);");
     if (d.fogSource === "table") b.push("o.fog = fdepth;");
     else b.push(`o.fog = ${fogFactor(d.fogMode, "fdepth")};`);
