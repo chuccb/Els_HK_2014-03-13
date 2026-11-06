@@ -22,15 +22,17 @@ Status legend: `done` verified, `partial` works but not fully verified, `todo`.
 
 ## Phase 2 - Asset decoders (`packages/assets`)
 
-Census of the KOMs (`bun run tools/census.ts`): `tga` 23,784 (2.4 GB), `dds` 31,593, `x` 13,305 (1.2 GB meshes), `y` 13,148
-(animation), `ogg` 5,625, `lua` 4,498, `xet` 4,552, `tet` 1,247, `wav` 67, particle/XMeshPlayer `txt` 40, `kim` 1 (`item.kim`,
+Census of the KOMs (`bun run tools/census.ts`): `tga` 23,784 (2.4 GB), `dds` 31,593, `x` 13,305 (skin meshes + animations, 1.2 GB), `y` 13,148
+(static meshes), `ogg` 5,625, `lua` 4,498, `xet` 4,552, `tet` 1,247, `wav` 67, particle/XMeshPlayer `txt` 40, `kim` 1 (`item.kim`,
 18 MB), fonts 5, `fx` 4, plus loose `data/ui`, `data/movie` (30 MPEG-1), `data/music`, `general.ess` (string table).
 
 | Format | Notes | Status |
 |---|---|---|
 | TGA | done: 23,780 of 23,784 decode as TGA (the other 4 are BMP/JPEG under a `.tga` name); pixel-identical to Pillow except 16 bpp (rounding / alpha bit, FINDINGS section 8) | `packages/assets` (`tga.ts`), `tools/decode-images.ts`, `tools/verify-images.py` |
 | DDS (DXT1/3/5, R8G8B8, A8R8G8B8, X8R8G8B8, A4R4G4B4) + BMP + PNG | done (level 0 only, as the exe asks D3DX for 1 mip level); identical to Pillow; JPEG (2 files) is left to the platform decoder; FourCC 63 bump map (1 file) and volume slices (45) are not decoded | `dds.ts`, `bmp.ts`, `png.ts`; GPU upload as BC textures comes with phase 3 |
-| X meshes (`.x`, `.y`) | formats of `CKTDXDeviceXMesh` / `CKTDXDeviceXSkinMesh`, MSZIP-compressed blocks | todo |
+| X-file container + generic reader (`.x` 12,274 / `.y` 13,039 DirectX-format files) | MSZIP (`bzip`) with the stored-block quirk, text + binary X templates and data objects; all 25,313 files parse, 0 errors, 0 mesh consistency problems (FINDINGS section 9) | `mszip.ts`, `inflate.ts`, `xfile.ts`, `tools/verify-xfiles.ts`, `tools/verify-xparse.ts` |
+| KOG mesh formats: KME (109 `.y`), KSM (1,031 `.x`) + KAC animation block | decoded from the loaders (`LoadKMEMesh`, `LoadKSkinnedMesh`, `ReadKSM`, `UnpackKeys`); 1,140 files, 0 errors, 0 invariant violations | `ksm.ts`, `tools/verify-ksm.ts` |
+| mesh semantics (todo): X `Mesh` -> vertex/index/attribute buffers with frame transforms (static `.y`), `SkinWeights` -> bones, `AnimationSet` -> keys (quaternion convention), `OptimizeKeys`, D3DX controller / track blending, weld + optimize of static meshes | needs the renderer to check against; assumptions are listed in FINDINGS section 9 | todo |
 | XET / TET | done: binary tables (not text), 5,799 files parse with 0 structural problems; exact `FindAniDataIndex` (16 shipped files defeat it, kept) | `xet.ts`, `tools/verify-xet-tet.ts` |
 | particle / XMeshPlayer text scripts (39 `.txt` entries, e.g. `GameMajorParticle*.txt`), `item.kim` (18 MB, "KIM"), `general.ess` (string table, algorithm known) | custom parsers in the exe (`CKTDGParticleSystem`, `CKTDGXMeshPlayer`, `CKTDXStringTable`) | todo |
 | audio | `ogg`/`wav` are decoded by the browser (WebAudio) | todo |

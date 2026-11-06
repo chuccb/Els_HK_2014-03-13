@@ -10,8 +10,13 @@
   ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "./tools/lua-difftest.sh",
+    "test": "./tools/lua-difftest.sh && bun test packages/assets",
     "verify:kom": "bun run tools/verify-kom.ts",
+    "verify:images": "bun run tools/decode-images.ts --tsv /tmp/images_ts.tsv",
+    "verify:xet-tet": "bun run tools/verify-xet-tet.ts",
+    "verify:xfiles": "bun run tools/verify-xfiles.ts --crosscheck",
+    "verify:xparse": "bun run tools/verify-xparse.ts",
+    "verify:ksm": "bun run tools/verify-ksm.ts",
     "verify:lua": "./tools/lua-difftest.sh && ./tools/corpus-diff.sh 1",
     "docs": "python3 tools/bindings.py && python3 tools/ledger.py"
   },

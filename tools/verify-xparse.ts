@@ -21,6 +21,10 @@ const problems: string[] = [];
 const kinds = new Map<string, number>();
 const objTypes = new Map<string, number>();
 const meshStats = { meshes: 0, vertices: 0, faces: 0, withNormals: 0, withUV: 0, withMaterials: 0, skinned: 0 };
+// what a mesh-semantics layer has to handle (informational, not errors)
+const shape = { normalsAligned: 0, normalsNotAligned: 0, triangleOnlyMeshes: 0, meshesWithPolygons: 0, meshesWithoutNormals: 0, meshesWithoutUV: 0, meshesAtIdentity: 0, meshesUnderTransform: 0 };
+const polygonSizes = new Map<number, number>();
+const fvfData = new Map<number, number>();
 let parsed = 0, tried = 0;
 const t0 = performance.now();
 
@@ -40,10 +44,19 @@ function checkMesh(file: string, m: XObject): void {
     if (f.nFaceVertexIndices !== f.faceVertexIndices.length) { problems.push(`${file}: face index count mismatch`); break; }
     if (f.faceVertexIndices.some((i) => !(i < nv))) { problems.push(`${file}: face index beyond ${nv} vertices`); break; }
   }
+  let polygons = false;
+  for (const f of faces) { polygonSizes.set(f.nFaceVertexIndices, (polygonSizes.get(f.nFaceVertexIndices) ?? 0) + 1); if (f.nFaceVertexIndices !== 3) polygons = true; }
+  if (polygons) shape.meshesWithPolygons++; else shape.triangleOnlyMeshes++;
+  if (!m.children.some((c) => c.kind === "object" && c.type === "MeshNormals")) shape.meshesWithoutNormals++;
+  if (!m.children.some((c) => c.kind === "object" && c.type === "MeshTextureCoords")) shape.meshesWithoutUV++;
   for (const c of m.children) {
     if (c.kind !== "object") continue;
+    if (c.type === "FVFData") fvfData.set(num(c.data.dwFVF), (fvfData.get(num(c.data.dwFVF)) ?? 0) + 1);
     if (c.type === "MeshNormals") {
       meshStats.withNormals++;
+      const fnl = arr(c.data.faceNormals) as Array<{ faceVertexIndices: number[] }>;
+      const aligned = num(c.data.nNormals) === nv && fnl.length === faces.length && fnl.every((fn, i) => fn.faceVertexIndices.length === faces[i]!.faceVertexIndices.length && fn.faceVertexIndices.every((v, k) => v === faces[i]!.faceVertexIndices[k]));
+      if (aligned) shape.normalsAligned++; else shape.normalsNotAligned++;
       if (num(c.data.nNormals) !== arr(c.data.normals).length) problems.push(`${file}: normals count`);
       const fn = arr(c.data.faceNormals).length;
       if (fn !== nf) problems.push(`${file}: faceNormals ${fn} != nFaces ${nf}`);
@@ -67,6 +80,21 @@ function checkMesh(file: string, m: XObject): void {
   }
 }
 
+const isIdentity = (m: number[]): boolean => m.length === 16 && m.every((v, i) => Math.abs(v - (i % 5 === 0 ? 1 : 0)) < 1e-6);
+function walkFrames(o: XObject, parentIdentity: boolean): void {
+  let identity = parentIdentity;
+  if (o.type === "Frame") {
+    const t = o.children.find((c): c is XObject => c.kind === "object" && c.type === "FrameTransformMatrix");
+    const fm = t?.data.frameMatrix as { matrix?: XValue } | undefined;
+    if (!isIdentity(arr(fm?.matrix) as number[])) identity = false;
+  }
+  for (const c of o.children) {
+    if (c.kind !== "object") continue;
+    if (c.type === "Mesh") { if (identity) shape.meshesAtIdentity++; else shape.meshesUnderTransform++; }
+    else if (c.type === "Frame") walkFrames(c, identity);
+  }
+}
+
 for (const [key, hit] of index) {
   const ext = key.slice(key.lastIndexOf(".") + 1);
   if (ext !== "X" && ext !== "Y") continue;
@@ -80,6 +108,8 @@ for (const [key, hit] of index) {
     parsed++;
     kinds.set(`${f.format}${f.floatSize}`, (kinds.get(`${f.format}${f.floatSize}`) ?? 0) + 1);
     for (const top of f.objects) {
+      if (top.type === "Frame") walkFrames(top, true);
+      else if (top.type === "Mesh") shape.meshesAtIdentity++;
       for (const o of walk(top)) {
         objTypes.set(o.type, (objTypes.get(o.type) ?? 0) + 1);
         if (o.type === "Mesh") checkMesh(hit.entry.name, o);
@@ -93,6 +123,9 @@ console.log(`parsed ${parsed} of ${tried} DirectX-format files in ${((performanc
 console.log("formats:", JSON.stringify([...kinds]));
 console.log("object types:", JSON.stringify([...objTypes].sort((a, b) => b[1] - a[1])));
 console.log("meshes:", JSON.stringify(meshStats));
+console.log("mesh shapes:", JSON.stringify(shape));
+console.log("polygon sizes:", JSON.stringify([...polygonSizes].sort((a, b) => b[1] - a[1])));
+console.log("FVFData dwFVF:", JSON.stringify([...fvfData]));
 console.log(`parse errors: ${errors.length}`);
 for (const e of errors.slice(0, verbose ? 200 : 25)) console.log("  " + e);
 console.log(`consistency problems: ${problems.length}`);

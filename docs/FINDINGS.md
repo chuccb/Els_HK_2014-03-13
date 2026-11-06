@@ -196,8 +196,10 @@ re-encoded as DXT1, other low-detail textures as DXT3). `@els/assets` decodes le
 RLE true-colour + 3 colour-mapped + 1 grey + 4 that are not TGA (2 BMP `UIEdge.tga` / `HQ_ShopEqipedBorder2.tga`, 2 JPEG
 `tempStick.tga` / `tempSword.tga`). DDS 31,593 = DXT1 27,439, DXT5 1,824, DXT3 1,021, R8G8B8 848, A8R8G8B8 428, X8R8G8B8 16,
 A4R4G4B4 12, one FourCC 63 (`D3DFMT_Q8W8V8U8` bump map, `field_Peita_stage1_bluegate.dds`) + 4 that are not DDS (a PNG, a TGA
-`DLG_UI_AD.dds`, and two **empty** files `Velder_Field_001.dds` / `_003.dds`). 45 DDS carry the volume-texture flag; the exe has no
-volume loader, so only the first slice is decoded. 128x128 (20,557) and 64x64 DDS (26,251) dominate.
+`DLG_UI_AD.dds`, and two **empty** files `Velder_Field_001.dds` / `_003.dds`). 45 DDS carry the volume-texture flag; the exe
+never calls `D3DXCreateVolumeTexture*` / `D3DXCreateCubeTexture*` (0 references in `x2.exe.c`), only the 2D loader, so only the
+first slice is decoded (what D3DX itself does with such a file is unverified). By size, 128x128 is 20,557 of the 23,784 TGAs and
+64x64 is 26,251 of the 31,593 DDS (`image_census.json`).
 
 **Verification** (`tools/decode-images.ts`, `tools/verify-images.py`): 55,372 of 55,377 entries decode (the 5 exceptions are the
 Q8W8V8U8 map, the 2 JPEGs and the 2 empty files; JPEG is left to the browser's decoder). Against Pillow 13 as an independent
@@ -205,11 +207,14 @@ decoder, **55,348 are pixel-identical** (all DXT1/3/5, all uncompressed DDS, 24/
 the 24 that differ are the 16 bpp TGAs, where Pillow ignores the alpha bit and scales 5 -> 8 bits by rounding (we replicate
 bits and honour the descriptor's alpha-bit count).
 
-Open assumptions (no D3DX available to compare): (1) 32 bpp TGA = A8R8G8B8 whatever the descriptor says (673 files have
-descriptor 0x00/0x20 with real alpha data; reading them as opaque would break the UI atlases); (2) 16 bpp TGA with descriptor
-alpha bits = 1 is A1R5G5B5. The 24 such files are `MESH_*` textures whose bit 15 is clear in every pixel of the one inspected
-(`MESH_ARME_CASH_FOOT20A.tga`): decoded as alpha 0. Harmless as long as meshes ignore the texture alpha; to be confirmed against
-real captures.
+Open assumptions (no D3DX available to compare):
+1. 32 bpp TGA = A8R8G8B8 whatever the descriptor says. Measured: 757 32 bpp TGAs have descriptor alpha bits = 0; 729 of them carry
+   a real alpha channel (e.g. `Arme_ChargeMp2.tga`, alpha 0..160; reading them as opaque would break the effect and UI atlases),
+   26 are fully opaque and 2 have alpha 0 everywhere (`Wisp_Alpha.tga` 2x2, `Mesh_Elsword_Cash_Weapon190.tga` 128x128).
+2. 16 bpp TGA with descriptor alpha bits = 1 is A1R5G5B5. Measured: all 24 such files (23 `MESH_*` cash-costume textures +
+   `Fire_flame01.tga`) have bit 15 clear in every pixel, so they decode to alpha 0 everywhere. If D3DX honours that bit the renderer
+   must still draw them without alpha (the costume meshes obviously show in the game), so: ignore texture alpha for materials that
+   do not enable blending / alpha test. To be confirmed against real captures.
 
 **XET / TET are small binary tables, not text** (`CKTDXDeviceXET_Preprocessing::OpenFile` 328EA3A0, `FindAniDataIndex` 328E9F70,
 `CKTDXDeviceTET_Preprocessing::OpenFile` 328E6460, `GetTexUV` 328E62E0, `GetString` 328E6280; layouts in `packages/assets/src/xet.ts`):
@@ -224,7 +229,69 @@ real captures.
   (e.g. in `Mesh_Lire_Basic_Face_Sorted.XET` `CR_LobbyWait` sorts before `ComboX4`). `findAniDataIndex` reproduces the exact
   search, including those misses.
 
-Not done in Phase 2: X / Y meshes, particle and XMeshPlayer text scripts, `item.kim`, `general.ess`, MPEG-1, the `XETProxy` /
-`TETProxy` Lua authoring classes (registered with `lua_tinker`, but none of the 4,498 shipped scripts calls them; the shipped tables are
-already binary).
+Not done in Phase 2 (see section 9 for what the mesh work added): particle and XMeshPlayer text scripts, `item.kim`, `general.ess`,
+MPEG-1, the `XETProxy` / `TETProxy` Lua authoring classes (registered with `lua_tinker`, but none of the 4,498 shipped scripts calls
+them; the shipped tables are already binary).
 
+## 9. Meshes, animations and the X-file container (Phase 2)
+
+**Who loads what.** `CKTDXDeviceXMesh::_Load` (3296B780) and `CKTDXDeviceXSkinMesh::_Load` (32970130) look at the first dword: `'KME '`
+(541412683) / `'KSM '` (541938507) go to KOG's own loaders (`LoadKMEMesh` 3296A880, `LoadKSkinnedMesh` 3296EBB0), anything else to
+Direct3D (`D3DXLoadMeshFromXInMemory` with options 0x220 for static meshes, `D3DXLoadMeshHierarchyFromXInMemory` with a
+`CMultiAnimAllocateHierarchy` for skin meshes). By content, the 26,453 `.x` / `.y` entries are:
+
+| | DirectX `bzip` | DirectX `txt` | DirectX `bin` | `KSM ` | `KME ` |
+|---|---|---|---|---|---|
+| `.x` (13,305) | 12,203 | 67 | 4 | 1,031 | - |
+| `.y` (13,148) | 13,001 | 38 | - | - | 109 |
+
+By use (parsed with the generic reader, `tools/verify-xparse.ts`): **`.y` = static meshes** (`CKTDXDeviceXMesh`: map pieces, props,
+effects; every one of the 13,039 DirectX-format files holds meshes, on average 5.4 and at most 451 per file, 1.39 M frames in all, only
+37 files carry an `AnimationSet`); **`.x` = skin meshes and animations** (`CKTDXDeviceXSkinMesh`: 12,274 DirectX-format files, 7,392
+with `SkinWeights`, 5,304 with `AnimationSet`s; the 1,031 KSM files are skeleton + animation (+ mesh) files, 710 of them named `Motion_*`, the largest 18.8 MB
+`Motion_Field_Boss_Iron_Eltrion.X`).
+
+**MSZIP (`bzip` / `tzip`)**: `xof 0303bzip0032`, `u32` total size including the 16-byte header, then chunks `{u16 raw (<= 32768),
+u16 packed (counts the 'CK'), 'CK', raw deflate}`; every chunk may back-reference the previous 32 KiB of output. Two quirks are
+handled in `packages/assets/src/inflate.ts` (own decoder, writes into the shared output buffer, stops after the chunk's raw size):
+51 entries contain **stored blocks without the NLEN complement** (LEN, then the data directly), which fflate and zlib reject.
+`tools/verify-xfiles.ts --crosscheck`: all 25,204 compressed entries decode to their declared size; the 25,153 that fflate can decode
+are byte-identical to fflate's output.
+
+**X-file reader** (`xfile.ts`, text + binary, template-driven): `tools/verify-xparse.ts` parses **all 25,313 DirectX-format files**
+(25,208 binary, 105 text) to the last byte with 0 errors in ~100 s. Object census: Frame 1,982,071, FrameTransformMatrix 1,982,071,
+AnimationKey 258,972, Material 173,782, TextureFilename 167,227, Animation 108,944, Mesh 107,183 (12.05 M vertices, 10.49 M faces),
+MeshNormals 107,183, MeshMaterialList 107,183, MeshTextureCoords 107,120, VertexDuplicationIndices 95,351, SkinWeights 78,639,
+XSkinMeshHeader 8,312, AnimationSet 6,856, AnimTicksPerSecond 890, FVFData 72, MeshVertexColors 1. Consistency checked for every mesh:
+face indices < vertex count, normal / texture-coordinate / material-list sizes match, material indices < material count, skin
+weight vertex indices in range - 0 violations. Shape of the data a mesh layer must handle: **every one of the 10,490,401 faces is a
+triangle**; the normals are index-aligned with the positions in 107,150 meshes and **33 are not** (they need vertex splitting); 63
+meshes have no texture coordinates; 72 meshes carry `FVFData` (all `dwFVF` 0x800C = XYZB4 | LASTBETA_D3DCOLOR); and **102,313 of the
+107,183 meshes sit under a non-identity frame transform** (only 4,870 are at identity), so the order in which frame matrices are
+applied matters for the 13,039 static `.y` files. (Binary-format facts the reader relies on: template array dimensions are NAME
+tokens, numeric members are packed into INTEGER_LIST / FLOAT_LIST tokens, strings carry a separator token.)
+
+**KME** (`parseKme`, 0x3C-byte header): `'KME '`, version 512, FVF 338 (XYZ | NORMAL | DIFFUSE | TEX1, 36 bytes/vertex, required by the
+loader), options (bit 0 = 32-bit indices), then offsets/counts of 72-byte materials (`D3DMATERIAL9` + texture-name offset), vertices,
+indices and per-face attribute ids, bounding centre and radius. **KSM** (`parseKsm`): 0x20-byte header (`'KSM '`, 512, offset of the
+animation block, centre, max radius, frame count <= 255) + 84-byte frames (name, matrix, bounding radius, mesh-container offset, sibling,
+first child; frame 0 is the root, every other frame is referenced exactly once) + 56-byte mesh containers (FVF 274 = XYZ | NORMAL | TEX1
+in 8,882 containers, FVF 18 in 54; materials, vertices, 16-bit indices, attributes, 76-byte bones with offset matrix, frame index and
+`u32 vertexIndex[n]` + `f32 weight[n]` influences). **KAC** (`parseKac`, the animation block of a KSM): `'KAC '`, version <= 256, sets
+{name, type, `f64` ticks/s, playback} with per-frame animations of 5-byte `{f32 time, u8 flags}` keys plus a float payload, unpacked
+exactly like `UnpackKeys` (3298A4E0: flag bits 0..2 scale, 3..5 translation, 6 quaternion; bit 7 suppresses a channel when none of
+its bits is set; absent components repeat the previous value). Corpus (`tools/verify-ksm.ts`): 109 KME + 1,031 KSM parse with 0 errors
+and 0 invariant violations (indices inside the vertex buffer, attributes inside the material list, bones inside the frame list, frame
+tree connected, key times non-decreasing, all numbers finite): 52,964 frames (<= 234 per file), 8,936 mesh containers (8 KSM have none;
+<= 43 bones, palette <= 20), 1.57 M vertices, 1.59 M faces, 16,428 animation sets in 1,027 files - **all keyframed, none compressed,
+all looping, all 4800 ticks/s** - 967,449 animations, 109.6 M keys.
+
+**What the exe adds on top (not ported yet)**: static meshes are cloned to FVF 338, their vertex colour is set to 0xFFFFFFFF,
+`D3DXComputeBoundingSphere`, `D3DXWeldVertices` (all epsilons 0) and `Optimize(MANAGED | ATTRSORT | VERTEXCACHE)` run, and the
+attribute table becomes the draw ranges; keys read from a KSM go through `OptimizeKeys` (32988610, tolerance 0.001) before
+`RegisterAnimationSRTKeys`; the `ID3DXAnimationController` is created with 2 tracks and 30 events. Open points for the renderer
+phase: (1) D3DX's `D3DXLoadMeshFromX` flattens multi-mesh files with the frame transforms applied (assumed from the documented
+behaviour, not checked against the real library; 13,039 `.y` files depend on it); (2) the quaternion convention of X-file
+`AnimationKey`s (w,x,y,z, possibly conjugated) can be decided by comparing key 0 with the frame's rest matrix, the same
+relationship holds in the KSM files; (3) X-file skin meshes need `D3DXLoadMeshHierarchyFromX` semantics (frame names, `SkinWeights`
+-> bone table, `VertexDuplicationIndices`).

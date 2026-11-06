@@ -3,7 +3,7 @@
  *
  * Census of the client's 31,593 `.dds` entries (tools/census-images.ts): DXT1 27,439; DXT5 1,824; DXT3 1,021; uncompressed
  * R8G8B8 848; A8R8G8B8 428; X8R8G8B8 16; A4R4G4B4 12; one FourCC 63 (D3DFMT_Q8W8V8U8 bump map, kept raw); 45 volume textures
- * (caps2 0x200000; only the first slice is decoded, the exe has no volume-texture loader); 4 entries are not DDS at all (PNG,
+ * (caps2 0x200000; only the first slice is decoded; the exe only calls the 2D loader, never D3DXCreateVolumeTexture*); 4 entries are not DDS at all (PNG,
  * TGA, two empty files) and are reported as such by `sniffImage`.
  *
  * Block decoding follows the D3D9 reference: 565 -> 888 by bit replication, 4-colour interpolation `(2a + b) / 3` in 8-bit
