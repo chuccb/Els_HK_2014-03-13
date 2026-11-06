@@ -42,11 +42,11 @@ function sortTable(L: LuaThread, t: LuaTable, comp: LuaValue): void {
       for (;;) {
         // repeat ++i until a[i] >= P
         while (lt(get(++i), P)) {
-          if (i > u) throw callerError("invalid order function for sorting");
+          if (i >= u) throw callerError("invalid order function for sorting"); // LuaJIT: i>=u (PUC 5.1 has i>u)
         }
         // repeat --j until a[j] <= P
         while (lt(P, get(--j))) {
-          if (j < l) throw callerError("invalid order function for sorting");
+          if (j <= l) throw callerError("invalid order function for sorting"); // LuaJIT: j<=l (PUC 5.1 has j<l)
         }
         if (j < i) break;
         const x = get(i), y = get(j);

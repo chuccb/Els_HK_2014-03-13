@@ -20,6 +20,7 @@ import {
 } from "./value.ts";
 import type { LuaValue, NativeImpl } from "./value.ts";
 import { scanNumber } from "./strscan.ts";
+import { luaPow } from "./cmath.ts";
 
 export const EMPTY: LuaValue[] = [];
 const LUAI_MAXSTACK = 65500; // LJ_STACK_MAX
@@ -215,6 +216,16 @@ export function isCallable(v: LuaValue): boolean {
 
 // ---- string <-> number -------------------------------------------------------------------------------------
 
+/**
+ * Loop test of FORI/FORL (vm_x86.dasc): the SIGN BIT of the step picks the comparison, not `step > 0`. A step of +0 is "forward"
+ * (idx <= stop, so `for i = 1, 3, 0` is skipped when stop < idx and endless otherwise), -0 and NaN count as negative (the x86 default
+ * NaN has its sign bit set; that is what 0/0 gives), and an unordered comparison ends the loop. The caller handles step > 0.
+ */
+function forGoes(idx: number, stop: number, step: number): boolean {
+  if (step < 0) return stop <= idx;
+  return step === 0 && 1 / step > 0 ? idx <= stop : stop <= idx;
+}
+
 /** lj_strscan_num (a literal port, see strscan.ts): the number a string denotes, or undefined. */
 export function strToNumber(s: string): number | undefined {
   return scanNumber(s);
@@ -273,7 +284,7 @@ export function call(L: LuaThread, fn: LuaValue, args: LuaValue[]): LuaValue[] {
     if (fn instanceof LuaNative) return callNative(L, fn, args);
     if (fn instanceof LuaClosure) break;
     const tm = metaOf(L.state, fn, "__call");
-    if (tm === undefined || depth > 100) throw opError("call", fn, -1);
+    if (!(tm instanceof LuaClosure || tm instanceof LuaNative)) throw opError("call", fn, -1); // lj_meta_call: __call must be a function, no chains
     args = [fn, ...args];
     fn = tm;
   }
@@ -404,7 +415,7 @@ function numArith(op: number, a: number, b: number): number {
     case 2: return a * b;
     case 3: return a / b;
     case 4: return a - Math.floor(a / b) * b;
-    default: return a ** b;
+    default: return luaPow(a, b);
   }
 }
 
@@ -791,7 +802,7 @@ function runLoop(L: LuaThread, entryDepth: number): void {
       case OP_MULVV: { const b = stack[base + (ins >>> 24)], c = stack[base + ((ins >>> 16) & 0xff)]; frame.pc = pc; stack[base + ((ins >>> 8) & 0xff)] = typeof b === "number" && typeof c === "number" ? b * c : arith(L, 2, b, c); break; }
       case OP_DIVVV: { const b = stack[base + (ins >>> 24)], c = stack[base + ((ins >>> 16) & 0xff)]; frame.pc = pc; stack[base + ((ins >>> 8) & 0xff)] = typeof b === "number" && typeof c === "number" ? b / c : arith(L, 3, b, c); break; }
       case OP_MODVV: { const b = stack[base + (ins >>> 24)], c = stack[base + ((ins >>> 16) & 0xff)]; frame.pc = pc; stack[base + ((ins >>> 8) & 0xff)] = typeof b === "number" && typeof c === "number" ? b - Math.floor(b / c) * c : arith(L, 4, b, c); break; }
-      case OP_POW: { const b = stack[base + (ins >>> 24)], c = stack[base + ((ins >>> 16) & 0xff)]; frame.pc = pc; stack[base + ((ins >>> 8) & 0xff)] = typeof b === "number" && typeof c === "number" ? b ** c : arith(L, 5, b, c); break; }
+      case OP_POW: { const b = stack[base + (ins >>> 24)], c = stack[base + ((ins >>> 16) & 0xff)]; frame.pc = pc; stack[base + ((ins >>> 8) & 0xff)] = typeof b === "number" && typeof c === "number" ? luaPow(b, c) : arith(L, 5, b, c); break; }
       case OP_CAT: {
         const b = ins >>> 24, c = (ins >>> 16) & 0xff;
         frame.pc = pc;
@@ -934,7 +945,7 @@ function runLoop(L: LuaThread, entryDepth: number): void {
         // __call resolution
         for (let depth = 0; !(fn instanceof LuaClosure || fn instanceof LuaNative); depth++) {
           const tm = metaOf(G, fn, "__call");
-          if (tm === undefined || depth > 100) throw opError("call", fn, 0);
+          if (!(tm instanceof LuaClosure || tm instanceof LuaNative)) throw opError("call", fn, 0); // lj_meta_call: __call must be a function, no chains
           if (ra + nargs + 3 > stack.length) growStack(L, ra + nargs + 4);
           for (let i = nargs; i >= 0; i--) stack[ra + 1 + i] = stack[ra + i];
           nargs++;
@@ -972,7 +983,7 @@ function runLoop(L: LuaThread, entryDepth: number): void {
         frame.pc = pc;
         for (let depth = 0; !(fn instanceof LuaClosure || fn instanceof LuaNative); depth++) {
           const tm = metaOf(G, fn, "__call");
-          if (tm === undefined || depth > 100) throw opError("call", fn, 0);
+          if (!(tm instanceof LuaClosure || tm instanceof LuaNative)) throw opError("call", fn, 0); // lj_meta_call: __call must be a function, no chains
           if (ra + nargs + 3 > stack.length) growStack(L, ra + nargs + 4);
           for (let i = nargs; i >= 0; i--) stack[ra + 1 + i] = stack[ra + i];
           nargs++;
@@ -1039,7 +1050,7 @@ function runLoop(L: LuaThread, entryDepth: number): void {
           for (let i = 0; i < want; i++) stack[ra + i] = res[i];
           break;
         }
-        if (metaOf(G, fn, "__call") === undefined) throw opError("call", fn, 0);
+        { const tm = metaOf(G, fn, "__call"); if (!(tm instanceof LuaClosure || tm instanceof LuaNative)) throw opError("call", fn, 0); }
         const res = call(L, fn, [stack[ra + 1], stack[ra + 2]]);
         for (let i = 0; i < want; i++) stack[ra + i] = res[i];
         break;
@@ -1094,7 +1105,7 @@ function runLoop(L: LuaThread, entryDepth: number): void {
           idx = forPrep(a, "initial value"); stop = forPrep(b, "limit"); step = forPrep(c, "step");
           stack[ra] = idx; stack[ra + 1] = stop; stack[ra + 2] = step;
         }
-        if (step > 0 ? idx <= stop : stop <= idx) { stack[ra + 3] = idx; }
+        if (step > 0 ? idx <= stop : forGoes(idx, stop, step)) { stack[ra + 3] = idx; }
         else pc += (ins >>> 16) - 0x8000;
         break;
       }
@@ -1103,7 +1114,7 @@ function runLoop(L: LuaThread, entryDepth: number): void {
         const step = stack[ra + 2] as number, stop = stack[ra + 1] as number;
         const idx = (stack[ra] as number) + step;
         stack[ra] = idx;
-        if (step > 0 ? idx <= stop : stop <= idx) { stack[ra + 3] = idx; pc += (ins >>> 16) - 0x8000; }
+        if (step > 0 ? idx <= stop : forGoes(idx, stop, step)) { stack[ra + 3] = idx; pc += (ins >>> 16) - 0x8000; }
         break;
       }
       case OP_ITERL: case OP_IITERL: {

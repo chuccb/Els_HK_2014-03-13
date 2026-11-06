@@ -1,11 +1,12 @@
 import { LuaTable } from "../table.ts";
 import { LuaClosure, LuaError, LuaNative, LuaUserdata, typeName, callerError } from "../value.ts";
 import type { LuaValue } from "../value.ts";
-import { call, callerLevels, newThread, resume, tostringMeta, YieldSignal, EMPTY } from "../vm.ts";
+import { call, callerLevels, index, newThread, resume, strToNumber, tostringMeta, YieldSignal, EMPTY } from "../vm.ts";
 import type { LuaState, LuaThread } from "../vm.ts";
 import { argError, checkAny, checkFunc, checkInt, checkNum, checkStr, checkTable, makeLib, optInt, optNum, optStr } from "./util.ts";
 import { loadChunk } from "./base.ts";
 import type { BaseHost } from "./base.ts";
+import { luaPow } from "../cmath.ts";
 
 // ---- math ------------------------------------------------------------------------------------------------------
 
@@ -77,7 +78,7 @@ function installMath(G: LuaState): void {
       return [b === 10 ? Math.log10(x) : b === 2 ? Math.log2(x) : Math.log(x) / Math.log(b)];
     },
     log10: (_L, a) => [Math.log10(checkNum(a, 0, "log10"))],
-    pow: (_L, a) => [Math.pow(checkNum(a, 0, "pow"), checkNum(a, 1, "pow"))],
+    pow: (_L, a) => [luaPow(checkNum(a, 0, "pow"), checkNum(a, 1, "pow"))],
     fmod: (_L, a) => [checkNum(a, 0, "fmod") % checkNum(a, 1, "fmod")],
     modf(_L, a) {
       const x = checkNum(a, 0, "modf");
@@ -101,7 +102,7 @@ function installMath(G: LuaState): void {
       let r = checkNum(a, 0, "min");
       for (let i = 1; i < a.length; i++) {
         const v = checkNum(a, i, "min");
-        if (v < r) r = v;
+        r = r < v ? r : v; // minsd: the second operand wins when equal (-0) or unordered (NaN)
       }
       return [r];
     },
@@ -109,7 +110,7 @@ function installMath(G: LuaState): void {
       let r = checkNum(a, 0, "max");
       for (let i = 1; i < a.length; i++) {
         const v = checkNum(a, i, "max");
-        if (v > r) r = v;
+        r = r > v ? r : v; // maxsd: the second operand wins when equal (-0) or unordered (NaN)
       }
       return [r];
     },
@@ -229,6 +230,9 @@ export interface OsHost extends BaseHost {
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
+/** 3000-12-31 23:59:59 UTC: the last instant msvcr100's 64-bit time functions accept. */
+const MAX_CRT_TIME = 32535215999;
+
 function strftime(fmt: string, d: Date, utc: boolean): string {
   const g = {
     Y: utc ? d.getUTCFullYear() : d.getFullYear(),
@@ -247,7 +251,7 @@ function strftime(fmt: string, d: Date, utc: boolean): string {
       case "A": return DAYS[g.w]!;
       case "b": case "h": return MONTHS[g.m]!.slice(0, 3);
       case "B": return MONTHS[g.m]!;
-      case "c": return strftime("%a %b %d %H:%M:%S %Y", d, utc);
+      case "c": return strftime("%m/%d/%y %H:%M:%S", d, utc); // "C" locale of the MSVC CRT: %x %X
       case "d": return p2(g.d);
       case "H": return p2(g.H);
       case "I": return p2(g.H % 12 === 0 ? 12 : g.H % 12);
@@ -268,7 +272,7 @@ function strftime(fmt: string, d: Date, utc: boolean): string {
       default: return "%" + c;
     }
   };
-  return fmt.replace(/%(.)/g, (_m, c: string) => rec(c));
+  return fmt.replace(/%([^])/g, (_m, c: string) => rec(c));
 }
 
 function installOs(G: LuaState, host: OsHost): void {
@@ -278,40 +282,48 @@ function installOs(G: LuaState, host: OsHost): void {
     time(_L, a) {
       if (a[0] === undefined) return [Math.floor(now() / 1000)];
       const t = checkTable(a, 0, "time");
-      const field = (k: string, def?: number): number => {
-        const v = t.getStr(k);
-        if (v === undefined) {
-          if (def === undefined) throw new LuaError(`field '${k}' missing in date table`);
+      // lib_os.c os_time: getfield() in the order sec, min, hour, day, month, year; a field counts when lua_isnumber (numeric
+      // strings too) and is truncated like (int)lua_tointeger; a missing field with a negative default is an error
+      const field = (k: string, def: number): number => {
+        const v = index(_L, t, k); // lua_getfield honours __index
+        const n = typeof v === "number" ? v : typeof v === "string" ? strToNumber(v) : undefined;
+        if (n === undefined) {
+          if (def < 0) throw new LuaError(`field '${k}' missing in date table`);
           return def;
         }
-        if (typeof v !== "number") throw new LuaError(`field '${k}' missing in date table`);
-        return v;
+        return !(n > -2147483649 && n < 2147483648) ? -2147483648 : Math.trunc(n);
       };
-      const d = new Date(field("year"), field("month") - 1, field("day"), field("hour", 12), field("min", 0), field("sec", 0));
-      return [Math.floor(d.getTime() / 1000)];
+      const sec = field("sec", 0), min = field("min", 0), hour = field("hour", 12);
+      const day = field("day", -1), month = field("month", -1) - 1, year = field("year", -1) - 1900;
+      const d = new Date(0); // mktime: local time, fields normalised (setFullYear avoids the two-digit-year rule of the Date constructor)
+      d.setFullYear(year + 1900, month, day);
+      d.setHours(hour, min, sec, 0);
+      const secs = Math.floor(d.getTime() / 1000);
+      return secs >= 0 && secs <= MAX_CRT_TIME ? [secs] : [undefined]; // msvcr100 _mktime64 returns -1 (=> nil) outside 1970..3000
     },
     clock: () => [(host.clock ? host.clock() : performance.now() / 1000) - t0],
     date(_L, a) {
       let fmt = optStr(a, 0, "date", "%c");
-      const t = a[1] === undefined ? now() / 1000 : checkNum(a, 1, "date");
-      const d = new Date(Math.floor(t) * 1000);
+      // (time_t)luaL_checknumber(L, 2): truncation toward zero. The exe's CRT (msvcr100) _gmtime64/_localtime64 only handle
+      // 1970-01-01 00:00:00 .. 3000-12-31 23:59:59 UTC and return NULL otherwise, which os.date turns into nil.
+      const t = a[1] === undefined ? Math.floor(now() / 1000) : Math.trunc(checkNum(a, 1, "date"));
       let utc = false;
       if (fmt[0] === "!") { utc = true; fmt = fmt.slice(1); }
-      if (fmt.startsWith("*t")) {
+      if (!(t >= 0 && t <= MAX_CRT_TIME)) return [undefined];
+      const d = new Date(t * 1000);
+      if (fmt === "*t") {
         const r = new LuaTable(0, 9);
-        const yd = (u: boolean) => {
-          const Y = u ? d.getUTCFullYear() : d.getFullYear(), m = u ? d.getUTCMonth() : d.getMonth(), dd = u ? d.getUTCDate() : d.getDate();
-          return Math.floor((Date.UTC(Y, m, dd) - Date.UTC(Y, 0, 1)) / 86400000) + 1;
-        };
-        r.setStr("year", utc ? d.getUTCFullYear() : d.getFullYear());
-        r.setStr("month", (utc ? d.getUTCMonth() : d.getMonth()) + 1);
-        r.setStr("day", utc ? d.getUTCDate() : d.getDate());
+        const Y = utc ? d.getUTCFullYear() : d.getFullYear(), mo = utc ? d.getUTCMonth() : d.getMonth(), dd = utc ? d.getUTCDate() : d.getDate();
+        r.setStr("year", Y);
+        r.setStr("month", mo + 1);
+        r.setStr("day", dd);
         r.setStr("hour", utc ? d.getUTCHours() : d.getHours());
         r.setStr("min", utc ? d.getUTCMinutes() : d.getMinutes());
         r.setStr("sec", utc ? d.getUTCSeconds() : d.getSeconds());
         r.setStr("wday", (utc ? d.getUTCDay() : d.getDay()) + 1);
-        r.setStr("yday", yd(utc));
-        r.setStr("isdst", false);
+        r.setStr("yday", Math.floor((Date.UTC(Y, mo, dd) - Date.UTC(Y, 0, 1)) / 86400000) + 1);
+        // tm_isdst: local time is "daylight" when its UTC offset is below the larger of the January and July offsets
+        r.setStr("isdst", !utc && d.getTimezoneOffset() < Math.max(new Date(Y, 0, 1).getTimezoneOffset(), new Date(Y, 6, 1).getTimezoneOffset()));
         return [r];
       }
       return [strftime(fmt, d, utc)];
