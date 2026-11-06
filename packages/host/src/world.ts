@@ -15,6 +15,8 @@ import type { HostOptions } from "./tinker.ts";
 
 export interface WorldOptions extends HostOptions {
   readScript(upperCaseBaseName: string): Uint8Array | undefined;
+  /** the mass-file manager the Lua global `KGCMassFileManager` is (the device manager's); default: a new one */
+  massFiles?: KGCMassFileManager;
   /** Lua `print` / `io.write` sink (default: dropped) */
   write?: (text: string) => void;
 }
@@ -30,9 +32,10 @@ export class HostWorld {
   /** the scripts run so far, in order (IncludeLua included) */
   readonly executed: string[] = [];
   /** the global `KGCMassFileManager` (the device manager's mass-file manager) that MassFileMappingList_HK.lua fills */
-  readonly massFiles = new KGCMassFileManager();
+  readonly massFiles: KGCMassFileManager;
 
   constructor(private readonly opts: WorldOptions) {
+    this.massFiles = opts.massFiles ?? new KGCMassFileManager();
     this.G = createLuaState({ write: opts.write ?? (() => {}) });
     this.rt = new HostRuntime(this.G, opts);
     // IncludeLua_ (328C2930): the file name is UTF-8, the directory is dropped, a missing file is an error log and `false`

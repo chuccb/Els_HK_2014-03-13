@@ -16,7 +16,7 @@
  *    it) is not implemented: those textures get the reduced size in an uncompressed format.
  *  - JPEG is not decoded here (see @els/assets); `D3DXGetImageInfoFromFileInMemory` still reports its size.
  */
-import { decodeImage, encodePng, ImageFormatError, readDdsHeader, ddsSourceFormat, sniffImage } from "@els/assets";
+import { decodeImage, encodePng, ImageFormatError, readDdsHeader, ddsSourceFormat, readTgaInfo, sniffImage } from "@els/assets";
 import type { DecodedImage, ImageContainer, SourceFormat } from "@els/assets";
 import { D3DFMT, D3DPOOL, D3DRTYPE } from "./enums.ts";
 import { formatInfo, fromRgba8, mipSize, surfaceBytes, surfacePitch } from "./formats.ts";
@@ -67,6 +67,11 @@ export function D3DXGetImageInfoFromFileInMemory(data: Uint8Array): { hr: number
     if (container === "dds") {
       const h = readDdsHeader(data);
       return { hr: D3D_OK, info: { Width: h.width, Height: h.height, Depth: Math.max(1, h.depth), MipLevels: Math.max(1, h.mipCount), Format: FMT_BY_NAME[ddsSourceFormat(h)], ResourceType: D3DRTYPE.TEXTURE, ImageFileFormat: D3DXIFF.DDS } };
+    }
+    if (container === "tga") {
+      // the header is all the info call reads (a 2048x2048 atlas would cost a full decode otherwise)
+      const t = readTgaInfo(data);
+      return { hr: D3D_OK, info: { Width: t.width, Height: t.height, Depth: 1, MipLevels: 1, Format: FMT_BY_NAME[t.format], ResourceType: D3DRTYPE.TEXTURE, ImageFileFormat: D3DXIFF.TGA } };
     }
     const img = decodeImage(data);
     return { hr: D3D_OK, info: { Width: img.width, Height: img.height, Depth: 1, MipLevels: 1, Format: FMT_BY_NAME[img.format], ResourceType: D3DRTYPE.TEXTURE, ImageFileFormat: IFF_BY_CONTAINER[container] } };

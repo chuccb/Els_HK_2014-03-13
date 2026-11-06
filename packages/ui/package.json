@@ -1,0 +1,13 @@
+{
+  "name": "@els/ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@els/assets": "workspace:*",
+    "@els/d3d9": "workspace:*",
+    "@els/host": "workspace:*",
+    "@els/lua": "workspace:*"
+  }
+}

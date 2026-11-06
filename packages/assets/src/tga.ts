@@ -38,16 +38,46 @@ export function readTgaHeader(b: Uint8Array): TgaHeader {
   };
 }
 
-export function decodeTga(b: Uint8Array): DecodedImage {
-  const h = readTgaHeader(b);
+/** the header checks of `decodeTga` (the file kinds it can read) */
+function checkTgaHeader(h: TgaHeader): void {
   const { width, height, bpp, imageType } = h;
-  const rle = imageType >= 9;
   const base = imageType & 7; // 1 = colour-mapped, 2 = true colour, 3 = grey
   if (base < 1 || base > 3 || imageType > 11) throw new ImageFormatError(`TGA: unsupported image type ${imageType}`, "tga");
   if (width === 0 || height === 0) throw new ImageFormatError("TGA: zero-sized image", "tga");
   if (base === 1 && (h.colorMapType !== 1 || bpp !== 8)) throw new ImageFormatError("TGA: colour-mapped image needs an 8 bpp index and a palette", "tga");
   if (base === 2 && ![15, 16, 24, 32].includes(bpp)) throw new ImageFormatError(`TGA: unsupported true-colour depth ${bpp}`, "tga");
   if (base === 3 && bpp !== 8 && bpp !== 16) throw new ImageFormatError(`TGA: unsupported grey depth ${bpp}`, "tga");
+}
+
+/** the format D3DX reports for a TGA (see the alpha rules above) */
+function tgaSourceFormat(h: TgaHeader): { format: SourceFormat; hasAlpha: boolean } {
+  const { bpp } = h;
+  const base = h.imageType & 7;
+  const alphaBits = h.descriptor & 0x0f;
+  if (base === 1) return { format: "P8", hasAlpha: false };
+  if (base === 3) return { format: bpp === 8 ? "L8" : "A8L8", hasAlpha: bpp === 16 };
+  if (bpp === 32) return { format: "A8R8G8B8", hasAlpha: true };
+  if (bpp === 24) return { format: "R8G8B8", hasAlpha: false }; // D3DX reports 24 bpp TGA like 24 bpp BMP; the exe itself tests for R8G8B8 to pick DXT1 at low detail
+  if (alphaBits === 1 && bpp === 16) return { format: "A1R5G5B5", hasAlpha: true };
+  return { format: "X1R5G5B5", hasAlpha: false };
+}
+
+/**
+ * Width, height and format of a TGA without decoding its pixels (what `D3DXGetImageInfoFromFileInMemory` reads: the header).
+ * Throws ImageFormatError for the files `decodeTga` rejects on their header.
+ */
+export function readTgaInfo(b: Uint8Array): { width: number; height: number; format: SourceFormat } {
+  const h = readTgaHeader(b);
+  checkTgaHeader(h);
+  return { width: h.width, height: h.height, format: tgaSourceFormat(h).format };
+}
+
+export function decodeTga(b: Uint8Array): DecodedImage {
+  const h = readTgaHeader(b);
+  const { width, height, bpp, imageType } = h;
+  const rle = imageType >= 9;
+  const base = imageType & 7; // 1 = colour-mapped, 2 = true colour, 3 = grey
+  checkTgaHeader(h);
   const alphaBits = h.descriptor & 0x0f;
 
   // colour map (RGBA per entry, indexed by absolute index = first + position)
@@ -95,14 +125,7 @@ export function decodeTga(b: Uint8Array): DecodedImage {
 
   const topDown = (h.descriptor & 0x20) !== 0;
   const rightToLeft = (h.descriptor & 0x10) !== 0;
-  let hasAlpha = false;
-  let format: SourceFormat;
-  if (base === 1) format = "P8";
-  else if (base === 3) { format = bpp === 8 ? "L8" : "A8L8"; hasAlpha = bpp === 16; }
-  else if (bpp === 32) { format = "A8R8G8B8"; hasAlpha = true; }
-  else if (bpp === 24) format = "R8G8B8"; // D3DX reports 24 bpp TGA like 24 bpp BMP; the exe itself tests for R8G8B8 to pick DXT1 at low detail
-  else if (alphaBits === 1 && bpp === 16) { format = "A1R5G5B5"; hasAlpha = true; }
-  else format = "X1R5G5B5";
+  const { format, hasAlpha } = tgaSourceFormat(h);
 
   const out = new Uint8Array(count * 4);
   for (let y = 0; y < height; y++) {

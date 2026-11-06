@@ -1,7 +1,7 @@
 /** `@els/assets`: decoders for the client's asset formats (images first; see docs/ROADMAP.md Phase 2). */
 export { ImageFormatError, sniffImage } from "./image.ts";
 export type { DecodedImage, ImageContainer, SourceFormat } from "./image.ts";
-export { decodeTga, readTgaHeader } from "./tga.ts";
+export { decodeTga, readTgaHeader, readTgaInfo } from "./tga.ts";
 export type { TgaHeader } from "./tga.ts";
 export { decodeDds, decodeBc1, decodeBc2, decodeBc3, readDdsHeader, ddsSourceFormat } from "./dds.ts";
 export type { DdsHeader, DdsPixelFormat } from "./dds.ts";

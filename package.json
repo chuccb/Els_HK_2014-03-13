@@ -40,6 +40,7 @@
     "@els/host": "workspace:*",
     "@els/kom": "workspace:*",
     "@els/lua": "workspace:*",
+    "@els/ui": "workspace:*",
     "@types/bun": "1.4.4",
     "@webgpu/types": "0.1.74",
     "bun": "1.4.4",
