@@ -20,10 +20,13 @@
 | 1a | `@els/lua`：LuaJIT 2.0.2 位元碼載入器 + 直譯器 + 標準函式庫 | 部分完成（見下） |
 | 1b | Lua 載入器與文字設定檔。**更正**：x2.exe 沒有 Lua 原始碼編譯器（`lj_parse` 未連結，`cpparser` 對任何非位元碼的內容直接丟出 `cannot load malformed bytecode`），所以不做編譯器；改為 ① `loadChunk`／`luaL_loadfilex(iEncoding)`／`dofile_UTF8` 與 exe 一致；② 移植 KOG 自製的文字設定檔直譯器 `KLuaManagerProxy`（`GameOption*.txt`、伺服器群組檔、教學系統檔、控制台指令） | 完成（`KLuaManagerProxy` 沒有原生 oracle，只能以反組譯碼手算驗證） |
 | 2 | 資產解碼器（TGA/DDS/X/Y/XET/TET/粒子腳本/KIM/ESS/MPEG-1） | **完成（解碼端）**：圖片（TGA/DDS/BMP/PNG）、XET/TET、字串表（ESS）、物品資料庫（KIM）、X 檔容器（MSZIP）與通用 X 讀取器、KME/KSM/KAC、粒子與 XMeshPlayer 腳本（解析端，37 個檔案、13,882 個區塊與獨立讀取器逐欄位一致）、**AVI + MPEG-1 影片**（30 個 `data/movie/*.avi`、18,514 張畫面與 FFmpeg 逐取樣點完全相同）都已完成並以全部資產驗證；粒子／XMeshPlayer 執行期與播放影片的 Bandi 式播放器（`CMovieData`）需要繪圖與 UI，留給後續階段；網格語意由階段 3 的 D3DX 實作承接 |
-| 3 | WebGPU 的 D3D9 相容層（`packages/d3d9`） | **進行中，核心已完成**：`IDirect3DDevice9`（固定管線、全部狀態、貼圖格式、render target、可程式化的頂點階段）、D3DX 數學／貼圖／網格／骨架／動畫／影格階層載入器、`XRenderer.fx` 的 effect 模擬（19 個 technique、80 個 `vs_1_1` 著色器 → WGSL）；153 個測試在 Dawn + SwiftShader 上執行（`docs/img/d3d9-demo.png`）。引擎端的 `CKTDGXRenderer`／`CKTDGEffectStateManager` 類別尚未移植，也沒有真正的 D3D9／D3DX 可比對（假設列在 `docs/FINDINGS.md` 12.5） |
+| 3 | WebGPU 的 D3D9 相容層（`packages/d3d9`） | **進行中，核心已完成**：`IDirect3DDevice9`（固定管線、全部狀態、貼圖格式、render target、可程式化的頂點階段）、D3DX 數學／貼圖／網格／骨架／動畫／影格階層載入器、`XRenderer.fx` 的 effect 模擬（19 個 technique、80 個 `vs_1_1` 著色器 → WGSL）；153 個測試在 Dawn + SwiftShader 上執行（`docs/img/d3d9-demo.png`）。引擎類別剛開始移植（`packages/engine`：`CKTDXDeviceXSkinMesh` 的影格清單，helper 影格 `ATTACK_*`／`COLLISION*`／`Bip01_Footsteps*` 不會被畫出）；`CKTDGXRenderer`／`CKTDGEffectStateManager` 尚未移植，也沒有真正的 D3D9／D3DX 可比對（假設列在 `docs/FINDINGS.md` 12.5） |
+| 3＋ | **瀏覽器實測**（`apps/client` + `apps/server` + `tools/browser-test.ts`） | **完成（作為測試台）**：無頭 Chromium 153 + WebGPU（SwiftShader）可在沙箱執行；整個流程（HTTP Range 掛載 KOM → 解碼 → D3D9 層 → WebGPU canvas）有 18 項自動檢查：TGA 與 MPEG-1 畫面與 Bun 端解碼逐像素相同、蒙皮動畫網格會隨動畫時間改變、RGBA 與 BGRA 後緩衝逐像素相同（桌機瀏覽器偏好 BGRA）。**這證明瀏覽器端與 Bun 端一致，不證明畫面等同原版**（沒有參考截圖）；角色（KSM + KAC）尚未能繪製 |
 | 4 | UI 框架（`DLG_*.lua`） | 未開始 |
 | 5 | `lua_tinker` 等價的 host API | 已完成**地面實況分析**（`docs/HOST_API.md`），尚未實作 |
 | 6 | 開機／登入／角色選擇 + `apps/server` | 未開始 |
+
+![資產檢視器：Sonogong 寵物（`Motion_PET_SONOGONG_STEB_1.X`，蒙皮動畫「Wait」）由原版 KOM 資產經 D3D9 層畫在 WebGPU canvas（無頭 Chromium + SwiftShader 截圖）](docs/img/web-viewer-pet.png)
 
 ### Lua VM 的驗證結果（誠實版）
 
@@ -56,11 +59,13 @@ packages/kom      @els/kom   KOM 封存檔（zlib、XORCRC 演算法 2、Adler-3
 packages/lua      @els/lua   LuaJIT 2.0.2 位元碼 VM 與標準函式庫（對照 x2.exe 內的 lj_* 實作）、`KLuaManagerProxy`（文字設定檔直譯器）
 packages/assets   @els/assets  圖片（TGA/DDS/BMP/PNG）、XET/TET、字串表（general.ess）、物品資料庫（item.kim）、MSZIP、DirectX X 讀取器、KME/KSM/KAC 解碼器、粒子／XMeshPlayer 腳本解析器、AVI 解封裝與 MPEG-1 影片解碼器
 packages/d3d9     @els/d3d9  Direct3D 9 + D3DX 建立在 WebGPU 上（裝置、固定管線、D3DX 數學／貼圖／網格／骨架／動畫、XRenderer.fx effect 模擬）
+packages/engine   @els/engine  引擎類別（CKTDX*／CKTDG*）建立在 d3d9 之上，逐函式移植；目前只有 CKTDXDeviceXSkinMesh 的影格清單（哪些影格會被畫出）
 tests/lua         差異測試（兩個 VM 執行同一份 luajit -b -s 位元碼）
 tools             驗證、分析與產生文件的工具（見 docs/ARCHITECTURE.md）
 docs              文件（見下）
 data              原版客戶端（173 個 KOM、x2.exe、x2.exe.c/.h、字型、影片、音樂…）
-apps/client, apps/server   預留（尚未實作）
+apps/server       @els/server  Bun 伺服器：提供客戶端頁面、即時打包的 bundle、支援 Range 的 /data/*（原版資料）與 /api/files；遊戲伺服器（封包協定、bun:sqlite）屬階段 6
+apps/client       @els/client  目前是**資產檢視器**：以 HTTP Range 掛載 173 個 KOM（97,891 個項目），圖片／影片／音訊／Lua 位元碼清單／XET·TET／X·Y 網格（貼圖、蒙皮、動畫，經 D3D9 層畫在 WebGPU canvas）；開機流程與遊戲狀態屬階段 6
 ```
 
 ## 快速開始
@@ -73,11 +78,14 @@ npm install --no-audit --no-fund --prefix /home/user/work/boot bun@1.4.4   # npm
 ./tools/setup-oracle.sh                 # 建置 LuaJIT 2.0.2 oracle 到 /home/user/work/luajit-2.0
 python3 tools/kom_extract.py /home/user/work/ex lua,LUA  # 取出 4,498 個腳本
 ./tools/lua-difftest.sh                 # 15 個差異測試（t10–t14 為模糊測試、t15 為載入器）
-./node_modules/.bin/bun test packages   # 不需要 GPU 的單元測試（349 個；d3d9 的 GPU 測試會自行略過）
-./tools/gpu.sh ./node_modules/.bin/bun test packages   # 全部 475 個測試（含 153 個 d3d9 測試，在 Dawn + SwiftShader 上執行）
+./node_modules/.bin/bun test packages   # 不需要 GPU 的單元測試（364 個；d3d9／engine 的 GPU 測試會自行略過）
+./tools/gpu.sh ./node_modules/.bin/bun test packages   # 全部 491 個測試（含 153 個 d3d9 測試，在 Dawn + SwiftShader 上執行）
 ./node_modules/.bin/bun run tools/verify-ksm.ts   # KME/KSM/KAC 全部資產驗證（約 45 秒）；其餘見 package.json 的 verify:*
 pip install --target /home/user/work/pyav av numpy   # PyAV 內含 FFmpeg：MPEG-1 影片的 oracle
 PYTHONPATH=/home/user/work/pyav python3 tools/oracle-mpeg1.py --out /tmp/oracle.json data/movie/*.avi && ./node_modules/.bin/bun run tools/verify-mpeg1.ts --hashes /tmp/oracle.json   # 30 部影片、18,514 張畫面（約 22 秒）
+./tools/setup-browser.sh                # puppeteer-core + 無頭 Chromium（WebGPU 走 SwiftShader），約 1 分鐘
+./node_modules/.bin/bun run tools/browser-test.ts --shots /home/user/work/shots   # 瀏覽器內 18 項檢查（約 17 秒），截圖留在 --shots
+./node_modules/.bin/bun run apps/server/src/main.ts --port 8080   # 資產檢視器 http://localhost:8080/（網格預覽需要支援 WebGPU 的瀏覽器）
 ./tools/corpus-diff.sh 1                # stub 環境全腳本差異測試（flavor 1/2/3，各約 3 分鐘）
 ./node_modules/.bin/tsc -p tsconfig.json --noEmit        # 型別檢查
 ```

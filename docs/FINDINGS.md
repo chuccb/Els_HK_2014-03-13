@@ -179,8 +179,9 @@ the native behaviour they establish (the oracle is LuaJIT 2.0.2 at the exe's com
 
 ## 5. Platform findings (to be extended per phase)
 
-* No GPU in the sandbox. A software Vulkan (Dawn `webgpu` npm package with Mesa lavapipe) can run WebGPU from Node/Bun for
-  tests; headless Chromium cannot be launched.
+* No GPU in the sandbox. A software Vulkan (Dawn `webgpu` npm package + SwiftShader, `tools/gpu.sh`) runs WebGPU from Node/Bun for
+  the unit tests, and a **headless Chromium 153 with WebGPU on the SwiftShader adapter** runs too (`tools/setup-browser.sh`,
+  `tools/browser.mjs`; §15.1), so the web client can be tested with real pages and screenshots.
 * Sandbox resets keep only the repository directory: regenerate `/home/user/work` with `tools/setup-oracle.sh`,
   `python3 tools/kom_extract.py /home/user/work/ex lua,LUA`, `tools/index_decomp.py`.
 
@@ -883,3 +884,97 @@ python3 tools/gen-mpeg1-tables.py                                               
 A Bandi-like movie player for `CMovieData`: `Open` / `GetVideoInfo` / `Play` / `Stop` / `Pause` / `Seek` / `GetStatus` (`PLAYEND`) /
 `IsNextFrame` / `GetFrame` with a 24 fps wall-clock over `Mpeg1Movie`, uploading `yuv420ToBgra` rows (or a YUV -> RGB shader) into the
 `CBandiVideoTexture_DX9` texture of the D3D9 layer. The 30 movies have no audio track, so `SetVolume` is a no-op.
+
+## 14. The file layer: mass files, loose files, the web client's VFS
+
+### 14.1 What the exe does (x2.exe.c)
+
+* `CX2Main::CX2Main` (L527960-528130, L528545-528600) builds `m_KOMList` = `datai001` .. `datai023`, then `data001` .. `data150` (173 names) and calls
+  `KGCMassFileManager::AddMassFile(&m_pDeviceManager->m_MassFileManager, "./" + name, &bDup)` for each, then `LockMassFileMap`; `MassFileMapping` follows
+  later (L301729). It also registers `CKTDXDeviceManager::AddHighTexName(L"DLG_")` / `(L"HQ_")` and runs `DeleteOtherFile(L"KOM", &m_KOMList, ...)`, an
+  integrity clean-up that removes KOM files that are not on the list.
+* `AddMassFile` (L299222) inserts every member into `m_mapMassFile` (`SMassFileIndex { pMassFile, Index }`, names compared case-insensitively). A duplicate
+  name logs `<kom>(<name>) is duplicated`, shows a message box, deletes the archive and makes the caller crash on purpose. After the lock the call logs an
+  error and returns null.
+* `LoadDataFile` (L300437; narrow-string wrapper L300377) upper-cases the whole name with `_towupper` and looks it up; a miss logs error 0x87 with the name and
+  returns an empty result. There is **no loose-file fallback** in it: `LoadDataFile_LocalFile` (L300558) is a separate entry that callers choose.
+
+### 14.2 What the data contains
+
+* 173 archives, 97,891 members, **0 duplicate names** (case-insensitive), so the "duplicated" path never fires with this client. All headers open in about 0.9 s from
+  disk (Bun) and about 1.4 s over HTTP Range requests (headless Chromium, 12 in flight).
+* Some loose files of `data/` are also archive members (the fonts `dft_p7.ttc` / `msjh*.ttf`, the HK / TW loading screens `dlg_first_loading*_hk.tga`,
+  `dlg_new_unit_background*`), others are loose only: the `*_event.tga` / `*_spare_*.tga` loading screens, `dlg_sever_select_background01-03.tga`, `dlg_ui_ad_*.tga`,
+  `general.ess`, `2002lkog.ttf`, `h2hdrm.ttf`, `TutorSystem.lua`, `arrow.x`, `x2.fx`; `data/movie` (30 AVI) and `data/ui` are loose only, `data/music` has 135 `.ogg`
+  (one also in an archive). Same name does not always mean same content (`dlg_ui_ad.tga`: 1,048,620 bytes in `data068.kom`, 786,476 loose). Which copy wins is decided by the
+  caller (`LoadDataFile` vs `LoadDataFile_LocalFile`), so it has to be settled when the loading-screen code is ported.
+
+### 14.3 Implementation
+
+`@els/kom`: `MassFileManager` (`addMassFile` / `addArchive` / `lock` / `find` / `has` / `loadDataFile` / `names`, the duplicate and lock rules above, upper-case lookup),
+`CLIENT_KOM_NAMES` (the 173 names in the exe's order) and `mountClientArchives(manager, open, { names, concurrency, onMissing, onProgress })`
+(`packages/kom/src/massfile.ts`, `packages/kom/test/massfile.test.ts`, 6 tests). The web client opens the archives through `httpSource("/data/<name>")`; the server (`apps/server`)
+answers `Range` and `HEAD` and serves only the asset types the client can use (not `x2.exe`, the decompile or the DLLs).
+
+## 15. The web client, the browser test harness and the first engine lists
+
+### 15.1 Headless Chromium with WebGPU (`tools/setup-browser.sh`, `tools/browser.mjs`)
+
+`@sparticuz/chromium` 153.0.0 ships a complete headless Chromium (plus the Amazon Linux 2023 libraries, fonts and SwiftShader); `puppeteer-core` 25.16.0 drives it.
+`setup-browser.sh` installs both into `/home/user/work/browser` and unpacks the browser to `/tmp/chromium` (it sets `AWS_EXECUTION_ENV`, otherwise the package does not unpack the libraries);
+`browser.mjs` opens a URL, forwards console messages, waits for an expression, evaluates expressions, takes a screenshot and exits 1 on a page error, a failed request or a timeout.
+Things that cost time:
+
+* `navigator.gpu` exists only in secure contexts: `http://127.0.0.1` or `localhost`, not `data:` / `about:blank`.
+* **`--use-vulkan=swiftshader` is required** (together with `--enable-unsafe-webgpu --enable-unsafe-swiftshader --use-angle=swiftshader`). Without it the GPU process cannot create its own
+  Vulkan instance (`vkCreateInstance() failed: -9`), has no shared-image backing for a WebGPU swap chain (`Could not find SharedImageBackingFactory ... WebgpuSwapChainTexture`)
+  and **destroys the device the first time a canvas is presented to** ("Device was destroyed"); every later `mapAsync` then fails with `A valid external Instance reference no
+  longer exists`. Compute-only WebGPU works either way, which is why the first probes looked fine.
+* `HEAD` requests and aborted `blob:` fetches of media elements show up as `net::ERR_ABORTED` and are not failures; `console.error` counts as one (uncaptured WebGPU errors arrive there).
+* `ELS_BROWSER_DUMPIO=1` prints the browser's stderr, `ELS_BROWSER_FLAGS` adds flags.
+
+### 15.2 The client (`apps/client`) and the server (`apps/server`)
+
+`bun run apps/server/src/main.ts [--port 8080]` serves `/` (apps/client/index.html), `/client.js` (a `Bun.build` of `apps/client/src/main.ts`, rebuilt when a source file of the client or
+of a package changed; about 370 KB with the Lua, assets and D3D9 packages), `/data/*` (Range, allow-list of extensions, no `..`) and `/api/files` (the loose files).
+The page is an **asset viewer**: all 97,891 archive members and the 208 loose files in a filterable list, a preview per type:
+
+| type | preview |
+|---|---|
+| tga / dds / bmp / png / jpg | `decodeImage` of `@els/assets` into a 2D canvas (JPEG through `createImageBitmap`) |
+| avi | `Mpeg1Movie` at 24 fps on a 2D canvas, pause / seek |
+| ogg / wav | `<audio>` (the browser decodes) |
+| x / y | `D3DXLoadMeshHierarchyFromXInMemory` + the exe's frame lists (§15.3) + textures from the archives + the animation controller + CPU skinning, drawn by the D3D9 layer on a WebGPU canvas (orbit, zoom, animation set, speed) |
+| xet / tet | the parsers of `@els/assets`, as JSON |
+| lua | LuaJIT bytecode listing (`@els/lua` `disassemble`) |
+| others | text (BOM aware) or hex dump |
+
+The D3D9 layer presents with `copyTextureToTexture` from its back buffer (1024x768, the client's base resolution) into the canvas texture; the format is the canvas's preferred one
+(`?format=rgba8unorm|bgra8unorm` forces it; desktop browsers prefer `bgra8unorm`, this headless one `rgba8unorm`). Files that are not DirectX X (the KSM / KAC / KME formats) fall back to the
+hex view with a note: **rendering them (the playable characters, `Mesh_*_Base_SD.x` + `Motion_*.x`) is not done yet**.
+
+### 15.3 `CKTDXDeviceXSkinMesh::XSkinMeshProxy`: which frames are drawn
+
+`LoadD3DXSkinnedMesh` (L429311) runs: `D3DXLoadMeshHierarchyFromXInMemory` with options 544 (= `D3DXMESH_MANAGED`) and the exe's allocator; `SetupFrameList` (L430693: the frame, then its
+sibling chain, then its first child; fails above 255 frames, logs 0xD4 for a frame with more than one mesh container); per skinned container `D3DXFrameFind` for every bone name; `D3DXFrameCalculateBoundingSphere`;
+`SetupDrawFrameList` (L430592); `EstimateDrawFrameWorkingPaletteSizeAndBoneNum`; `ComputeCollisionData` (L428384); `OptimizeDrawFrameMesh`; `ConvertDrawFrameToSkinnedMesh`; `ReleaseUnusedInfo`.
+The model files carry helper frames whose meshes are boxes or spheres for the collision code: `ATTACK_LINE_START0_Sword` / `ATTACK_LINE_END0` (the wooden practice sword has two 18.9-unit boxes),
+`ATTACK_SPHERE*`, `COLLISION*`, `Bip01_Footsteps*`. **`SetupDrawFrameList` leaves out every frame with a mesh container whose name starts with `COLLISION` (9 bytes), `ATTACK` (6 bytes) or `Bip01_Footsteps`
+(15 bytes), case sensitive, and does not visit the children of such a frame at all** (also when it has no mesh); `ComputeCollisionData` feeds the COLLISION* / ATTACK* frames to `AddCollisionData` (L427598).
+Ported as `setupFrameList`, `setupDrawFrameList`, `collisionFrames` in `packages/engine/src/skinmesh-frames.ts` (10 tests, one on the real sword: 7 frames, draw list `Elsword_Basic_Weapon`, collision frames
+`ATTACK_LINE_END0` and `ATTACK_LINE_START0_Sword`). The viewer draws exactly that list; before, it drew the two boxes next to the sword.
+
+What the data looks like: the body parts of the playable characters are X files with the 68-bone skeleton and one skinned mesh and **no animation sets** (`Mesh_ElSword_JP_Upbody09_Sorted.X`); their motions live in KAC files
+(`Motion_Elsword.x`, not X). Pets, NPCs and effect models (`Motion_PET_*_STEB_*.X`, 25 animation sets, 2-4 skinned meshes) are complete X files and animate in the viewer.
+
+### 15.4 Verification (`bun run tools/browser-test.ts [--shots dir]`, 18 checks, about 17 s)
+
+It starts the server in the process, loads the page in headless Chromium and checks: 173 archives / 97,891 members mounted over Range requests with none missing; the TGA `dlg_first_loading0_hk.tga` pixel-identical to the
+Bun decode; picture 13 of `movie_create_aisha_base.avi` pixel-identical to the Bun decode; the wooden sword draws one container and lights pixels; `Motion_PET_SONOGONG_STEB_1.X` (56 frames, 7 drawn containers, 2 skinned, 25 sets, 3 textures) draws,
+changes with the animation time and switches animation sets; the Lua listing, `general.ess`, an XET and a TET, an `.ogg` (browser-decoded, 109.7 s) and the KSM fallback; **the sword and the animated pet are pixel-identical with an RGBA and a BGRA back buffer**;
+no console error, exception, failed request or HTTP status >= 400. These show that the browser stack is consistent with the Bun stack, not that the pictures equal the original client's (there is no reference screenshot).
+
+### 15.5 Not done
+
+KSM / KAC rendering (the characters), `CKTDGXRenderer` over the layer (the viewer uses the fixed-function path, CPU skinning and no XET texture changes), UI (`DLG_*.lua`), the real boot sequence.
+

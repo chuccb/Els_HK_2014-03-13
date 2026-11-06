@@ -133,7 +133,7 @@ CX2StateSquareGame	28	1524	32F23E70	todo
 CX2StateWeddingGame	28	1691	32F44FA0	todo		
 CKTDGObject	27	458	328C2290	todo		
 CKTDGXMeshPlayer::CXMeshInstance	27	3273	328C2300	todo		
-KGCMassFileManager	27	3541	328D3510	done	packages/kom	CRC, adler32, MSZIP/KOM v1-v4 container, per-entry encryption variants
+KGCMassFileManager	27	3541	328D3510	partial	packages/kom (archive.ts, massfile.ts)	container reading (CRC, adler32, MSZIP / KOM v1-v4, per-entry encryption variants) and the mass-file map: AddMassFile (duplicate name rule, case-insensitive key), LockMassFileMap, LoadDataFile (upper-case lookup, miss = empty), the mount order of CX2Main (FINDINGS 14); not ported: AddDataDirectory, AddMappingList_LUA / AddMappingTime_LUA, ExternFileMapping, LoadDataFile_LocalFile / LoadRealFile / LoadTwoDataFiles, the TLS buffer manager, error-log ids
 CX2SlotItem	27	2598	331C7E50	todo		
 CX2UIRankingInfo	27	3936	332076B0	todo		
 CX2WorldObjectSkinMesh	26	2049	328C0AE0	todo		
@@ -266,7 +266,7 @@ CX2TalkBoxManager	12	200	33196090	todo
 CKTDGPicChar	12	1291	333DCDA0	todo		
 CKTDXLog	11	1661	328AFBC0	todo		
 CKTDGSlashTrace	11	2024	32918750	todo		
-CKTDXDeviceXSkinMesh::XSkinMeshProxy	11	2199	3296C400	partial	packages/assets/src/ksm.ts (parseKsm)	LoadKSkinnedMesh frame table, tree checks and embedded animation block decoded; X-file skin meshes: D3DXLoadMeshHierarchyFromXInMemory + frames + skin info + controller exist in packages/d3d9 (d3dx-skin.ts, d3dx-animation.ts; census over all 7,395 skinned files in tools/census-skin.ts); the LoadD3DXSkinnedMesh glue, draw frame lists and collision data are todo
+CKTDXDeviceXSkinMesh::XSkinMeshProxy	11	2199	3296C400	partial	packages/assets/src/ksm.ts (parseKsm), packages/engine/src/skinmesh-frames.ts	LoadKSkinnedMesh frame table, tree checks and embedded animation block decoded; X-file skin meshes: D3DXLoadMeshHierarchyFromXInMemory + frames + skin info + controller exist in packages/d3d9 (d3dx-skin.ts, d3dx-animation.ts; census over all 7,395 skinned files in tools/census-skin.ts); SetupFrameList, SetupDrawFrameList and the name tests of ComputeCollisionData are ported (the COLLISION* / ATTACK* / Bip01_Footsteps* helper frames are not drawn, FINDINGS 15.3); the rest of the LoadD3DXSkinnedMesh glue (working palette estimate, AddCollisionData, OptimizeDrawFrameMesh, ConvertDrawFrameToSkinnedMesh) is todo
 KTRUser	11	1486	32C22750	todo		
 CX2CashShop::PresentItemPopup	11	1545	32C89E50	todo		
 CX2PageManager	11	403	32CA49B0	todo		
@@ -694,7 +694,7 @@ std::basic_stringstream<wchar_t,std::char_traits<wchar_t>,std::allocator<wchar_t
 lua_tinker::mem_functor<CKTDGUIControl,int,void,void,void,void,void,void,void,void,void>	3	84	328BAF80	todo	-	phase 5 host API
 CKTDGStateManager	3	381	328D1AF0	todo	packages/d3d9 (device side)	engine-side render-state mirror + push/pop stack (KD3DStack): not ported. Every state it writes (103 render states, 18 texture-stage states x 8 stages, 13 sampler states x 16) is implemented by Direct3DDevice9 with the defaults it restores (packages/d3d9/src/state.ts; FINDINGS 12)
 KGCMassFileBuffer	3	77	328D22B0	todo		
-KGCMassFileManager::CMassFile	3	609	328D57F0	done	packages/kom	CRC, adler32, MSZIP/KOM v1-v4 container, per-entry encryption variants
+KGCMassFileManager::CMassFile	3	609	328D57F0	done	packages/kom (archive.ts)	CMassFile / MASSFILE_MEMBERFILEINFO*: the archive container (CRC, adler32, MSZIP / KOM v1-v4, per-entry encryption variants)
 std::map<int,CKTDXDeviceTexture *>	3	115	328E1380	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<CKTDGDynamicVBManager::DynamicVBInfo::KVBInfo>	3	182	328E2BF0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDGDynamicVBManager::DynamicVBInfo	3	59	328E2E50	todo	packages/d3d9 (device side)	dynamic vertex buffer ring: not ported; the device implements what it needs (DYNAMIC | WRITEONLY buffers, DISCARD / NOOVERWRITE, FVFs 66 / 258 / 322 / 324, triangle fans) and tests it (packages/d3d9/test/draw.test.ts)
@@ -868,7 +868,7 @@ lua_tinker::mem_functor<CKTDGUIStatic,int,void,void,void,void,void,void,void,voi
 lua_tinker::mem_functor<CKTDGParticleSystem::CParticleEventSequence,void,void,void,void,void,void,void,void,void,void>	2	56	328BD120	todo	-	phase 5 host API
 lua_tinker::mem_functor<CKTDGParticleSystem,CKTDGParticleSystem::CParticleEventSequence *,void,void,void,void,void,void,void,void,void>	2	32	328BDB60	todo	-	phase 5 host API
 lua_tinker::mem_functor<CKTDGXMeshPlayer,KHandleType<int,CKTDGXMeshPlayer_CXMeshInstance_TAG>,void,void,void,void,void,void,void,void,void>	2	60	328BE530	todo	-	phase 5 host API
-KGCMassFileManager::CMassFile::MASSFILE_MEMBERFILEINFO_POINTER	2	56	328C04F0	done	packages/kom	CRC, adler32, MSZIP/KOM v1-v4 container, per-entry encryption variants
+KGCMassFileManager::CMassFile::MASSFILE_MEMBERFILEINFO_POINTER	2	56	328C04F0	done	packages/kom (archive.ts)	CMassFile / MASSFILE_MEMBERFILEINFO*: the archive container (CRC, adler32, MSZIP / KOM v1-v4, per-entry encryption variants)
 std::deque<CX2NoticeManager::NoticeData *>	2	165	328C0580	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 boost::intrusive_ptr<KGCMassFileBuffer>	2	29	328C0630	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDGUIControl::UIStringData	2	35	328CD920	todo		
@@ -1300,7 +1300,7 @@ std::_Tree_temp_node_alloc<std::allocator<std::_Tree_node<std::pair<int const,KT
 std::map<std::string,std::vector<unsigned char>>	1	11	328B4B90	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::pair<std::string const,std::vector<unsigned char>>	1	46	328B4C40	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<CKTDGUIControl::UIStringData *>	1	22	328B4D30	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-KGCMassFileManager::CMassFile::MASSFILE_MEMBERFILEINFO	1	11	328B4E30	done	packages/kom	CRC, adler32, MSZIP/KOM v1-v4 container, per-entry encryption variants
+KGCMassFileManager::CMassFile::MASSFILE_MEMBERFILEINFO	1	11	328B4E30	done	packages/kom (archive.ts)	CMassFile / MASSFILE_MEMBERFILEINFO*: the archive container (CRC, adler32, MSZIP / KOM v1-v4, per-entry encryption variants)
 std::less<std::string>	1	79	328B4E80	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::_Tree_val<std::_Tree_simple_types<std::pair<int const,CKTDGFontManager::CUKFont *>>>	1	187	328B8040	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 `std	1	33	328B83F0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
