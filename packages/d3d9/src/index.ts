@@ -13,3 +13,5 @@ export type { DeviceOptions } from "./device.ts";
 export { Direct3DTexture9, Direct3DSurface9, Direct3DVertexBuffer9, Direct3DIndexBuffer9, Direct3DVertexDeclaration9 } from "./resources.ts";
 export { generateWgsl, programKey } from "./ffp.ts";
 export type { ProgramDesc, StageDesc } from "./ffp.ts";
+export * from "./caps.ts";
+export * from "./d3dx-texture.ts";

@@ -21,6 +21,8 @@ import type { FogSource, ProgramDesc, StageDesc } from "./ffp.ts";
 import { blendState, colorWriteMask, compareFunc, cullState, samplerDescriptor, samplerKey, stencilOp, topology, vertexCountFor } from "./pipeline-state.ts";
 import { Direct3DIndexBuffer9, Direct3DSurface9, Direct3DTexture9, Direct3DVertexBuffer9, Direct3DVertexDeclaration9 } from "./resources.ts";
 import type { D3DRect, ResourceHost } from "./resources.ts";
+import { defaultCaps } from "./caps.ts";
+import type { D3DCAPS9 } from "./caps.ts";
 import { TransientArena } from "./arena.ts";
 import type { ArenaAlloc } from "./arena.ts";
 import { D3DERR_INVALIDCALL, D3DERR_NOTAVAILABLE, D3D_OK } from "./hresult.ts";
@@ -428,6 +430,7 @@ struct O { @builtin(position) pos: vec4f, @location(0) uv: vec2f }
   BeginScene(): number { if (this.inScene) return D3DERR_INVALIDCALL; this.inScene = true; return D3D_OK; }
   EndScene(): number { if (!this.inScene) return D3DERR_INVALIDCALL; this.inScene = false; return D3D_OK; }
   TestCooperativeLevel(): number { return D3D_OK; }
+  GetDeviceCaps(): D3DCAPS9 { return defaultCaps(); }
 
   Present(): number {
     this.flush();

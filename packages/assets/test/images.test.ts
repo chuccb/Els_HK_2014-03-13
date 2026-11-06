@@ -14,7 +14,7 @@ describe("TGA", () => {
     // file order: bottom row first. bottom row: (1,2,3) (4,5,6) as RGB; top row: (7,8,9) (10,11,12)
     const file = u8(...tgaHeader(2, 2, 2, 24, 0), 3, 2, 1, 6, 5, 4, 9, 8, 7, 12, 11, 10);
     const img = decodeTga(file);
-    expect(img.format).toBe("X8R8G8B8");
+    expect(img.format).toBe("R8G8B8");
     expect(img.hasAlpha).toBe(false);
     expect(px(img, 0, 0)).toEqual([7, 8, 9, 255]);
     expect(px(img, 1, 0)).toEqual([10, 11, 12, 255]);

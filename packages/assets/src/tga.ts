@@ -100,7 +100,7 @@ export function decodeTga(b: Uint8Array): DecodedImage {
   if (base === 1) format = "P8";
   else if (base === 3) { format = bpp === 8 ? "L8" : "A8L8"; hasAlpha = bpp === 16; }
   else if (bpp === 32) { format = "A8R8G8B8"; hasAlpha = true; }
-  else if (bpp === 24) format = "X8R8G8B8";
+  else if (bpp === 24) format = "R8G8B8"; // D3DX reports 24 bpp TGA like 24 bpp BMP; the exe itself tests for R8G8B8 to pick DXT1 at low detail
   else if (alphaBits === 1 && bpp === 16) { format = "A1R5G5B5"; hasAlpha = true; }
   else format = "X1R5G5B5";
 
