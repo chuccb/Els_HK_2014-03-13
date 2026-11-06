@@ -51,3 +51,45 @@ local mt = {__index = function(t, k) return k .. "!" end} local obj = setmetatab
 local cmp = setmetatable({}, {__lt = function(a, b) return false end}) local cmp2 = setmetatable({}, getmetatable(cmp)) p(cmp < cmp2, cmp > cmp2, cmp >= cmp2)
 local bad = setmetatable({}, {__index = function() error("boom") end}) p(err(function() return bad.x end))
 local selfref = {} selfref.__index = selfref setmetatable(selfref, selfref) p(err(function() return selfref.foo end))
+
+-- LuaJIT's comparison metamethod order (lj_meta_comp): a > b is `not __le(a, b)`, a >= b is `not __lt(a, b)`;
+-- with only __lt, a <= b is `not __lt(b, a)`; with only __le, a < b is an error
+do
+  local log = {}
+  local function mk(lt, le)
+    local mt = {}
+    if lt then mt.__lt = function(a, b) log[#log + 1] = "lt(" .. a.n .. "," .. b.n .. ")"; return a.n < b.n end end
+    if le then mt.__le = function(a, b) log[#log + 1] = "le(" .. a.n .. "," .. b.n .. ")"; return a.n <= b.n end end
+    return setmetatable({ n = 1 }, mt), setmetatable({ n = 2 }, mt)
+  end
+  local function run(name, lt, le)
+    log = {}
+    local A, B = mk(lt, le)
+    A.n, B.n = 1, 2
+    -- the metatables differ per object here, so share them: use the same metatable for both
+    setmetatable(B, getmetatable(A))
+    local r = {}
+    r[1] = pcall(function() return A < B end)
+    local ok1, v1 = pcall(function() return A < B end)
+    local ok2, v2 = pcall(function() return A <= B end)
+    local ok3, v3 = pcall(function() return A > B end)
+    local ok4, v4 = pcall(function() return A >= B end)
+    local ok5, v5 = pcall(function() return B > A end)
+    local ok6, v6 = pcall(function() return B >= A end)
+    p(name, ok1, v1, ok2, v2, ok3, v3, ok4, v4, ok5, v5, ok6, v6)
+    p(table.concat(log, " "))
+  end
+  run("both", true, true)
+  run("lt-only", true, false)
+  run("le-only", false, true)
+  run("none", false, false)
+end
+p(pcall(function() return 2 > setmetatable({}, {}) end))
+p(pcall(function() return setmetatable({}, {}) >= 2 end))
+p(pcall(function() return "a" < 1 end))
+p(pcall(function() return 1 <= "a" end))
+p(pcall(function() return nil < nil end))
+p(pcall(function() return true < false end))
+p(pcall(function() return {} < {} end))
+p(pcall(function() return print >= print end))
+p("a" < "b", "a" >= "b", "b" > "a", "a" <= "a", "a\0b" < "a\0c", "" < "a", "Z" < "a")

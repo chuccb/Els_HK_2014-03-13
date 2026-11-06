@@ -33,3 +33,6 @@ p(string.format("%10.4f|%-8d|%08.3f|% d|%#x|%#o", 3.14159265, 42, 3.14159, 5, 25
 p(string.format("%.0f %.1f %5.0f", 0.5, 0.05, 2.5), string.format("%g %g %g %g", 1e5, 1e-5, 123456789, 0.5))
 p(string.format("%i", 42), string.format("%u", 42), string.format("%5s|%-5s|", "ab", "ab"), string.format("%c%c%c", 76, 117, 97))
 p(tostring(1/0), tostring(-1/0), tostring(0/0), string.format("%d", 1e10), string.format("%.3f", 2/3))
+-- %q escapes control characters like the exe's addquoted: \d, \dd or \ddd (3 digits before a digit or for 127)
+p(string.format("%q", "a\0b\1c\0019\13\127\200z\\\n\r\t"))
+p(string.format("%q", "\0001" .. "\31x\255\9"), string.format("%q", ""), string.format("%q", "\0"))

@@ -44,3 +44,30 @@ goto skip
 p("not printed")
 ::skip::
 p("after goto")
+
+-- NaN in comparisons: the bytecode has ISGE = "not ISLT" and ISGT = "not ISLE" (true for unordered operands), which is
+-- visible through negated conditions in if/while/and/or
+local nan = 0/0
+local function cmp(a, b)
+  local r = {}
+  if a < b then r[#r + 1] = "lt" end
+  if a <= b then r[#r + 1] = "le" end
+  if a > b then r[#r + 1] = "gt" end
+  if a >= b then r[#r + 1] = "ge" end
+  if not (a < b) then r[#r + 1] = "nlt" end
+  if not (a <= b) then r[#r + 1] = "nle" end
+  if not (a > b) then r[#r + 1] = "ngt" end
+  if not (a >= b) then r[#r + 1] = "nge" end
+  if a == b then r[#r + 1] = "eq" end
+  if a ~= b then r[#r + 1] = "ne" end
+  r[#r + 1] = (a < b) and "A" or "B"
+  r[#r + 1] = (a >= b) and "C" or "D"
+  r[#r + 1] = (a > b) and "E" or "F"
+  r[#r + 1] = tostring(a < b) .. tostring(a <= b) .. tostring(a > b) .. tostring(a >= b)
+  local n = 0
+  while a >= b do n = n + 1; if n > 2 then break end end
+  repeat n = n + 10 until a > b or n > 30
+  r[#r + 1] = n
+  return table.concat(r, ",")
+end
+p(cmp(nan, 1)) p(cmp(1, nan)) p(cmp(nan, nan)) p(cmp(1, 2)) p(cmp(2, 1)) p(cmp(1, 1)) p(cmp(-1/0, 1/0))

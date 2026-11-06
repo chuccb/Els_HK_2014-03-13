@@ -31,14 +31,19 @@ function padField(body: string, width: number, left: boolean, zero: boolean): st
   return " ".repeat(width - body.length) + body;
 }
 
+/**
+ * `%q`: x2.exe.c addquoted @33390F50 (L2511966).  `"`, `\` and newline get a backslash; control characters (0-31, 127) become
+ * `\d`, `\dd` or `\ddd` (three digits when the value is >= 100 or the next character is a digit).
+ */
 function quoteStr(s: string): string {
   let out = '"';
   for (let i = 0; i < s.length; i++) {
-    const c = s[i]!;
-    if (c === '"' || c === "\\" || c === "\n") out += "\\" + c;
-    else if (c === "\r") out += "\\r";
-    else if (c === "\0") out += "\\000";
-    else out += c;
+    const c = s.charCodeAt(i);
+    if (c === 34 || c === 92 || c === 10) out += "\\" + s[i];
+    else if (c < 32 || c === 127) {
+      const next = s.charCodeAt(i + 1); // NaN past the end (the C code reads the terminating NUL)
+      out += "\\" + (c >= 100 || (next >= 48 && next <= 57) ? String(c).padStart(3, "0") : String(c));
+    } else out += s[i];
   }
   return out + '"';
 }
@@ -359,6 +364,7 @@ export function installString(G: LuaState): void {
       throw callerError("unable to dump given function");
     },
   });
+  lib.setStr("gfind", lib.getStr("gmatch")); // LUA_COMPAT_GFIND, luaopen_string L2511176
   const meta = new LuaTable(0, 1);
   meta.setStr("__index", lib);
   G.stringMeta = meta;

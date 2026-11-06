@@ -4,6 +4,7 @@ import type { LuaValue } from "../value.ts";
 import { call, callerLevels, newThread, resume, tostringMeta, YieldSignal, EMPTY } from "../vm.ts";
 import type { LuaState, LuaThread } from "../vm.ts";
 import { argError, checkAny, checkFunc, checkInt, checkNum, checkStr, checkTable, makeLib, optInt, optNum, optStr } from "./util.ts";
+import { loadChunk } from "./base.ts";
 import type { BaseHost } from "./base.ts";
 
 // ---- math ------------------------------------------------------------------------------------------------------
@@ -132,6 +133,7 @@ function installMath(G: LuaState): void {
   });
   m.setStr("pi", Math.PI);
   m.setStr("huge", Infinity);
+  m.setStr("mod", m.getStr("fmod")); // LUA_COMPAT_MOD, luaopen_math L2510948
 }
 
 // ---- bit ---------------------------------------------------------------------------------------------------------
@@ -450,9 +452,18 @@ function installIo(G: LuaState, host: OsHost): void {
       return [u instanceof LuaUserdata && u.metatable === fileMeta ? ((u.data as FileState).closed ? "closed file" : "file") : undefined];
     },
   });
+  const stdin = mk({ pos: 0, mode: "stdin", closed: false });
   io.setStr("stdout", stdout);
   io.setStr("stderr", mk({ pos: 0, mode: "stdout", closed: false }));
-  io.setStr("stdin", mk({ pos: 0, mode: "stdin", closed: false }));
+  io.setStr("stdin", stdin);
+  // default input/output files are not switchable here: input()/output() only report the standard files
+  io.setStr("flush", new LuaNative("io.flush", () => [true]));
+  io.setStr("input", new LuaNative("io.input", (_L, a) => [a[0] === undefined ? stdin : a[0]]));
+  io.setStr("output", new LuaNative("io.output", (_L, a) => [a[0] === undefined ? stdout : a[0]]));
+  io.setStr("popen", new LuaNative("io.popen", () => {
+    throw callerError("'popen' not supported");
+  }));
+  io.setStr("tmpfile", new LuaNative("io.tmpfile", () => [mk({ data: "", out: "", pos: 0, mode: "w+", closed: false })]));
 }
 
 // ---- debug / jit / package ---------------------------------------------------------------------------------------
@@ -466,6 +477,8 @@ function traceback(L: LuaThread, msg: string | undefined): string {
   }
   return s + "\n\t[C]: in ?";
 }
+
+const registry = new LuaTable(0, 4);
 
 function installDebug(G: LuaState): void {
   makeLib(G.globals, "debug", {
@@ -508,10 +521,39 @@ function installDebug(G: LuaState): void {
       if (a[0] instanceof LuaClosure && a[1] instanceof LuaTable) a[0].env = a[1];
       return [a[0]];
     },
+    // the client's scripts are stripped: no local or upvalue names, so these report nothing / empty names
     getlocal: () => [undefined],
+    setlocal: () => [undefined],
     sethook: () => EMPTY,
     gethook: () => [undefined],
-    getupvalue: () => [undefined],
+    getupvalue(_L, a) {
+      const f = a[0], n = checkInt(a, 1, "getupvalue");
+      if (!(f instanceof LuaClosure)) return [undefined];
+      const uv = f.upvals[n - 1];
+      return uv === undefined ? [undefined] : ["", uv.get()];
+    },
+    setupvalue(_L, a) {
+      const f = a[0], n = checkInt(a, 1, "setupvalue");
+      if (!(f instanceof LuaClosure)) return [undefined];
+      const uv = f.upvals[n - 1];
+      if (uv === undefined) return [undefined];
+      uv.set(a[2]);
+      return [""];
+    },
+    upvalueid(_L, a) {
+      const f = a[0], n = checkInt(a, 1, "upvalueid");
+      const uv = f instanceof LuaClosure ? f.upvals[n - 1] : undefined;
+      return [uv === undefined ? undefined : new LuaUserdata(uv)];
+    },
+    upvaluejoin(_L, a) {
+      const f1 = a[0], n1 = checkInt(a, 1, "upvaluejoin"), f2 = a[2], n2 = checkInt(a, 3, "upvaluejoin");
+      if (f1 instanceof LuaClosure && f2 instanceof LuaClosure && f2.upvals[n2 - 1] !== undefined && n1 >= 1 && n1 <= f1.upvals.length) {
+        f1.upvals[n1 - 1] = f2.upvals[n2 - 1]!;
+      }
+      return EMPTY;
+    },
+    getregistry: () => [registry],
+    debug: () => EMPTY, // interactive prompt: no console here
   });
 }
 
@@ -522,8 +564,10 @@ function installJit(G: LuaState): void {
     flush: () => EMPTY,
     status: () => [false],
   });
-  jit.setStr("version", "LuaJIT 2.0.x");
-  jit.setStr("version_num", 20000);
+  jit.setStr("version", "LuaJIT 2.0.2");
+  jit.setStr("version_num", 20002);
+  jit.setStr("attach", new LuaNative("jit.attach", () => EMPTY));
+  jit.setStr("util", new LuaTable(0, 0));
   jit.setStr("os", "Windows");
   jit.setStr("arch", "x86");
   const opt = new LuaTable(0, 2);
@@ -531,7 +575,7 @@ function installJit(G: LuaState): void {
   jit.setStr("opt", opt);
 }
 
-function installPackage(G: LuaState): void {
+function installPackage(G: LuaState, host: OsHost): void {
   const g = G.globals;
   const pkg = new LuaTable(0, 4);
   const loaded = new LuaTable(0, 16);
@@ -540,7 +584,56 @@ function installPackage(G: LuaState): void {
   pkg.setStr("preload", preload);
   pkg.setStr("path", "?.lua");
   pkg.setStr("cpath", "");
+  pkg.setStr("config", "\\\n;\n?\n!\n-\n"); // LUA_DIRSEP, LUA_PATHSEP, LUA_PATH_MARK, LUA_EXECDIR, LUA_IGMARK
   g.setStr("package", pkg);
+  registry.setStr("_LOADED", loaded);
+  registry.setStr("_PRELOAD", preload);
+  pkg.setStr("loadlib", new LuaNative("package.loadlib", () => [undefined, "dynamic libraries not enabled; check your Lua installation", "absent"]));
+  pkg.setStr("searchpath", new LuaNative("package.searchpath", (_L, a) => {
+    const name = checkStr(a, 0, "searchpath"), path = checkStr(a, 1, "searchpath");
+    const sep = a[2] === undefined ? "." : checkStr(a, 2, "searchpath"), rep = a[3] === undefined ? "\\" : checkStr(a, 3, "searchpath");
+    const fname = sep === "" ? name : name.split(sep).join(rep);
+    let msg = "";
+    for (const tmpl of path.split(";")) {
+      if (tmpl === "") continue;
+      const file = tmpl.split("?").join(fname);
+      if (host.readFile?.(file) !== undefined) return [file];
+      msg += `\n\tno file '${file}'`;
+    }
+    return [undefined, msg.slice(1)];
+  }));
+  // the four standard loaders (preload, Lua file, C library, C root): there are no C libraries here
+  const loaders = new LuaTable(4, 0);
+  loaders.setInt(1, new LuaNative("loader_preload", (_L, a) => {
+    const name = checkStr(a, 0, "loader");
+    const f = preload.getStr(name);
+    return [f !== undefined ? f : `\n\tno field package.preload['${name}']`];
+  }));
+  loaders.setInt(2, new LuaNative("loader_Lua", (L, a) => {
+    const name = checkStr(a, 0, "loader");
+    const path = pkg.getStr("path");
+    if (typeof path !== "string") throw callerError("'package.path' must be a string");
+    const fname = name.split(".").join("\\");
+    let msg = "";
+    for (const tmpl of path.split(";")) {
+      if (tmpl === "") continue;
+      const file = tmpl.split("?").join(fname);
+      const bytes = host.readFile?.(file);
+      if (bytes !== undefined) return [loadChunk(L, bytes, "@" + file, undefined, host)];
+      msg += `\n\tno file '${file}'`;
+    }
+    return [msg];
+  }));
+  loaders.setInt(3, new LuaNative("loader_C", (_L, a) => {
+    const name = checkStr(a, 0, "loader");
+    const cpath = pkg.getStr("cpath");
+    if (typeof cpath !== "string") throw callerError("'package.cpath' must be a string");
+    let msg = "";
+    for (const tmpl of cpath.split(";")) if (tmpl !== "") msg += `\n\tno file '${tmpl.split("?").join(name.split(".").join("\\"))}'`;
+    return [msg];
+  }));
+  loaders.setInt(4, new LuaNative("loader_Croot", () => [undefined]));
+  pkg.setStr("loaders", loaders);
   for (const name of ["string", "table", "math", "os", "io", "bit", "coroutine", "debug", "jit", "package"]) {
     const lib = g.getStr(name);
     if (lib !== undefined) loaded.setStr(name, lib);
@@ -584,15 +677,30 @@ function installPackage(G: LuaState): void {
     for (let i = 1; i < a.length; i++) call(L, a[i], [m]);
     return EMPTY;
   }));
+  // lj_cf_package_require: _LOADED check, then every package.loaders entry; the first function found loads the module
+  const sentinel = new LuaUserdata({});
   g.setStr("require", new LuaNative("require", (L, a) => {
     const name = checkStr(a, 0, "require");
     const have = loaded.getStr(name);
-    if (have !== undefined) return [have];
-    const loader = preload.getStr(name);
-    if (loader === undefined) throw new LuaError(`module '${name}' not found:\n\tno field package.preload['${name}']`);
+    if (have !== undefined && have !== false) {
+      if (have === sentinel) throw callerError(`loop or previous error loading module '${name}'`);
+      return [have];
+    }
+    const ldrs = pkg.getStr("loaders");
+    if (!(ldrs instanceof LuaTable)) throw callerError("'package.loaders' must be a table");
+    let msg = "";
+    let loader: LuaValue;
+    for (let i = 1; ; i++) {
+      const l = ldrs.getInt(i);
+      if (l === undefined) throw callerError(`module '${name}' not found:${msg}`);
+      const r = call(L, l, [name])[0];
+      if (r instanceof LuaClosure || r instanceof LuaNative) { loader = r; break; }
+      if (typeof r === "string" || typeof r === "number") msg += String(r);
+    }
+    loaded.setStr(name, sentinel);
     const r = call(L, loader, [name])[0];
     if (r !== undefined) loaded.setStr(name, r);
-    else if (loaded.getStr(name) === undefined) loaded.setStr(name, true);
+    if (loaded.getStr(name) === sentinel) loaded.setStr(name, true);
     return [loaded.getStr(name)];
   }));
 }
@@ -605,7 +713,7 @@ export function installMisc(G: LuaState, host: OsHost): void {
   installIo(G, host);
   installDebug(G);
   installJit(G);
-  installPackage(G);
+  installPackage(G, host);
   void typeName;
   void tostringMeta;
 }

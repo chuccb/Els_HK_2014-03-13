@@ -459,37 +459,58 @@ function cmpError(a: LuaValue, b: LuaValue): LuaError {
   return vmError(t1 === t2 ? `attempt to compare two ${t1} values` : `attempt to compare ${t1} with ${t2}`);
 }
 
-export function lessThan(L: LuaThread, a: LuaValue, b: LuaValue): boolean {
-  if (typeof a === "number" && typeof b === "number") return a < b;
-  if (typeof a === "string" && typeof b === "string") return a < b;
-  if (typeName(a) === typeName(b)) {
-    const G = L.state;
-    const tm = metaOf(G, a, "__lt");
-    if (tm !== undefined && tm === metaOf(G, b, "__lt")) {
-      const r = call(L, tm, [a, b])[0];
-      return r !== undefined && r !== false;
-    }
-  }
-  throw cmpError(a, b);
+/** LuaJIT's `itype(o1) == itype(o2)`: same type, except that `true` and `false` are different types there. */
+function sameItype(a: LuaValue, b: LuaValue): boolean {
+  if (typeof a === "boolean") return a === b;
+  return typeName(a) === typeName(b);
 }
 
+/**
+ * lj_meta_comp (x2.exe.c, lj_meta_* L2481315+): ordered comparison with LuaJIT's operand and metamethod order, which is NOT the
+ * Lua 5.1 one.  `op` is the bytecode (0 ISLT, 1 ISGE, 2 ISLE, 3 ISGT); o1 is always the A operand and o2 the D operand.
+ * Returns whether the instruction's jump condition holds.
+ *   LT: __lt(o1,o2)           GE: not __lt(o1,o2)
+ *   LE: __le(o1,o2), or if there is no __le: not __lt(o2,o1)
+ *   GT: not __le(o1,o2), or if there is no __le: __lt(o2,o1)
+ * Metamethods are only used when both operands have the same metamethod (lj_obj_equal(mo, mo2)).
+ */
+export function metaComp(L: LuaThread, o1: LuaValue, o2: LuaValue, op: number): boolean {
+  if (sameItype(o1, o2)) {
+    if (typeof o1 === "string" && typeof o2 === "string") {
+      const res = o1 < o2 ? -1 : o1 === o2 ? 0 : 1; // byte strings: lj_str_cmp
+      return ((op & 2) !== 0 ? res <= 0 : res < 0) !== ((op & 1) !== 0);
+    }
+  } else if (!(typeof o1 === "boolean" && typeof o2 === "boolean")) {
+    throw cmpError(o1, o2);
+  }
+  const G = L.state;
+  for (;;) {
+    const mm = (op & 2) !== 0 ? "__le" : "__lt";
+    const mo = metaOf(G, o1, mm);
+    if (mo === undefined || mo !== metaOf(G, o2, mm)) {
+      if ((op & 2) !== 0) { // no __le: retry with __lt, operands swapped and the condition flipped
+        const t = o1; o1 = o2; o2 = t;
+        op ^= 3;
+        continue;
+      }
+      throw cmpError(o1, o2);
+    }
+    const r = call(L, mo, [o1, o2])[0];
+    const truth = r !== undefined && r !== false;
+    return (op & 1) !== 0 ? !truth : truth;
+  }
+}
+
+/** `a < b` as seen by the C API (lua_lessthan): used by table.sort. */
+export function lessThan(L: LuaThread, a: LuaValue, b: LuaValue): boolean {
+  if (typeof a === "number" && typeof b === "number") return a < b;
+  return metaComp(L, a, b, 0);
+}
+
+/** `a <= b` as seen by the C API (lua_lessequal). */
 export function lessEqual(L: LuaThread, a: LuaValue, b: LuaValue): boolean {
   if (typeof a === "number" && typeof b === "number") return a <= b;
-  if (typeof a === "string" && typeof b === "string") return a <= b;
-  if (typeName(a) === typeName(b)) {
-    const G = L.state;
-    let tm = metaOf(G, a, "__le");
-    if (tm !== undefined && tm === metaOf(G, b, "__le")) {
-      const r = call(L, tm, [a, b])[0];
-      return r !== undefined && r !== false;
-    }
-    tm = metaOf(G, a, "__lt"); // Lua 5.1 fallback: a <= b  ==  not (b < a)
-    if (tm !== undefined && tm === metaOf(G, b, "__lt")) {
-      const r = call(L, tm, [b, a])[0];
-      return r === undefined || r === false;
-    }
-  }
-  throw cmpError(a, b);
+  return metaComp(L, a, b, 2);
 }
 
 export function equals(L: LuaThread, a: LuaValue, b: LuaValue): boolean {
@@ -682,28 +703,28 @@ function runLoop(L: LuaThread, entryDepth: number): void {
       case OP_ISLT: {
         const a = stack[base + ((ins >>> 8) & 0xff)], d = stack[base + (ins >>> 16)];
         frame.pc = pc;
-        const r = typeof a === "number" && typeof d === "number" ? a < d : lessThan(L, a, d);
+        const r = typeof a === "number" && typeof d === "number" ? a < d : metaComp(L, a, d, 0);
         if (r) pc += (bc[pc]! >>> 16) - 0x7fff; else pc++;
         break;
       }
       case OP_ISGE: {
         const a = stack[base + ((ins >>> 8) & 0xff)], d = stack[base + (ins >>> 16)];
         frame.pc = pc;
-        const r = typeof a === "number" && typeof d === "number" ? a >= d : lessEqual(L, d, a);
+        const r = typeof a === "number" && typeof d === "number" ? !(a < d) : metaComp(L, a, d, 1); // ISGE is "not ISLT": true for NaN
         if (r) pc += (bc[pc]! >>> 16) - 0x7fff; else pc++;
         break;
       }
       case OP_ISLE: {
         const a = stack[base + ((ins >>> 8) & 0xff)], d = stack[base + (ins >>> 16)];
         frame.pc = pc;
-        const r = typeof a === "number" && typeof d === "number" ? a <= d : lessEqual(L, a, d);
+        const r = typeof a === "number" && typeof d === "number" ? a <= d : metaComp(L, a, d, 2);
         if (r) pc += (bc[pc]! >>> 16) - 0x7fff; else pc++;
         break;
       }
       case OP_ISGT: {
         const a = stack[base + ((ins >>> 8) & 0xff)], d = stack[base + (ins >>> 16)];
         frame.pc = pc;
-        const r = typeof a === "number" && typeof d === "number" ? a > d : lessThan(L, d, a);
+        const r = typeof a === "number" && typeof d === "number" ? !(a <= d) : metaComp(L, a, d, 3); // ISGT is "not ISLE": true for NaN
         if (r) pc += (bc[pc]! >>> 16) - 0x7fff; else pc++;
         break;
       }
