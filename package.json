@@ -22,10 +22,15 @@
     "verify:mpeg1": "bun run tools/verify-mpeg1.ts",
     "verify:lua": "./tools/lua-difftest.sh && ./tools/corpus-diff.sh 1",
     "docs": "python3 tools/bindings.py && python3 tools/ledger.py",
-    "setup:gpu": "./tools/setup-gpu.sh"
+    "setup:gpu": "./tools/setup-gpu.sh",
+    "setup:browser": "./tools/setup-browser.sh",
+    "serve": "bun run apps/server/src/main.ts",
+    "test:browser": "bun run tools/browser-test.ts"
   },
   "devDependencies": {
     "@els/assets": "workspace:*",
+    "@els/d3d9": "workspace:*",
+    "@els/engine": "workspace:*",
     "@els/kom": "workspace:*",
     "@els/lua": "workspace:*",
     "@types/bun": "1.4.4",

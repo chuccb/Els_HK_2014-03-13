@@ -6,6 +6,8 @@
       "name": "els-hk-web",
       "devDependencies": {
         "@els/assets": "workspace:*",
+        "@els/d3d9": "workspace:*",
+        "@els/engine": "workspace:*",
         "@els/kom": "workspace:*",
         "@els/lua": "workspace:*",
         "@types/bun": "1.4.4",
@@ -14,6 +16,24 @@
         "fflate": "0.8.3",
         "typescript": "7.1.0-beta",
         "webgpu": "0.6.2",
+      },
+    },
+    "apps/client": {
+      "name": "@els/client",
+      "version": "0.0.0",
+      "dependencies": {
+        "@els/assets": "workspace:*",
+        "@els/d3d9": "workspace:*",
+        "@els/engine": "workspace:*",
+        "@els/kom": "workspace:*",
+        "@els/lua": "workspace:*",
+      },
+    },
+    "apps/server": {
+      "name": "@els/server",
+      "version": "0.0.0",
+      "dependencies": {
+        "@els/kom": "workspace:*",
       },
     },
     "packages/assets": {
@@ -28,6 +48,13 @@
       "version": "0.0.0",
       "dependencies": {
         "@els/assets": "workspace:*",
+      },
+    },
+    "packages/engine": {
+      "name": "@els/engine",
+      "version": "0.0.0",
+      "dependencies": {
+        "@els/d3d9": "workspace:*",
       },
     },
     "packages/kom": {
@@ -45,11 +72,17 @@
   "packages": {
     "@els/assets": ["@els/assets@workspace:packages/assets"],
 
+    "@els/client": ["@els/client@workspace:apps/client"],
+
     "@els/d3d9": ["@els/d3d9@workspace:packages/d3d9"],
+
+    "@els/engine": ["@els/engine@workspace:packages/engine"],
 
     "@els/kom": ["@els/kom@workspace:packages/kom"],
 
     "@els/lua": ["@els/lua@workspace:packages/lua"],
+
+    "@els/server": ["@els/server@workspace:apps/server"],
 
     "@oven/bun-darwin-aarch64": ["@oven/bun-darwin-aarch64@1.4.4", "", { "os": "darwin", "cpu": "arm64" }, "sha512-zW/hxwc8sJAILGwB5eTC4i48ouGXf0V4lrxmEOk3JIE6JkYVW1TZh1E2pIempqsezgW1sckTIIDudFON8bJ2Mw=="],
 
