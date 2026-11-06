@@ -39,6 +39,19 @@ the Hex-Rays export `data/x2.exe.c` / `data/x2.exe.h`, and verify it - not "make
 * TypeScript is strict (`strict`, `isolatedModules`, `verbatimModuleSyntax`). Binary data is `Uint8Array`/`DataView`; Lua
   strings are JS *byte strings* (one UTF-16 code unit per byte, 0-255). No `any` in package APIs.
 
+## 2b. Rules for the graphics layer (`packages/d3d9`)
+
+* **Direct3D 9 is the contract, not WebGPU.** The ported engine code calls `Direct3DDevice9` / D3DX with the original names, argument order and
+  `HRESULT`s; nothing outside `packages/d3d9` touches WebGPU. Where WebGPU cannot express a D3D9 behaviour the layer emulates it (half-pixel
+  offset, `D3DTOP` cascade in WGSL, triangle fans, BGRA / 16-bit formats, Lock / renaming rules, `D3DUSAGE_DYNAMIC` buffers).
+* **No oracle exists on this machine** (no Windows, no D3D9 runtime, no reference screenshots), so a device behaviour is verified against
+  (1) the D3D9 documentation turned into an analytic expectation (lighting, fog, blend, filters, formats) or a CPU reference, and (2) the exact
+  call sequences of the exe. A choice the documentation leaves open is a *flagged assumption* in FINDINGS section 12 and has a test that pins it.
+* **Every feature the layer does not emulate is reported once through the device's `warn` hook** instead of silently drawing something else.
+* **GPU tests skip without an adapter** (`gpuAvailable()`); run them with `./tools/gpu.sh`. A test that saves a picture does so only when
+  `D3D9_TEST_OUT` is set, so the suite never writes into the repository.
+* Reference screenshots / videos of the real client would turn the assumptions into checks; none are in the repository.
+
 ## 3. How to port a function (checklist)
 
 1. Find it: `grep -n "<name>" /home/user/work/analysis/functions.tsv` (regenerate with `python3 tools/index_decomp.py
@@ -53,7 +66,7 @@ the Hex-Rays export `data/x2.exe.c` / `data/x2.exe.h`, and verify it - not "make
 | Original | Replaced by |
 |---|---|
 | Win32 windowing / messages / IMM32 / DirectInput | DOM events, `KeyboardEvent`/`PointerEvent`, `<input>` for IME |
-| Direct3D 9 (`IDirect3DDevice9`, effects `.fx`) | a D3D9-compatible layer on WebGPU (phase 3) |
+| Direct3D 9 (`IDirect3DDevice9`, D3DX, the `.fx` effect) | `@els/d3d9`: a D3D9 / D3DX-compatible layer on WebGPU (phase 3, section 2b) |
 | FMOD / ogg / wav | WebAudio |
 | Anti-cheat (nProtect/HackShield class), BugTrap / KncCrashRpt / SMTP crash reporting | stubbed, always "ok" |
 | Auto patcher (WinINet), machine-id, DX enumeration, CPU/GPU benchmark, registry | stubbed with fixed answers |

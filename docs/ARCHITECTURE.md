@@ -14,7 +14,7 @@
                 +--------------+--------------+            +------------+-------------+
                                |                           |  apps/client (browser)   |
    +---------------------------v--------------+            |  boot, game states       |
-   |  @els/gfx (phase 3)  D3D9-compat on WebGPU|<----------+  (CX2State*), main loop  |
+   |  @els/d3d9 (phase 3) D3D9 + D3DX on WebGPU|<----------+  (CX2State*), main loop  |
    +---------------------------+--------------+            +------------+-------------+
                                |                                        |
    +---------------------------v--------------+              +----------v-------------+
@@ -47,14 +47,37 @@ table: `parseEss`, `StringTable.get` / `.replaced`); `kim.ts` opens `item.kim` (
 Meshes: `mszip.ts` + `inflate.ts` (the `bzip` container of X files; own raw-deflate decoder because the files contain stored blocks
 without NLEN and chunks that reference the previous 32 KiB), `xfile.ts` (generic DirectX X reader, text + binary, template driven:
 `parseXFile` returns the object tree with typed members), `ksm.ts` (KOG's `KME` static mesh, `KSM` skinned mesh and `KAC` animation
-block, decoded from the exe's loaders with the same range checks). Mesh semantics (D3DX loading rules, skinning, animation
-evaluation) are not written yet, see ROADMAP phase 2.
+block, decoded from the exe's loaders with the same range checks), `xscene.ts` (`loadXScene`: the frames, meshes, skin weights and
+animation sets of an X file as typed data, the input of the D3DX mesh functions in `@els/d3d9`). Skinning and animation evaluation are not
+written yet, see ROADMAP phases 2 and 3.
 Effect scripts: `effectscript.ts` (the shared tokenizer with the exe's quirks, `ProcessNumber/Vector/Color`, the CRT `rand` and
 `RandomNumber`, `EFFECT_SYSTEMS` = which file feeds which of the eight systems), `particle.ts` (`parseParticleScript` -> sequences with
 their properties and events, `ParticleLibrary`) and `xmeshplayer.ts` (`parseXMeshPlayerScript` -> templets with Global / Anim / Die
 timelines, `XMeshLibrary`): the compile side of `CKTDGParticleSystem` / `CKTDGXMeshPlayer`; the run-time simulation is not ported.
-Tests: `packages/assets/test` (232 tests) and `packages/lua/test` (`loader.test.ts` 14, `proxy.test.ts` 38); all with `bun test packages`; corpus tools: `decode-images.ts` + `verify-images.py` (Pillow),
+Tests: `packages/assets/test` (233 tests) and `packages/lua/test` (`loader.test.ts` 14, `proxy.test.ts` 38); all with `bun test packages`; corpus tools: `decode-images.ts` + `verify-images.py` (Pillow),
 `verify-xet-tet.ts`, `verify-xfiles.ts`, `verify-xparse.ts`, `verify-ksm.ts`, `verify-ess.ts`, `verify-kim.ts`, `verify-effects.ts`.
+
+### `@els/d3d9` (`packages/d3d9`)
+`Direct3DDevice9` (PascalCase, D3D's names, `HRESULT` results; `CreateX` returns `{hr, resource}`, `Lock` returns `{hr, data}`) over a WebGPU
+device, plus the D3DX functions the exe imports. Rendering is recorded into one command encoder per frame; `await dev.readPixels()`
+reads the back buffer or any surface (that is how the tests and `tools/render-demo.ts` produce images). Every module has a header comment that
+documents its design and assumptions; FINDINGS section 12 is the reference.
+
+| File | Content |
+|---|---|
+| `enums.generated.ts`, `enums.ts` | the D3D9 enums and flags, generated from the enum definitions of `data/x2.exe.h` by `tools/gen-d3d9-enums.ts` (`--check` verifies the checked-in file); `enums.ts` adds the D3DFVF / D3DTS helpers |
+| `state.ts` | the device state machine: render / texture-stage / sampler states with the defaults the exe writes back in `CKTDGStateManager::RestoreDeviceObjects`, transforms, lights, material, viewport |
+| `vertex.ts`, `formats.ts` | FVF codes and vertex declarations -> WebGPU vertex layouts (one fixed shader location per semantic); `D3DFORMAT` metadata and the CPU conversions to the uploaded texel format |
+| `ffp.ts`, `pipeline-state.ts` | the fixed-function pipeline: device state -> `ProgramDesc` -> generated WGSL (vertex transform + lighting + fog + texcoord generation; texture-stage cascade + specular + fog + alpha test); blend / depth / stencil / raster / sampler translation |
+| `resources.ts`, `arena.ts` | buffers, textures, surfaces, declarations with CPU shadows in D3D's layout and the renaming rules for data written after use; the per-frame bump allocator for uniform blocks and dynamic vertex data |
+| `device.ts`, `caps.ts`, `hresult.ts` | `Direct3DDevice9`, `D3DCAPS9` (a Shader Model 3 HAL), `D3D_OK` / `D3DERR_*` / `D3DXERR_*` |
+| `d3dx-math.ts` | the 26 D3DX math functions of the import table (single-precision at the same points as the SSE code) |
+| `d3dx-texture.ts` | `D3DXGetImageInfoFromFileInMemory`, `D3DXCheckTextureRequirements`, `D3DXCreateTextureFromFileInMemoryEx` (decoding by `@els/assets`), `D3DXCreateTexture`, `D3DXSaveSurfaceToFileInMemory`, `ID3DXBuffer` |
+| `d3dx-mesh.ts` | `ID3DXMesh` and the mesh functions (`D3DXLoadMeshFromXInMemory` = merge all meshes of the X file with their frame transforms baked in, `Optimize`, `WeldVertices`, `GetAttributeTable`, `DrawSubset`, `Intersect`, `ComputeBoundingSphere`) |
+
+`@els/assets` gained `xscene.ts` (`loadXScene`: frames, meshes, skin weights and animation sets of an X file as typed data) and
+`encodePng`. Tests are GPU tests: `./tools/gpu.sh ./node_modules/.bin/bun test packages/d3d9` (software Vulkan from `tools/setup-gpu.sh`);
+without an adapter they skip themselves and only `pure.test.ts` runs.
 
 ### `@els/lua` (`packages/lua`)
 A register-based interpreter for LuaJIT 2.0.2 bytecode, following `lj_*` of the exe:
@@ -105,6 +128,10 @@ Design points that matter for faithfulness:
 | `verify-ess.ts`, `verify-ess.py` | decodes `data/general.ess` and reports index mismatches, capped lines, placeholders, character classes; the Python script is an independent second implementation of the loader |
 | `verify-kim.ts` | decodes `item.kim` from its KOM, checks id order / id agreement / string length words / set cross references and reports every byte the decoder did not read |
 | `verify-effects.ts` + `lib/effect-oracle.ts` | parses the 37 particle / XMeshPlayer scripts of the KOMs and compares every field of all 13,882 blocks with an independent line-based reader; counts three ways, unread tokens, duplicate names per script system (`--census`: property and event usage) |
+| `setup-gpu.sh`, `gpu.sh` | `setup-gpu.sh` installs the software Vulkan driver (SwiftShader, taken from the `@sparticuz/chromium` npm package) into `/home/user/work/swsh`; `gpu.sh CMD...` runs a command with the environment that lets Dawn (the `webgpu` npm package) find it (`ELS_GPU_NATIVE=1` skips this on a machine with a real GPU) |
+| `gen-d3d9-enums.ts` | regenerates `packages/d3d9/src/enums.generated.ts` from `data/x2.exe.h` (`--check` fails when the file is stale) |
+| `census-xscene.ts` | loads all 25,313 X / Y files through `loadXScene` and checks every index (faces, normals, texture coordinates, materials, bones, animation targets); prints the census quoted in FINDINGS section 12 |
+| `render-demo.ts` | the D3D9 visual milestone: loading screen + starter sword -> PNG (`docs/img/d3d9-demo.png` with `--docs`) |
 | `ledger.py` | coverage ledger keyed by IDA address -> `docs/LEDGER.md` (rules in `docs/ledger.tsv`, `docs/ledger-classes.tsv`) |
 | `index_decomp.py`, `komlib.py`, `kom_extract.py`, `luadecrypt.py`, `census.ts` | reverse-engineering helpers (function index, extraction, census) |
 
@@ -125,7 +152,12 @@ python3 tools/index_decomp.py data/x2.exe.c /home/user/work/analysis/functions.t
 ./node_modules/.bin/bun run tools/api-census.ts --md docs/SCRIPT_API_USAGE.md --json /home/user/work/analysis/api_census.json --usage /home/user/work/analysis/member_usage.json
 ./node_modules/.bin/bun run tools/script-graph.ts --md docs/SCRIPT_GRAPH.md
 python3 tools/bindings.py && python3 tools/ledger.py                                # docs/HOST_API.md, docs/LEDGER.md
-./node_modules/.bin/bun test packages                                                 # unit tests: asset decoders (232), Lua loader (14), KLuaManagerProxy (38)
+./node_modules/.bin/bun test packages                                                 # unit tests that need no GPU: asset decoders, Lua loader, KLuaManagerProxy (the d3d9 GPU tests skip)
+./tools/setup-gpu.sh                                                                   # software Vulkan for Dawn -> /home/user/work/swsh (about 2 s)
+./tools/gpu.sh ./node_modules/.bin/bun test packages                                   # everything, incl. the 92 d3d9 tests on Dawn + SwiftShader
+./node_modules/.bin/bun run tools/gen-d3d9-enums.ts --check                            # enums.generated.ts is current
+./node_modules/.bin/bun run tools/census-xscene.ts                                     # integrity of all 25,313 X / Y scenes
+./tools/gpu.sh ./node_modules/.bin/bun run tools/render-demo.ts /home/user/work/out --docs   # the picture in docs/img
 ./node_modules/.bin/bun run tools/decode-images.ts --tsv /home/user/work/analysis/images_ts.tsv --dump /home/user/work/analysis/rgba_dump --every 40
 python3 -m venv /home/user/work/venv && /home/user/work/venv/bin/pip install pillow
 /home/user/work/venv/bin/python tools/verify-images.py /home/user/work/analysis/images_ts.tsv /home/user/work/analysis/rgba_dump

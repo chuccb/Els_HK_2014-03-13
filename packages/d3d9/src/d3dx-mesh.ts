@@ -18,7 +18,7 @@
  *    cache-optimising face order of the real VERTEXCACHE pass is not reproduced (it is invisible except through face indices).
  *  - WeldVertices welds vertices whose components are within the epsilons, wherever they are (D3DX restricts the match by adjacency
  *    unless D3DXWELDEPSILONS_WELDALL is set; for exact duplicates of watertight meshes the result is the same).
- *  - ComputeBoundingSphere = centroid + largest distance (that is what D3DX computes; it is not the minimal sphere).
+ *  - ComputeBoundingSphere = centroid + largest distance (the documented behaviour, and what Wine's d3dx9_36 does; not the minimal sphere).
  */
 import { loadXScene, walkFrames } from "@els/assets";
 import type { XMeshData, XScene } from "@els/assets";
@@ -526,7 +526,7 @@ export function D3DXWeldVertices(mesh: D3DXMesh, flags: number, eps: D3DXWeldEps
 }
 
 // ---------------------------------------------------------------------------------------------- geometry queries
-/** `D3DXComputeBoundingSphere`: centroid of the positions and the largest distance from it (Wine's implementation, tested against d3dx9_36). */
+/** `D3DXComputeBoundingSphere`: centroid of the positions and the largest distance from it (as in Wine's d3dx9_36; single-precision steps). */
 export function D3DXComputeBoundingSphere(data: Uint8Array, byteOffset: number, numVertices: number, stride: number): { hr: number; center: Vec3; radius: number } {
   if (numVertices <= 0) return { hr: D3D_OK, center: { x: NaN, y: NaN, z: NaN }, radius: 0 };
   const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);

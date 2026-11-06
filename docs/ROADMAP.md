@@ -34,7 +34,7 @@ Census of the KOMs (`bun run tools/census.ts`): `tga` 23,784 (2.4 GB), `dds` 31,
 | DDS (DXT1/3/5, R8G8B8, A8R8G8B8, X8R8G8B8, A4R4G4B4) + BMP + PNG | done (level 0 only, as the exe asks D3DX for 1 mip level); identical to Pillow; JPEG (2 files) is left to the platform decoder; FourCC 63 bump map (1 file) and volume slices (45) are not decoded | `dds.ts`, `bmp.ts`, `png.ts`; GPU upload as BC textures comes with phase 3 |
 | X-file container + generic reader (`.x` 12,274 / `.y` 13,039 DirectX-format files) | MSZIP (`bzip`) with the stored-block quirk, text + binary X templates and data objects; all 25,313 files parse, 0 errors, 0 mesh consistency problems (FINDINGS section 9) | `mszip.ts`, `inflate.ts`, `xfile.ts`, `tools/verify-xfiles.ts`, `tools/verify-xparse.ts` |
 | KOG mesh formats: KME (109 `.y`), KSM (1,031 `.x`) + KAC animation block | decoded from the loaders (`LoadKMEMesh`, `LoadKSkinnedMesh`, `ReadKSM`, `UnpackKeys`); 1,140 files, 0 errors, 0 invariant violations | `ksm.ts`, `tools/verify-ksm.ts` |
-| mesh semantics (todo): X `Mesh` -> vertex/index/attribute buffers with frame transforms (static `.y`), `SkinWeights` -> bones, `AnimationSet` -> keys (quaternion convention), `OptimizeKeys`, D3DX controller / track blending, weld + optimize of static meshes | needs the renderer to check against; assumptions are listed in FINDINGS section 9 | todo |
+| mesh semantics: X `Mesh` -> vertex/index/attribute buffers with frame transforms (static `.y`), weld + optimize of static meshes | done in phase 3 (`xscene.ts`, `d3dx-mesh.ts`); `SkinWeights` -> bones, `AnimationSet` -> keys (quaternion convention), `OptimizeKeys`, D3DX controller / track blending are still todo; assumptions in FINDINGS sections 9 and 12 | partial |
 | XET / TET | done: binary tables (not text), 5,799 files parse with 0 structural problems; exact `FindAniDataIndex` (16 shipped files defeat it, kept) | `xet.ts`, `tools/verify-xet-tet.ts` |
 | `general.ess` string table | done: exe-exact loader (`fgetws` lines, XOR 0x10, id check), `GetGeneralString`, `GetReplacedString`; 30,584 entries, 0 index mismatches (FINDINGS section 8) | `ess.ts`, `tools/verify-ess.ts` |
 | `item.kim` item database (57,106 items, 3,811 sets) | done: flat image decoded with the exe's accessors (`KItemFormatTemplet` 188-byte records + pool); whole file accounted for (FINDINGS section 8). Also the oracle for the Phase 5 `Item.lua` -> `AddItemTemplet` host API | `kim.ts`, `tools/verify-kim.ts` |
@@ -44,10 +44,25 @@ Census of the KOMs (`bun run tools/census.ts`): `tga` 23,784 (2.4 GB), `dds` 31,
 
 Acceptance: every file of the type decodes; outputs compared with independent decoders or checksums where possible.
 
-## Phase 3 - Graphics: D3D9-compatible layer on WebGPU (`packages/gfx`)
+## Phase 3 - Graphics: D3D9-compatible layer on WebGPU (`packages/d3d9`, `@els/d3d9`)
 
-Fixed-function + the game's `.fx` effects (e.g. `GCSkin.fx`) mapped to WGSL; render states, texture stages, vertex declarations,
-skinned meshes, sprite/particle rendering, render targets. Tested with Dawn on lavapipe in the sandbox (image diffs).
+`IDirect3DDevice9` + the D3DX functions the exe imports, implemented over WebGPU and tested headless with Dawn + SwiftShader (a
+software Vulkan driver; `tools/setup-gpu.sh`, `tools/gpu.sh`) against analytic or CPU reference images. The design, the census of what
+the client asks of Direct3D and every flagged assumption are in FINDINGS section 12; the visual milestone is
+`docs/img/d3d9-demo.png` (`tools/render-demo.ts`: the HK loading screen and the starter sword from `data017.kom`, drawn through the same D3DX calls the exe makes).
+
+| Item | Status | Verification |
+|---|---|---|
+| device core: state machine with the D3D9 defaults the exe restores (103 render states, 18 texture-stage states x 8, 13 sampler states x 16), transforms, lights, material, viewport / scissor, Clear (incl. rects, stencil), Present, Reset, render targets + depth surfaces, StretchRect, UpdateTexture, vertex / index buffers with D3D `Lock` semantics (DISCARD / NOOVERWRITE, renaming hazards), user-pointer draws, triangle fans | done | `packages/d3d9/test` (92 tests incl. D3DX, all on Dawn + SwiftShader; they skip without an adapter; the whole suite is 377 tests) |
+| fixed-function pipeline: vertex transform + all light types + material sources + fog (vertex, table, pre-transformed), texture coordinate generation + texture transforms, the full texture-stage cascade (all `D3DTOP`, arguments, TEMP / CURRENT / TFACTOR, 8 stages), specular add, alpha test | done | `draw`, `state`, `lighting`, `cascade` tests against analytic values |
+| pipeline state: blend (+ separate alpha), depth (func / write / bias), stencil, cull, scissor, colour-write mask; samplers: wrap / mirror / clamp, point / linear / anisotropic, mip filter + LOD bias + max level | done | `state`, `texture` tests |
+| texture / surface formats: A8R8G8B8, X8R8G8B8, A1R5G5B5, X1R5G5B5, R5G6B5, A4R4G4B4, L8, A8L8, A8, R8G8B8, DXT1 / 3 / 5 (BC1 / 2 / 3, CPU decode when the adapter lacks BC), D16 / D24 / D32 depth, float render targets | done | `formats`, `rendertarget` tests (BC within +-1) |
+| D3DX math (the 26 functions the exe imports) + `D3DXGetFVFVertexSize` | done | `pure.test.ts` (matrix / quaternion / plane identities, D3DX's `D3DXQuaternionMultiply` operand order) |
+| D3DX textures: `GetImageInfoFromFileInMemory`, `CheckTextureRequirements`, `CreateTextureFromFileInMemoryEx` (the exe's exact arguments), `CreateTexture`, `SaveSurfaceToFileInMemory`, `CreateBuffer`; `D3DCAPS9` | done (JPEG textures and DXT *compression* are not implemented) | `d3dx-texture.test.ts` |
+| D3DX meshes: `ID3DXMesh` (lock, clone, attribute table, `Optimize`, `DrawSubset`), `D3DXLoadMeshFromXInMemory`, `D3DXCreateMeshFVF`, `D3DXWeldVertices`, `D3DXComputeBoundingSphere`, `D3DXIntersect`; X scene layer in `@els/assets` (`xscene.ts`) | done for static meshes | `mesh.test.ts` incl. the real `MESH_ELSWORD_BASIC_WEAPON.X`; `tools/census-xscene.ts` over all 25,313 X / Y files |
+| D3DX frame hierarchy loader (`D3DXLoadMeshHierarchyFromXInMemory` + `ID3DXAllocateHierarchy` callbacks, `D3DXFrame*`), `ID3DXSkinInfo`, animation controller (`D3DXCreateAnimationController`, keyframed + compressed sets, track blending, `AdvanceTime`) | todo | needs the X semantics of FINDINGS section 9 (quaternion convention, `OptimizeKeys`) |
+| `XRenderer.fx` (the only effect the exe loads): 19 techniques, 19 parameters, `vs_1_1` vertex shaders -> WGSL, fixed-function pixel stages, an `ID3DXEffect` emulation for exactly that file (`CKTDGXRenderer`) | todo | image diffs against hand-derived references |
+| not emulated (reported once through `warn`): wireframe / point fill, point sprites, clip planes, border / mirror-once addressing (clamp), dual-source blend, bump mapping, MRT, MSAA, float textures except as render targets, `GetRenderTargetData` / offscreen plain surfaces (DXUT screenshots only) | known gaps | FINDINGS section 12 |
 
 ## Phase 4 - UI framework
 

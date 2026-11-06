@@ -370,7 +370,7 @@ tree connected, key times non-decreasing, all numbers finite): 52,964 frames (<=
 <= 43 bones, palette <= 20), 1.57 M vertices, 1.59 M faces, 16,428 animation sets in 1,027 files - **all keyframed, none compressed,
 all looping, all 4800 ticks/s** - 967,449 animations, 109.6 M keys.
 
-**What the exe adds on top (not ported yet)**: static meshes are cloned to FVF 338, their vertex colour is set to 0xFFFFFFFF,
+**What the exe adds on top (the static-mesh part is now emulated by `@els/d3d9`, section 12.4)**: static meshes are cloned to FVF 338, their vertex colour is set to 0xFFFFFFFF,
 `D3DXComputeBoundingSphere`, `D3DXWeldVertices` (all epsilons 0) and `Optimize(MANAGED | ATTRSORT | VERTEXCACHE)` run, and the
 attribute table becomes the draw ranges; keys read from a KSM go through `OptimizeKeys` (32988610, tolerance 0.001) before
 `RegisterAnimationSRTKeys`; the `ID3DXAnimationController` is created with 2 tracks and 30 events. Open points for the renderer
@@ -559,3 +559,128 @@ it would not be faithful, in the exe `loadstring("return 1")` fails.
   significant digits), `MultiByteToWideChar` replacement characters, ASCII-only `isalpha/isdigit/isspace`.
 * Not ported: the callers (`CX2GameOption::OpenScriptFile`, `CX2InstanceData::OpenScriptServerGroupFile`, `CX2TutorSystem::OpenScriptFile`, `ExecCommand`), the host
   level `DoMemoryNotEncrypt` of `KLuaManager` / `KLuabinder`, and writing the files back (`GameOption.txt` is saved by the game; its writer is not ported).
+
+## 12. The D3D9 layer, D3DX and the X scene (Phase 3)
+
+Picture: `docs/img/d3d9-demo.png` (`tools/render-demo.ts`) - the HK loading screen `dlg_first_loading0_hk.tga` as a pre-transformed
+quad and the starter sword `MESH_ELSWORD_BASIC_WEAPON.X` (data017.kom) with its texture, lit by one directional light, in three poses,
+produced by the D3D9 device and the D3DX functions on a software WebGPU device.
+
+### 12.1 What the client asks of Direct3D (census of the decompile)
+
+* **Calls.** 467 typed COM calls on the device / resources / effect, 53 D3DX imports: textures 5 (`CheckTextureRequirements`,
+  `CreateTexture`, `CreateTextureFromFileInMemoryEx`, `GetImageInfoFromFileInMemory`, `SaveSurfaceToFileW`) + `CreateBuffer` / `CreateLine` /
+  `CreateEffect`; meshes, skin and frames ~14; animation 3; math 26 (all in `d3dx-math.ts`). The enum-valued arguments of the
+  decompile are mostly untyped (`int`), so a census by enum name is meaningless; the typed-call regex only sees calls the decompiler could type.
+* **State wrappers.** `CKTDGStateManager` (328D1BD0 `RestoreDeviceObjects`, x2.exe.c L296401) writes *all* states back to the D3D9
+  defaults: 103 render states, 18 texture-stage states x 8 stages, 13 sampler states x 16 samplers (tables `aeDRS` / `aeDTSS` / `aeDSSS`, a handful
+  of float-valued ones patched in as IEEE bit patterns), and keeps a mirror (`ms_adwRenderState`, ...) + a push / pop stack (`KD3DStack`, 328D9980)
+  so that a draw can set a state and restore it. `CKTDGEffectStateManager` (328B2E20-328B3BE0, L270982-271757) is the `ID3DXEffectStateManager`
+  that routes the effect's state changes through the same mirror.
+* **Dynamic vertex data.** `CKTDGDynamicVBManager` (L313274-315370) works with the FVFs 66 (XYZ | DIFFUSE), 258 (XYZ | TEX1), 322 (XYZ | DIFFUSE | TEX1)
+  and 324 (XYZRHW | DIFFUSE | TEX1), buffers of usage 0x208 (DYNAMIC | WRITEONLY) / 0x8, locks with DISCARD (0x2000) / NOOVERWRITE (0x1000); triangle fans are
+  special-cased by the device's `MaxPrimitiveCount`. `SetMaterial` is called per subset by `CKTDXDeviceXMesh::Render`, `SetVertexDeclaration` only by
+  `CKTDGUIControl::RenderVertex`.
+* **Render targets.** `CKTDXDeviceRenderTargetTexture` (L431540-431960): `D3DXCreateTexture(D3DUSAGE_RENDERTARGET, back-buffer format, DEFAULT)` + a depth
+  surface of the same size; `Begin` = `SetRenderTarget` / `SetDepthStencilSurface` (+ `Clear(TARGET | ZBUFFER, 0, 1.0)`), `CopyBackBufferToSurface` = `StretchRect(..., LINEAR)`.
+  `CKTDGDynamicTexture`: a SYSTEMMEM texture (`LockRect` flags 0x8000) -> `UpdateTexture` -> DEFAULT texture.
+* **Device selection** is DXUT (`CKTDXApp`); the only caps the client reads are `DevCaps`, `TextureCaps`, `PresentationIntervals`,
+  `MaxPrimitiveCount`, `MaxVertexShaderConst`, `VertexShaderVersion`.
+* **One effect**: `XRenderer.fx` (data041.kom; `CKTDGXRenderer::OnResetDevice` 329749E0 -> `D3DXCreateEffect`). 19 techniques (table `off_3362652C`) and 19
+  parameters (`off_336265C4`); the vertex shaders are `vs_1_1` (arrays `vsArray{RealColor,Cartoon,BlackEdge,ColorEdge}11[10]`: index 0 = non-skinned,
+  1-4 = skinned with 1-4 bones, 5 = non-skinned + fog, 6-9 = skinned + fog; `vsArray{X,Y,Z,Point}Flow{World,Local}11[5]`; chosen by `g_iShaderIndex`), the
+  pixel side is fixed-function texture stages set by the passes' render states. `GCSkin.fx`, `RenderState.fx` and `XPosteffect.fx` are shipped but never referenced.
+
+### 12.2 The layer: design decisions
+
+* **API shape**: `Direct3DDevice9` with D3D's PascalCase names and `HRESULT` results so the ported engine code can stay line-for-line; the C++ out-parameters
+  become result objects (`{hr, vb}`, `{hr, data}`, `{hr, pBits, pitch}`).
+* **One shader per state combination, generated**: the device state that matters for a draw (vertex format, lighting, fog, stage cascade, alpha test, ...)
+  is reduced to a `ProgramDesc` key; WGSL is generated once per key (`ffp.ts`) and pipelines are cached per (program, vertex layout, blend / depth / stencil / target).
+* **Matrices are uploaded as D3D stores them** (row-major, row vectors); WGSL reads the 16 floats as columns, so `M * v` equals D3D's `v * M` and no CPU
+  transpose is needed. Clip space differences (z in [0,1] in both APIs) need nothing; the **half-pixel offset** is applied in the vertex stage
+  (`pos.xy += (+w/vpW, -w/vpH)`) because D3D9 pixel centres sit on integer window coordinates. `XYZRHW` vertices skip the transforms and map to the full render target.
+* **Attribute locations by semantic** (POSITION 0, BLENDWEIGHT 1, BLENDINDICES 2, NORMAL 3, PSIZE 4, COLOR0 5, COLOR1 6, TEXCOORD0-7 7-14, TANGENT 15); D3DCOLOR is
+  fetched as `unorm8x4` and swizzled `.zyxw`. Inter-stage locations are fixed too (diffuse 0, specular 1, texcoords 2-9, fog 10).
+* **Uniforms**: group 0 = three blocks with dynamic offsets into a per-frame arena (transforms 228 floats, lighting 248, misc 56; 256-byte aligned); group 1 = 8 x (texture, sampler).
+* **Hazards**: the GPU only sees data when the encoder is submitted, but `queue.writeBuffer` executes at once. Dynamic VB / IB and user-pointer data are
+  *snapshotted into the arena at draw time*; static buffers and textures that are written after they were used by a recorded draw of the same frame are
+  *renamed* (a fresh GPU object) unless the lock said NOOVERWRITE. Frames are submitted at `Present` / `readPixels`.
+* **Render targets**: alpha-less targets (X8R8G8B8) mask alpha writes and read back alpha 255; a depth surface whose size differs from the render target is
+  skipped with a warning (D3D9 would fail the draw); WebGPU depth starts at 0 and D3D9 never clears automatically, so tests and ported code clear ZBUFFER first.
+* **Formats**: colour formats are expanded to 8 bits per channel by bit replication and uploaded as `rgba8unorm` (BGRA for render targets); DXT1/3/5 stay BC1/2/3 when the adapter
+  has `texture-compression-bc` (SwiftShader does) and are decoded on the CPU otherwise; A8 samples as (0,0,0,a), L8 as (l,l,l,1), A8L8 as (l,l,l,a).
+
+### 12.3 What is verified, and how
+
+`packages/d3d9/test` (92 tests, run with `./tools/gpu.sh bun test packages/d3d9`; all on Dawn + SwiftShader; expectations are analytic or computed on the CPU):
+vertex formats and the draw path (all primitive types, indexed / user-pointer / base vertex, triangle fans), clear / viewport / scissor / colour mask / stencil
+(D3D compare is `(ref & mask) FUNC (buffer & mask)`, DECR wraps 0 -> 255), blend / alpha test / depth / cull, the full texture-stage cascade, all light types with
+attenuation, spot cone and the four colour sources, vertex / table / pre-transformed fog, texture coordinate generation and 2D / 3D texture transforms, sampler address /
+filter / LOD / anisotropy, 12 uncompressed formats and BC1 / 3 / 5 (within +-1 of the CPU decode), render-target textures, `StretchRect`, `UpdateTexture`, `Reset`, D3DX math (identities, the operand
+order of `D3DXQuaternionMultiply`), D3DX textures and meshes (below). Mutating the code (flipping a blend factor, dropping a stage) makes the corresponding test fail; the tests that
+saved pictures were looked at once. What is *not* verified is anything that needs the real D3D9 (see 12.5).
+
+### 12.4 D3DX
+
+**Textures** (`d3dx-texture.ts`). The exe's loader (`CKTDXDeviceTexture::_Load` 329682A0, L423330-423700) calls `D3DXGetImageInfoFromFileInMemory`, halves the size at medium
+detail (>= 128) / low detail (>= 64; >= 128 quartered) and picks DXT1 for R8G8B8 / R5G6B5 sources, DXT3 otherwise, then `D3DXCheckTextureRequirements(dev, &w, &h, &mips, 0, &fmt, MANAGED)` and
+`D3DXCreateTextureFromFileInMemoryEx(dev, data, size, w, h, 1 level, 0, fmt, MANAGED, FILTER_NONE or FILTER_LINEAR (when the size changed), MipFilter NONE, ColorKey 0, &info, 0, &tex)`
+(`fmt` is `OpenTexture`'s `texFormat`, normally UNKNOWN). The port implements exactly that call. Decisions: UNKNOWN keeps the file's format (R8G8B8 -> X8R8G8B8, P8 -> A8R8G8B8; a bare
+`Check(UNKNOWN)` gives A8R8G8B8); DDS DXT data is copied block for block including its mips; LINEAR = one bilinear tap at the pixel centre, NONE / POINT = nearest, BOX / TRIANGLE = footprint
+average; the colour key compares the full ARGB value (0 = off) and writes transparent black; mips are 2x2 box averages; JPEG is reported by `GetImageInfo` but `Create` returns
+`D3DERR_NOTAVAILABLE` (2 `.tga` files hold JPEG: left to the browser decoder); garbage gives `D3DXERR_INVALIDDATA` (0x88760B59); `SaveSurfaceToFileInMemory` always returns PNG data.
+The detail-level reduction therefore yields *smaller uncompressed* textures: **DXT compression is not implemented**.
+
+**Meshes** (`d3dx-mesh.ts`, `@els/assets/xscene.ts`). `CKTDXDeviceXMesh::_Load` (3296B780, L425250-426100) does: `D3DXLoadMeshFromXInMemory(options 0x220 = MANAGED)` -> if `GetFVF() != 338`
+`CloneMeshFVF(MANAGED, 338)` -> writes 0xFFFFFFFF into every vertex colour (through the index buffer) -> `D3DXComputeBoundingSphere` -> `D3DXWeldVertices(mesh, 0, all epsilons 0, adjacency)` ->
+`Optimize(0x6000220 = ATTRSORT | VERTEXCACHE | MANAGED)` -> `GetAttributeTable` -> a bounding sphere per subset from its vertex range. `CKTDXDeviceXMesh::Render` (L426367) keeps
+the current material, then per attribute group `SetMaterial(m_pdxMaterials[AttribId])`, binds the group's texture **only if it has one (an untextured group keeps the previous texture)**, optionally sets
+stage-1/2 multi-texture ops from the XET, and calls `DrawSubset(AttribId)`. The port reproduces this sequence on `D3DXMesh` and tests it on a real file: `MESH_ELSWORD_BASIC_WEAPON.X`
+has 3 meshes (the sword and two 8-corner helper boxes `ATTACK_LINE_*`), loads as 78 faces / 85 vertices / FVF 274 / 3 materials, welds to 77 vertices, optimizes to the table
+`[attr 0: faces 0-53, vertices 0-36] [1: 54-65, 37-56] [2: 66-77, 57-76]` (the weld merges the boxes' duplicated corners: 24 -> 20 each).
+Semantics that the sequence makes observable and that are implemented as D3DX documents them (flagged where they are guesses, 12.5): `LoadMeshFromX` merges every mesh of the file with its
+accumulated frame transform baked into positions and normals (row vectors: `world = local * parentWorld`), appends the materials of each mesh, adds vertices where a face corner uses another
+normal index than the first corner that used the position, triangulates polygons as fans (the data has none); `Optimize(ATTRSORT)` sorts faces by attribute (stable) and, unless DONOTSPLIT,
+gives each attribute group its own vertex range by duplicating shared vertices (so the per-subset bounding spheres see exactly the subset's vertices); `D3DXComputeBoundingSphere` is the centroid plus the
+largest distance (not the minimal sphere); `D3DXIntersect` returns the closest hit with the barycentric weights of vertices 1 and 2.
+
+**X scene census** (`tools/census-xscene.ts`, all 25,313 DirectX-format files through `loadXScene`; complements section 9): 0 errors; 107,183 meshes (12.05 M vertices, 10.49 M faces, **0 polygons**),
+1,982,092 frames, 14,151 files with several meshes, 7,395 skinned files (8,312 skinned meshes, 78,639 bones - every bone name resolves to a frame of the same file, all weight vertex indices in range),
+every face / normal-face / texture-coordinate / material index in range, 63 meshes without texture coordinates, 1 with vertex colours, 77,305 duplicate frame names (the first one wins in
+`D3DXFrameFind`), 810,120 frames with a non-unit 3x3 part, up to 113 materials and 26,900 vertices per mesh. Animation: 6,856 sets, 108,944 animations (75,014 with separate rotation / scale / position keys,
+33,930 with 4x4 matrix keys; key times sorted in all), `AnimTicksPerSecond` is 4800 wherever present (the D3DX default 4800 otherwise). **483 animations in 42 files target a frame that does not exist in
+the file** (3ds Max leftovers such as `Object274`, `Cylinder01`, `COLLISION1`); a D3DX controller ignores outputs it has no registered matrix for, so the loader keeps them and the controller must skip them.
+
+### 12.5 Assumptions and choices that need a reference (the layer cannot check these against real D3D9 / D3DX)
+
+1. Fixed-function texture coordinates: a 2D coordinate fills (u, v, 1, 0) before a texture transform; a 2D transform takes its translation from `_31` / `_32`; `D3DFVF_TEXCOORDSIZE3(0)` = `1 << 16`.
+2. `D3DRS_DEPTHBIAS` -> `round(bias * 2^24)` (D3D9 scales by the depth format's resolution); `SLOPESCALEDEPTHBIAS` is passed through.
+3. A texture stage that needs a texture which is not bound ends the cascade (the previous stage's result is the output); stage 0 with MODULATE and no texture outputs the diffuse colour.
+4. Without a vertex COLOR1 / COLOR2 the colour sources fall back to the MATERIAL; pre-transformed fog takes its factor from the specular alpha.
+5. D3DX math is evaluated in double precision with `Math.fround` at the places where the SSE code stores a float; the last bit can differ from the real library.
+6. TGA: a 24 bpp file reports R8G8B8 (like a 24 bpp BMP; the exe itself tests `imgInfo.Format == D3DFMT_R8G8B8` to pick DXT1 at low detail), a 32 bpp file A8R8G8B8 whatever the descriptor's alpha
+   bits say (757 files have descriptor alpha bits 0; 729 of them carry a real alpha channel, 26 are opaque, 2 are alpha 0 everywhere; section 8), a 16 bpp file honours the alpha bit (24 files then decode alpha 0).
+7. `GetDeviceCaps`: a Shader Model 3.0 HAL device (VS 0xFFFE0300, PS 0xFFFF0300, textures up to 8192, `MaxPrimitiveCount` 0xFFFFF, `MaxVertexShaderConst` 256, hardware T&L,
+   `PresentationIntervals` 0x8000000F); the exe reads only the fields listed in 12.1.
+8. D3DX meshes: the merge / split / weld / optimize rules of 12.4; `WeldVertices` is not restricted by adjacency (D3DX welds only overlapping vertices of adjacent faces unless WELDALL is set - the same result
+   for exact duplicates of a closed mesh); the cache-optimising face order of `D3DXMESHOPT_VERTEXCACHE` is not reproduced (vertices are renumbered by first use, faces keep their order), so face / vertex
+   *indices* after `Optimize` can differ from the real library while the subsets, ranges and bounding spheres do not; normals are renormalised after the frame transform; `FVFData` (72 `UI_AD_*` meshes)
+   is ignored; `CloneMeshFVF` zero-fills components the source lacks (the exe overwrites the colour itself); a mesh without `MeshMaterialList` is not in the data (all 107,183 have one).
+9. `DrawSubset` on a mesh that has no attribute table draws contiguous runs of the attribute (D3DX does the same lazily); with a table it draws each entry with its vertex range.
+
+### 12.6 Not emulated / todo
+
+Reported once through the device's `warn`: wireframe / point fill, point sprites, clip planes, border and mirror-once addressing (clamp is used), dual-source blending, bump mapping,
+multiple render targets, multisampling, float textures other than as render targets. Not implemented at all: `GetRenderTargetData` / `CreateOffscreenPlainSurface` (DXUT cursor and screenshots only),
+JPEG textures, DXT compression, the D3DX frame / skin / animation-controller family (next), `D3DXCreateLine`, and `XRenderer.fx` with its `ID3DXEffect` surface (next). Also open: the
+reference pictures. The layer was developed without any screenshot of the real client; a few frames of the loading screen, the character select and a field would let the
+assumptions above (and the sampling / filtering details) be checked pixel for pixel.
+
+### 12.7 Test infrastructure
+
+Dawn (the `webgpu` npm package, prebuilt `dawn.node`) needs a Vulkan loader and driver; the sandbox has neither a GPU nor a browser, so `tools/setup-gpu.sh` extracts SwiftShader (`libvk_swiftshader.so`,
+`vk_swiftshader_icd.json`, `libvulkan.so.1`) from the `@sparticuz/chromium` npm package into `/home/user/work/swsh/sw` and `tools/gpu.sh` runs a command with
+`VK_ICD_FILENAMES` / `LD_LIBRARY_PATH` set (they must be in the environment before the process starts; a missing ICD file gives a null adapter). Dawn hands each adapter out once, so every test device
+gets a fresh adapter. SwiftShader supports BC textures and 8192-pixel 2D textures; uncaptured validation errors arrive asynchronously (`await dev.takeErrorsAsync()` in the tests).
+

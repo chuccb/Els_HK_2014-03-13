@@ -151,7 +151,7 @@ CX2OldGageManager	25	3758	32C593F0	todo
 CX2StateDungeonResult	25	6154	32F335A0	todo		
 CX2TalkBoxManagerImp	25	3268	332224D0	todo		
 CX2PVPGame	25	1919	3325F1D0	todo		
-CKTDGEffectStateManager	24	785	328B2E20	todo		
+CKTDGEffectStateManager	24	785	328B2E20	todo	packages/d3d9 (device side)	the ID3DXEffectStateManager that routes the XRenderer effect's state changes through CKTDGStateManager: comes with the XRenderer.fx emulation (FINDINGS 12.1)
 CKTDGParticleSystem	24	4671	328C17A0	partial	packages/assets/src/particle.ts (parseParticleScript, ParticleLibrary), effectscript.ts (EFFECT_SYSTEMS)	OpenScriptFile (KOM read by @els/kom), Compile, ProcessParticleSystemBlock, ProcessEventSequenceBlock and the replace-by-name registration ported; CreateSequence, OnFrameMove / OnFrameRender and the Lua thunks are not
 CKTDGUIControl::CPictureData	24	1108	328C2240	todo		
 CKTDGCamera	24	1176	328F0C50	todo		
@@ -237,8 +237,8 @@ CX2StatePVPRoom::CX2MapSelectWindow	14	1539	32EF9EA0	todo
 CX2NPCUnitViewerUI	14	1784	3324ED50	todo		
 namespace'::_Find_meow_of::_Bitmap_impl	14	1177	3329DBD0	todo		
 CKTDIManager	13	321	328CF0E0	todo		
-CKTDGDynamicVBManager	13	2736	328E2DB0	todo		
-CKTDGXRenderer	13	2265	329724B0	todo		
+CKTDGDynamicVBManager	13	2736	328E2DB0	todo	packages/d3d9 (device side)	dynamic vertex buffer ring: not ported; the device implements what it needs (DYNAMIC | WRITEONLY buffers, DISCARD / NOOVERWRITE, FVFs 66 / 258 / 322 / 324, triangle fans) and tests it (packages/d3d9/test/draw.test.ts)
+CKTDGXRenderer	13	2265	329724B0	todo	-	the only effect user (XRenderer.fx, 19 techniques, vs_1_1 + fixed-function pixel stages): ID3DXEffect emulation + WGSL ports are the next step of phase 3 (ROADMAP)
 CX2Room::SlotData	13	693	3298F320	todo		
 CX2WorldObjectParticle	13	697	32A2ABB0	todo		
 CX2WorldObjectLightFlow	13	345	32A2B130	todo		
@@ -288,7 +288,7 @@ CBaseCamera	10	694	328A6C40	todo
 CD3DEnumeration	10	2795	328A9270	todo		
 CKTDGXMeshPlayer::CXMeshPlayerTokenizer	10	1418	329175F0	done	packages/assets/src/effectscript.ts (tokenize), xmeshplayer.ts (classifyXMeshToken)	same code as the particle tokenizer plus ProcessBool / ProcessRenderType / ProcessString / ProcessVector3; the line numbers are kept for diagnostics only
 std::set<int>	10	571	3295F680	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDXDeviceTexture	10	1105	32967340	partial	packages/assets (decoders)	image decoding ported (D3DX semantics); the D3D device object, detail levels and GPU upload belong to phase 3
+CKTDXDeviceTexture	10	1105	32967340	partial	packages/assets (decoders)	image decoding ported (D3DX semantics); D3DXGetImageInfoFromFileInMemory / CheckTextureRequirements / CreateTextureFromFileInMemoryEx with the exact arguments of _Load are in packages/d3d9/src/d3dx-texture.ts (test/d3dx-texture.test.ts); the class itself (detail levels, async load, device object) is not ported
 CKTDXDeviceSound	10	495	329718B0	todo		
 KBenchMark_MXM	10	902	32C35750	todo		
 CX2CashShop::CashItemToInvenPopup	10	789	32C89240	todo		
@@ -306,7 +306,7 @@ CryptoPP::CipherModeBase	10	138	333CB430	todo	-	crypto primitives of the protoco
 KncSecurity::KSecurityAssociation	10	627	333CC8F0	todo		
 CKTDGFontManager	9	972	328B45A0	todo		
 KFileSerializer	9	319	328E5DB0	todo		
-CKTDXDeviceRenderTargetTexture	9	509	32970D60	todo		
+CKTDXDeviceRenderTargetTexture	9	509	32970D60	todo	packages/d3d9 (device side)	the class is not ported; the D3D calls it makes (D3DXCreateTexture RENDERTARGET, depth surface, SetRenderTarget / SetDepthStencilSurface, StretchRect LINEAR) are implemented and tested (packages/d3d9/test/rendertarget.test.ts)
 CX2Stat::Stat	9	523	3299B0E0	todo		
 ATL::CTime	9	197	329E5A70	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<boost::intrusive_ptr<CX2BuffFactor>>	9	750	32A10FD0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -338,7 +338,7 @@ lua_tinker::mem_functor<CKTDGUIDialog,char const *,void,void,void,void,void,void
 CKTDGUIControl::CMovieData	8	294	328CD8B0	todo		
 std::_Hash<std::_Umap_traits<std::wstring,KGCMassFileManager::SMassFileIndex,std::_Uhash_compare<std::wstring,std::hash<std::wstring>,std::equal_to<std::wstring>>,std::allocator<std::pair<std::wstring const,KGCMassFileManager::SMassFileIndex>>,0>>	8	522	328D3270	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDXDeviceXET	8	844	32968DA0	todo		
-CKTDXDeviceXMesh	8	751	32969CE0	todo		
+CKTDXDeviceXMesh	8	751	32969CE0	todo	packages/d3d9/src/d3dx-mesh.ts (D3DX side)	the class (_Load, Render, culling info, XET texture changes) is not ported; the D3DX call sequence of _Load (LoadMeshFromX, CloneMeshFVF 338, Weld, Optimize, attribute table, bounding spheres) and DrawSubset are emulated and tested
 std::vector<KSkillData>	8	360	32996790	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::set<std::wstring>	8	434	32A11590	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 lua_tinker::mem_functor<CX2GameUnit,void,void,void,void,void,void,void,void,void,void>	8	185	32A1AC90	todo	-	phase 5 host API
@@ -376,7 +376,7 @@ KLuabinder	7	99	328C1A30	todo
 boost::io::basic_altstringbuf<char,std::char_traits<char>,std::allocator<char>>	7	489	328E9490	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDGParticleSystem::CParticleEmitterTokenizer	7	1439	328F5460	done	packages/assets/src/effectscript.ts (tokenize), particle.ts (classifyParticleToken)	Tokenize, AddToken, DetermineTokenType, NextToken and the ProcessNumber / ProcessVector / ProcessColor helpers, with the exe's quirks kept (repeated last token, `{abc` glue, `//` inside a word, quote after a word); no native oracle exists, the independent reader checks every parsed field
 std::vector<CX2GameUnit::SoundPlayData>	7	358	32913E10	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDGDynamicTexture	7	265	32963200	todo		
+CKTDGDynamicTexture	7	265	32963200	todo	packages/d3d9 (device side)	the class is not ported; SYSTEMMEM LockRect + UpdateTexture to a DEFAULT texture is implemented and tested (packages/d3d9/test/texture.test.ts)
 std::vector<KPetInfo>	7	332	32996480	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<KRoomSlotInfo>	7	506	32996620	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<KBuffFactor>	7	513	329E3CF0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -421,7 +421,7 @@ CKTDGLensFlare	6	1006	328CD860	todo
 std::_Hash<std::_Umap_traits<std::wstring,unsigned int,std::_Uhash_compare<std::wstring,std::hash<std::wstring>,std::equal_to<std::wstring>>,std::allocator<std::pair<std::wstring const,unsigned int>>,0>>	6	644	328E5C40	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 boost::basic_format<char,std::char_traits<char>,std::allocator<char>>	6	758	328E90F0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDXDevice	6	182	329670D0	todo		
-CKTDXDeviceXSkinMesh	6	840	3296C000	todo		
+CKTDXDeviceXSkinMesh	6	840	3296C000	todo	-	skin meshes: D3DXLoadMeshHierarchyFromXInMemory + ID3DXSkinInfo + animation controller are the next D3DX step (FINDINGS 12.6)
 CKTDSMP3Play	6	188	32986C70	todo		
 std::vector<KItemInfo>	6	581	3298E870	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<KBuffBehaviorFactor>	6	406	32995F40	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -692,12 +692,12 @@ CFirstPersonCamera	3	179	328A6FB0	todo
 CDXUTResourceCache	3	139	328A8430	todo		
 std::basic_stringstream<wchar_t,std::char_traits<wchar_t>,std::allocator<wchar_t>>	3	128	328B8240	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 lua_tinker::mem_functor<CKTDGUIControl,int,void,void,void,void,void,void,void,void,void>	3	84	328BAF80	todo	-	phase 5 host API
-CKTDGStateManager	3	381	328D1AF0	todo		
+CKTDGStateManager	3	381	328D1AF0	todo	packages/d3d9 (device side)	engine-side render-state mirror + push/pop stack (KD3DStack): not ported. Every state it writes (103 render states, 18 texture-stage states x 8 stages, 13 sampler states x 16) is implemented by Direct3DDevice9 with the defaults it restores (packages/d3d9/src/state.ts; FINDINGS 12)
 KGCMassFileBuffer	3	77	328D22B0	todo		
 KGCMassFileManager::CMassFile	3	609	328D57F0	done	packages/kom	CRC, adler32, MSZIP/KOM v1-v4 container, per-entry encryption variants
 std::map<int,CKTDXDeviceTexture *>	3	115	328E1380	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<CKTDGDynamicVBManager::DynamicVBInfo::KVBInfo>	3	182	328E2BF0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDGDynamicVBManager::DynamicVBInfo	3	59	328E2E50	todo		
+CKTDGDynamicVBManager::DynamicVBInfo	3	59	328E2E50	todo	packages/d3d9 (device side)	dynamic vertex buffer ring: not ported; the device implements what it needs (DYNAMIC | WRITEONLY buffers, DISCARD / NOOVERWRITE, FVFs 66 / 258 / 322 / 324, triangle fans) and tests it (packages/d3d9/test/draw.test.ts)
 std::_Hash<std::_Umap_traits<std::string,unsigned int,std::_Uhash_compare<std::string,std::hash<std::string>,std::equal_to<std::string>>,std::allocator<std::pair<std::string const,unsigned int>>,0>>	3	261	328E5BE0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::deque<CKTDGCamera::CameraData>	3	204	328F0F90	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<CKTDGManager::KObjectRenderHint>	3	177	328F2BB0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -883,7 +883,7 @@ lua_tinker::mem_var<CKTDGUIControl::UIStringData,unsigned long>	2	26	328CEBF0	to
 KGCMassFileBufferManager::BufferBucket	2	38	328D2280	todo		
 std::vector<KGCMassFileManager::CMassFile::MASSFILE_MEMBERFILEHEADER>	2	120	328D2E90	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::_Hash_vec<std::allocator<std::_List_unchecked_iterator<std::_List_val<std::_List_simple_types<std::pair<std::string const,unsigned int>>>>>>	2	99	328D3970	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-KD3DStack	2	182	328D9980	todo		
+KD3DStack	2	182	328D9980	todo	packages/d3d9 (device side)	the state push/pop stack of CKTDGStateManager: not ported (engine code over the device)
 std::list<CKTDGUIDialogHandle>	2	47	328DD830	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDGUIDialog::CKTDGUIDialogManagerAccess	2	24	328E0AE0	todo		
 std::_Tree_val<std::_Tree_simple_types<std::pair<unsigned long const,boost::shared_ptr<KSocketObject>>>>	2	62	328E1120	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -923,7 +923,7 @@ std::vector<CKTDGLineMap::TRIGGER_DATA_MESH>	2	148	32906020	n/a	-	C++ runtime li
 std::vector<CKTDGLineMap::TRIGGER_SEGMENT>	2	149	32906240	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDGLineMap::TRIGGER_SEGMENT	2	32	32909190	todo		
 std::vector<CKTDXDeviceXET *>	2	134	32913FD0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDGXRenderer::RenderParam	2	97	329141C0	todo		
+CKTDGXRenderer::RenderParam	2	97	329141C0	todo	-	the only effect user (XRenderer.fx, 19 techniques, vs_1_1 + fixed-function pixel stages): ID3DXEffect emulation + WGSL ports are the next step of phase 3 (ROADMAP)
 std::vector<CKTDGXMeshPlayer::CXMeshPlayerToken>	2	167	32914D60	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDGXMeshPlayer::CXMeshEvent_AniName	2	106	3291A1D0	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
 CKTDGXMeshPlayer::CXMeshEvent_AniSpeed	2	30	3291A260	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
