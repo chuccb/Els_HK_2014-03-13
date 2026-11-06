@@ -1,10 +1,10 @@
 import { LuaTable } from "../table.ts";
 import { LuaClosure, LuaError, LuaNative, LuaUserdata, typeName, callerError } from "../value.ts";
 import type { LuaValue } from "../value.ts";
-import { call, callerLevels, index, newThread, resume, strToNumber, tostringMeta, YieldSignal, EMPTY } from "../vm.ts";
+import { call, callerLevels, index, newThread, rawToString, resume, strToNumber, tostringMeta, YieldSignal, EMPTY } from "../vm.ts";
 import type { LuaState, LuaThread } from "../vm.ts";
 import { argError, checkAny, checkFunc, checkInt, checkNum, checkStr, checkTable, makeLib, optInt, optNum, optStr } from "./util.ts";
-import { loadChunk } from "./base.ts";
+import { loadFileChunk } from "./base.ts";
 import type { BaseHost } from "./base.ts";
 import { luaPow } from "../cmath.ts";
 
@@ -631,7 +631,15 @@ function installPackage(G: LuaState, host: OsHost): void {
       if (tmpl === "") continue;
       const file = tmpl.split("?").join(fname);
       const bytes = host.readFile?.(file);
-      if (bytes !== undefined) return [loadChunk(L, bytes, "@" + file, undefined, host)];
+      if (bytes !== undefined) {
+        try {
+          return [loadFileChunk(L, bytes, file, L.state.encoding)]; // luaL_loadfile
+        } catch (e) {
+          // loaderror() of lib_package.c
+          if (e instanceof LuaError) throw callerError(`error loading module '${name}' from file '${file}':\n\t${rawToString(e.value)}`);
+          throw e;
+        }
+      }
       msg += `\n\tno file '${file}'`;
     }
     return [msg];

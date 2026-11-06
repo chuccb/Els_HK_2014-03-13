@@ -7,12 +7,12 @@ import type { OsHost } from "./lib/misc.ts";
 
 export * from "./value.ts";
 export { LuaTable, strHash, tabDup } from "./table.ts";
-export { Proto, loadBytecode, disassemble, OPS, OP, luaNumberToString, fmtG } from "./bytecode.ts";
+export { Proto, BytecodeError, loadBytecode, disassemble, OPS, OP, luaNumberToString, fmtG } from "./bytecode.ts";
 export {
   LuaState, LuaThread, call, resume, newThread, index, setIndex, arith, equals, lessThan, lessEqual, metaComp,
   tostringMeta, rawToString, strToNumber, toNumber, tostr, getMetatable, metaOf, EMPTY, YieldSignal,
 } from "./vm.ts";
-export { loadChunk } from "./lib/base.ts";
+export { loadChunk, loadFileChunk } from "./lib/base.ts";
 export type { BaseHost } from "./lib/base.ts";
 export type { OsHost } from "./lib/misc.ts";
 

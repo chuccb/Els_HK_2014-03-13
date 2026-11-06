@@ -170,6 +170,12 @@ export class LuaState {
   globals = new LuaTable();
   registry = new LuaTable();
   stringMeta: LuaTable | undefined = undefined;
+  /**
+   * `global_State.encoding` (+380 in the exe; `lua_setencoding`/`lua_getencoding`, KOG addition): how `luaL_loadfile`/`dofile` treat the first
+   * bytes of a file. 0 = a UTF-8 BOM is accepted, 1 = a BOM (or a bytecode dump) is required, 2 = no check. A new state starts at 0; the game
+   * calls `lua_setencoding(L, 1)` right after creating its state.
+   */
+  encoding = 0;
   readonly main: LuaThread;
   current: LuaThread;
   /** native functions with special treatment inside the interpreter loop */

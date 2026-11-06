@@ -176,6 +176,7 @@ function readKtabk(r: Reader): LuaValue {
 function readKtab(r: Reader): LuaTable {
   const narray = r.uleb();
   const nhash = r.uleb();
+  if (narray + nhash * 2 > r.d.length - r.pos) throw new BytecodeError("bad bytecode (truncated)", false); // see the size check in loadBody
   const hbits = nhash ? (nhash === 1 ? 1 : 1 + (31 - Math.clz32(nhash - 1))) : 0;
   const t = new LuaTable(narray, hbits);
   for (let i = 0; i < narray; i++) t.array[i] = readKtabk(r);
@@ -192,16 +193,40 @@ export interface LoadOptions {
   chunkname?: string;
 }
 
-/** Loads a binary chunk; returns the main prototype. Throws on any format error. */
+/**
+ * A failed `lj_bcread` (x2.exe 3337xxxx, stock lj_bcread.c).
+ * `format` = the header check failed (LJ_ERR_BCFMT, "cannot load incompatible bytecode": wrong magic/version, unknown or unsupported flags,
+ * or the input ends inside the header); otherwise the dump is damaged (LJ_ERR_BCBAD, "cannot load malformed bytecode").
+ */
+export class BytecodeError extends Error {
+  constructor(message: string, readonly format: boolean) {
+    super(message);
+    this.name = "BytecodeError";
+  }
+}
+
+/** Loads a binary chunk; returns the main prototype. Throws a `BytecodeError` on any format error. */
 export function loadBytecode(data: Uint8Array, opts: LoadOptions = {}): Proto {
   const r = new Reader(data);
-  for (let i = 0; i < 4; i++) {
-    if (r.u8() !== BCDUMP_HEAD[i]) throw new Error("bad bytecode header (not a KOG LuaJIT 2.0 dump)");
+  let flags: number;
+  try {
+    for (let i = 0; i < 4; i++) {
+      if (r.u8() !== BCDUMP_HEAD[i]) throw new BytecodeError("bad bytecode header (not a KOG LuaJIT 2.0 dump)", true);
+    }
+    flags = r.uleb();
+    if (flags & ~7) throw new BytecodeError(`bad bytecode flags ${flags}`, true);
+    if (flags & BCDUMP_F_FFI) throw new BytecodeError("FFI bytecode is not supported", true);
+  } catch (e) {
+    throw e instanceof BytecodeError ? e : new BytecodeError((e as Error).message, true);
   }
-  const flags = r.uleb();
-  if (flags & ~7) throw new Error(`bad bytecode flags ${flags}`);
-  if (flags & BCDUMP_F_BE) throw new Error("big-endian bytecode is not supported");
-  if (flags & BCDUMP_F_FFI) throw new Error("FFI bytecode is not supported");
+  try {
+    return loadBody(data, r, flags, opts);
+  } catch (e) {
+    throw e instanceof BytecodeError ? e : new BytecodeError((e as Error).message, false);
+  }
+}
+
+function loadBody(data: Uint8Array, r: Reader, flags: number, opts: LoadOptions): Proto {
   const strip = (flags & BCDUMP_F_STRIP) !== 0;
   let chunkname: string;
   if (strip) chunkname = opts.chunkname ?? "=?";
@@ -209,7 +234,8 @@ export function loadBytecode(data: Uint8Array, opts: LoadOptions = {}): Proto {
 
   const stack: Proto[] = [];
   for (;;) {
-    if (r.pos >= data.length) throw new Error("bad bytecode (missing terminator)");
+    // a dump that ends where the terminator should be is complete: stock reads the NUL that follows every Lua string buffer
+    if (r.pos >= data.length) break;
     if (data[r.pos] === 0) { r.pos++; break; }
     const len = r.uleb();
     if (len === 0) break;
@@ -231,16 +257,21 @@ export function loadBytecode(data: Uint8Array, opts: LoadOptions = {}): Proto {
       }
     }
     pt.chunkname = chunkname;
+    // every instruction takes 4 bytes, every upvalue 2, every constant at least 1: refuse sizes the rest of the dump cannot hold
+    // (stock `bcread_need` fails the same way) instead of allocating them
+    if (sizebc * 4 + sizeuv * 2 + sizekgc + sizekn > data.length - r.pos) throw new BytecodeError("bad bytecode (truncated)", false);
     // bytecode: synthesized header + sizebc instructions
     pt.bc = new Uint32Array(sizebc + 1);
     const OP_FUNCF = OPS.findIndex((o) => o[0] === "FUNCF"), OP_FUNCV = OPS.findIndex((o) => o[0] === "FUNCV");
     pt.bc[0] = ((pt.framesize << 8) | (pt.flags & PROTO_VARARG ? OP_FUNCV : OP_FUNCF)) >>> 0;
     const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
-    for (let i = 0; i < sizebc; i++) pt.bc[i + 1] = dv.getUint32(r.pos + i * 4, true);
+    // a dump of the other byte order is accepted and swapped (`bcread_swap`; bytecode words, upvalue descriptors and line numbers)
+    const le = (flags & BCDUMP_F_BE) === 0;
+    for (let i = 0; i < sizebc; i++) pt.bc[i + 1] = dv.getUint32(r.pos + i * 4, le);
     r.pos += sizebc * 4;
     // upvalue descriptors
     pt.uv = new Uint16Array(sizeuv);
-    for (let i = 0; i < sizeuv; i++) pt.uv[i] = dv.getUint16(r.pos + i * 2, true);
+    for (let i = 0; i < sizeuv; i++) pt.uv[i] = dv.getUint16(r.pos + i * 2, le);
     r.pos += sizeuv * 2;
     // KGC (stored in reverse operand order: the first entry read has the highest operand index)
     const kgcRead: KGC[] = [];
@@ -274,7 +305,7 @@ export function loadBytecode(data: Uint8Array, opts: LoadOptions = {}): Proto {
       const per = pt.numline >= 65536 ? 4 : pt.numline >= 256 ? 2 : 1;
       const li = new DataView(data.buffer, data.byteOffset + r.pos, sizebc * per);
       pt.lineinfo = per === 1 ? new Uint8Array(sizebc) : per === 2 ? new Uint16Array(sizebc) : new Uint32Array(sizebc);
-      for (let i = 0; i < sizebc; i++) pt.lineinfo[i] = per === 1 ? li.getUint8(i) : per === 2 ? li.getUint16(i * 2, true) : li.getUint32(i * 4, true);
+      for (let i = 0; i < sizebc; i++) pt.lineinfo[i] = per === 1 ? li.getUint8(i) : per === 2 ? li.getUint16(i * 2, le) : li.getUint32(i * 4, le);
       r.pos += sizebc * per;
       pt.uvnames = [];
       for (let i = 0; i < sizeuv; i++) {

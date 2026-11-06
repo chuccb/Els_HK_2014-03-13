@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "./tools/lua-difftest.sh && bun test packages/assets",
+    "test": "./tools/lua-difftest.sh && bun test packages",
     "verify:kom": "bun run tools/verify-kom.ts",
     "verify:images": "bun run tools/decode-images.ts --tsv /tmp/images_ts.tsv",
     "verify:xet-tet": "bun run tools/verify-xet-tet.ts",

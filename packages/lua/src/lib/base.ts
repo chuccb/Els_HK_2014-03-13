@@ -1,39 +1,96 @@
 import { LuaTable } from "../table.ts";
 import { LuaClosure, LuaError, LuaNative, LuaUserdata, typeName, callerError, vmError } from "../value.ts";
 import type { LuaValue } from "../value.ts";
-import { loadBytecode } from "../bytecode.ts";
-import { call, callerLevels, getMetatable, makePcall, makeXpcall, shortName, strToNumber, tostringMeta, EMPTY } from "../vm.ts";
+import { BytecodeError, loadBytecode } from "../bytecode.ts";
+import { call, callerLevels, getMetatable, makePcall, makeXpcall, strToNumber, tostringMeta, EMPTY } from "../vm.ts";
 import type { LuaState, LuaThread } from "../vm.ts";
 import { argError, checkAny, checkInt, checkStr, checkTable, makeLib, optInt, strtoul32 } from "./util.ts";
 
 export interface BaseHost {
   print(text: string): void;
-  /** Reads a file for dofile/loadfile; returns bytes or undefined. */
+  /** Reads a file for dofile/loadfile; returns bytes or undefined (the file cannot be opened). */
   readFile?(path: string): Uint8Array | undefined;
-  /** Compile Lua *source text* to a function (only available when a source compiler is plugged in). */
-  loadSource?(L: LuaThread, source: string, chunkname: string): LuaClosure;
 }
 
-/** Load a binary chunk (or, when the host provides a compiler, source text) as a closure over `env`. */
-export function loadChunk(L: LuaThread, data: Uint8Array | string, chunkname: string, env?: LuaTable, host?: BaseHost): LuaClosure {
+/** LJ_ERR_BCBAD / LJ_ERR_BCFMT of lj_errmsg.h. */
+const ERR_BCBAD = "cannot load malformed bytecode";
+const ERR_BCFMT = "cannot load incompatible bytecode";
+
+const isEol = (c: number | undefined): boolean => c === 0x0a || c === 0x0d;
+
+/**
+ * `lj_lex_setup` of the exe (stock lj_lex.c): decides whether the buffer is a bytecode dump.
+ * A UTF-8 BOM and a `#` first line are skipped like in stock LuaJIT; a dump that follows such a header is refused (LJ_ERR_BCBAD, "for
+ * security reasons"); anything that does not start with the dump signature (ESC) is Lua *source*, which this exe cannot compile.
+ */
+function lexSetupIsBytecode(bytes: Uint8Array): boolean {
+  let p = 0;
+  let header = false;
+  if (bytes[0] === 0xef && bytes.length >= 3 && bytes[1] === 0xbb && bytes[2] === 0xbf) { // only skipped if all three bytes are buffered
+    p = 3;
+    header = true;
+  }
+  if (bytes[p] === 0x23) { // '#': skip a POSIX #! line
+    do {
+      p++;
+      if (p >= bytes.length) return false; // LEX_EOF inside the line
+    } while (!isEol(bytes[p]));
+    const first = bytes[p]!;
+    p++;
+    if (isEol(bytes[p]) && bytes[p] !== first) p++; // inclinenumber: "\r\n" and "\n\r" count as one line break
+    header = true;
+  }
+  if (bytes[p] === 0x1b) {
+    if (header) throw new LuaError(ERR_BCBAD); // no chunk name is echoed either
+    return true;
+  }
+  return false;
+}
+
+/** The chunk name as `bcread_error` prints it: "(binary)" for a name that is itself a dump, else the name without a leading '@' or '='. */
+function bcreadName(chunkname: string): string {
+  if (chunkname.charCodeAt(0) === 0x1b) return "(binary)";
+  return chunkname[0] === "@" || chunkname[0] === "=" ? chunkname.slice(1) : chunkname;
+}
+
+/**
+ * `cpparser` of the exe (33378B50) behind lua_load / luaL_loadbuffer: loads a *binary* chunk as a closure over `env`.
+ *
+ * The exe has no Lua source compiler (lj_parse is not linked in; `lj_lex_setup` is kept only to find the dump signature): the game ships
+ * precompiled bytecode, and its few text configuration files are read by KOG's own `KLuaManagerProxy` (see `proxy.ts`). So every chunk that is
+ * not a dump (source text, an empty buffer, a BOM or `#` line alone) fails with LUA_ERRSYNTAX "cannot load malformed bytecode", without a
+ * chunk name, which is what `loadstring`/`load`/`loadfile` return as their second result.
+ */
+export function loadChunk(L: LuaThread, data: Uint8Array | string, chunkname: string, env?: LuaTable): LuaClosure {
   const bytes = typeof data === "string" ? Uint8Array.from(data, (c) => c.charCodeAt(0)) : data;
-  if (bytes[0] === 0x1b) {
-    let pt;
-    try {
-      pt = loadBytecode(bytes, { chunkname });
-    } catch (e) {
-      if (e instanceof LuaError) throw e;
-      const bad = e instanceof Error && /header|version|incompatible|flags/i.test(e.message);
-      throw new LuaError(`${shortName(chunkname)}: ${bad ? "cannot load incompatible bytecode" : "cannot load malformed bytecode"}`);
-    }
-    return new LuaClosure(pt, env ?? L.state.globals, []);
+  if (!lexSetupIsBytecode(bytes)) throw new LuaError(ERR_BCBAD);
+  let pt;
+  try {
+    pt = loadBytecode(bytes, { chunkname });
+  } catch (e) {
+    if (e instanceof LuaError) throw e;
+    if (e instanceof BytecodeError) throw new LuaError(`${bcreadName(chunkname)}: ${e.format ? ERR_BCFMT : ERR_BCBAD}`);
+    throw e;
   }
-  if (host?.loadSource) {
-    let text = "";
-    for (let i = 0; i < bytes.length; i += 0x2000) text += String.fromCharCode(...bytes.subarray(i, i + 0x2000));
-    return host.loadSource(L, text, chunkname);
+  return new LuaClosure(pt, env ?? L.state.globals, []);
+}
+
+/**
+ * `luaL_loadfilex(L, filename, mode, iEncoding)` of the exe (33378830, KOG addition) on the file's bytes; `iEncoding` is 0 for `loadfile`/`dofile`
+ * (`lua_getencoding`) and 1 for `dofile_UTF8`. Unless it is 2, the first byte is looked at: a UTF-8 BOM is consumed (unlike in stock
+ * LuaJIT it is not handed to the lexer, so "BOM + dump" loads); a dump signature is accepted; anything else is "invalid encoding" unless
+ * `iEncoding` is 0. The chunk is named "@filename".
+ */
+export function loadFileChunk(L: LuaThread, data: Uint8Array | undefined, filename: string, iEncoding: number): LuaClosure {
+  if (!data) throw new LuaError(`cannot open ${filename}: No such file or directory`);
+  let bytes = data;
+  if (iEncoding !== 2) {
+    if (bytes[0] === 0xef) {
+      if (bytes[1] !== 0xbb || bytes[2] !== 0xbf) throw new LuaError(`invalid encoding ${filename}`);
+      bytes = bytes.subarray(3);
+    } else if (bytes[0] !== 0x1b && iEncoding !== 0) throw new LuaError(`invalid encoding ${filename}`);
   }
-  throw new LuaError(`${chunkname}: Lua source chunks are not supported (no compiler); only precompiled bytecode`);
+  return loadChunk(L, bytes, "@" + filename);
 }
 
 const isFalsy = (v: LuaValue): boolean => v === undefined || v === false;
@@ -229,7 +286,7 @@ export function installBase(G: LuaState, host: BaseHost): void {
       const s = checkStr(a, 0, "loadstring");
       const name = a[1] === undefined ? s : checkStr(a, 1, "loadstring");
       try {
-        return [loadChunk(L, s, name, undefined, host)];
+        return [loadChunk(L, s, name)];
       } catch (e) {
         if (e instanceof LuaError) return [undefined, e.value];
         throw e;
@@ -245,7 +302,7 @@ export function installBase(G: LuaState, host: BaseHost): void {
       }
       const name = a[1] === undefined ? "=(load)" : checkStr(a, 1, "load");
       try {
-        return [loadChunk(L, s, name, undefined, host)];
+        return [loadChunk(L, s, name)];
       } catch (e) {
         if (e instanceof LuaError) return [undefined, e.value];
         throw e;
@@ -253,10 +310,8 @@ export function installBase(G: LuaState, host: BaseHost): void {
     },
     loadfile(L, a) {
       const path = checkStr(a, 0, "loadfile");
-      const data = host.readFile?.(path);
-      if (!data) return [undefined, `cannot open ${path}`];
       try {
-        return [loadChunk(L, data, "@" + path, undefined, host)];
+        return [loadFileChunk(L, host.readFile?.(path), path, G.encoding)];
       } catch (e) {
         if (e instanceof LuaError) return [undefined, e.value];
         throw e;
@@ -264,9 +319,12 @@ export function installBase(G: LuaState, host: BaseHost): void {
     },
     dofile(L, a) {
       const path = checkStr(a, 0, "dofile");
-      const data = host.readFile?.(path);
-      if (!data) throw new LuaError(`cannot open ${path}`);
-      return call(L, loadChunk(L, data, "@" + path, undefined, host), []);
+      return call(L, loadFileChunk(L, host.readFile?.(path), path, G.encoding), []);
+    },
+    /** KOG addition (lj_cf_dofile_UTF8, 3338DD00): dofile with `iEncoding` 1, i.e. the file must start with a UTF-8 BOM or be a dump. */
+    dofile_UTF8(L, a) {
+      const path = checkStr(a, 0, "dofile_UTF8");
+      return call(L, loadFileChunk(L, host.readFile?.(path), path, 1), []);
     },
     gcinfo() {
       const kb = typeof process !== "undefined" && process.memoryUsage ? process.memoryUsage().heapUsed / 1024 : 0;
