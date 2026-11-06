@@ -22,8 +22,8 @@
 | 2 | 資產解碼器（TGA/DDS/X/Y/XET/TET/粒子腳本/KIM/ESS/MPEG-1） | **完成（解碼端）**：圖片（TGA/DDS/BMP/PNG）、XET/TET、字串表（ESS）、物品資料庫（KIM）、X 檔容器（MSZIP）與通用 X 讀取器、KME/KSM/KAC、粒子與 XMeshPlayer 腳本（解析端，37 個檔案、13,882 個區塊與獨立讀取器逐欄位一致）、**AVI + MPEG-1 影片**（30 個 `data/movie/*.avi`、18,514 張畫面與 FFmpeg 逐取樣點完全相同）都已完成並以全部資產驗證；粒子／XMeshPlayer 執行期與播放影片的 Bandi 式播放器（`CMovieData`）需要繪圖與 UI，留給後續階段；網格語意由階段 3 的 D3DX 實作承接 |
 | 3 | WebGPU 的 D3D9 相容層（`packages/d3d9`） | **進行中，核心已完成**：`IDirect3DDevice9`（固定管線、全部狀態、貼圖格式、render target、可程式化的頂點階段）、D3DX 數學／貼圖／網格／骨架／動畫／影格階層載入器、`XRenderer.fx` 的 effect 模擬（19 個 technique、80 個 `vs_1_1` 著色器 → WGSL）；153 個測試在 Dawn + SwiftShader 上執行（`docs/img/d3d9-demo.png`）。引擎載入器已移植（`packages/engine`：`CKTDXDeviceXSkinMesh` 的影格清單與 KSM／KAC 載入器、`CKTDXDeviceXMesh` 的 KME／X 載入器、KAC 的 `OptimizeKeys`——**與 exe 逐位元相同**，見下）；`CKTDGXRenderer`／`CKTDGEffectStateManager` 尚未移植，也沒有真正的 D3D9／D3DX 可比對（假設列在 `docs/FINDINGS.md` 12.5） |
 | 3＋ | **瀏覽器實測**（`apps/client` + `apps/server` + `tools/browser-test.ts`） | **完成（作為測試台）**：無頭 Chromium 153 + WebGPU（SwiftShader）可在沙箱執行；整個流程（HTTP Range 掛載 KOM → 解碼 → D3D9 層 → WebGPU canvas）有 22 項自動檢查：TGA 與 MPEG-1 畫面與 Bun 端解碼逐像素相同、蒙皮動畫網格會隨動畫時間改變、RGBA 與 BGRA 後緩衝逐像素相同（桌機瀏覽器偏好 BGRA）。**這證明瀏覽器端與 Bun 端一致，不證明畫面等同原版**（沒有參考截圖）；艾爾索德等角色（KSM + KAC）與 109 個 KME 靜態網格已能繪製並播放動畫 |
-| 4 | UI 框架（`DLG_*.lua`） | 未開始 |
-| 5 | `lua_tinker` 等價的 host API | 已完成**地面實況分析**（`docs/HOST_API.md`），尚未實作 |
+| 4 | UI 框架（`DLG_*.lua`） | 進行中（前置工作完成）：1,024 支 DLG 腳本在 host 層上有 992 支跑到結尾，其餘 32 支需要執行檔與腳本都沒有定義的全域名稱；UI 類別需要實作的方法清單在 `docs/HOST_CENSUS.md`（UI 類別 259 個方法）。UI 類別本體尚未移植 |
+| 5 | `lua_tinker` 等價的 host API（`packages/host`） | **進行中，基礎完成**：binder（照反編譯讀出的 `lua_tinker` 語意：類別表當 metatable、`meta_get`／`meta_set`、`__parent`、`read<T>`／`push<T>`、原版的錯誤訊息）、由 `docs/host_api.tsv` 產生的型別化 API（128 個類別、1,418 個方法）、`KLuaManager`、`HostWorld`（`IncludeLua`、`LoadLuaEnum` 的腳本）、第一個真實的 host 類別 `KGCMassFileManager`。全部 4,498 支腳本在型別化 stub 上跑一遍（`docs/HOST_CENSUS.md`）：4,422 支跑到結尾，其餘 76 支需要 23 個連 `x2.exe` 字串表都沒有的名稱。各類別的本體尚未移植 |
 | 6 | 開機／登入／角色選擇 + `apps/server` | 未開始 |
 
 ![資產檢視器：Sonogong 寵物（`Motion_PET_SONOGONG_STEB_1.X`，蒙皮動畫「Walk」）由原版 KOM 資產經 D3D9 層畫在 WebGPU canvas（無頭 Chromium + SwiftShader 截圖）](docs/img/web-viewer-pet.png)
@@ -73,6 +73,7 @@ packages/kom      @els/kom   KOM 封存檔（zlib、XORCRC 演算法 2、Adler-3
 packages/lua      @els/lua   LuaJIT 2.0.2 位元碼 VM 與標準函式庫（對照 x2.exe 內的 lj_* 實作）、`KLuaManagerProxy`（文字設定檔直譯器）
 packages/assets   @els/assets  圖片（TGA/DDS/BMP/PNG）、XET/TET、字串表（general.ess）、物品資料庫（item.kim）、MSZIP、DirectX X 讀取器、KME/KSM/KAC 解碼器、粒子／XMeshPlayer 腳本解析器、AVI 解封裝與 MPEG-1 影片解碼器
 packages/d3d9     @els/d3d9  Direct3D 9 + D3DX 建立在 WebGPU 上（裝置、固定管線、D3DX 數學／貼圖／網格／骨架／動畫、XRenderer.fx effect 模擬）
+packages/host     @els/host  `lua_tinker` 等價層：binder、型別化 API（由 docs/host_api.tsv 產生）、`KLuaManager`、`HostWorld`（一個 Lua state + `IncludeLua`）、腳本普查
 packages/engine   @els/engine  引擎類別（CKTDX*／CKTDG*）建立在 d3d9 之上，逐函式移植；目前有 CKTDXDeviceXSkinMesh（影格清單、KSM／KAC 載入器、`OptimizeKeys`）與 CKTDXDeviceXMesh（KME／X 載入器）
 tests/lua         差異測試（兩個 VM 執行同一份 luajit -b -s 位元碼）
 tools             驗證、分析與產生文件的工具（見 docs/ARCHITECTURE.md）
@@ -93,7 +94,7 @@ npm install --no-audit --no-fund --prefix /home/user/work/boot bun@1.4.4   # npm
 python3 tools/kom_extract.py /home/user/work/ex lua,LUA  # 取出 4,498 個腳本
 ./tools/lua-difftest.sh                 # 15 個差異測試（t10–t14 為模糊測試、t15 為載入器）
 ./node_modules/.bin/bun test packages   # 不需要 GPU 的單元測試（389 個通過，139 個需要 GPU 而自行略過）
-./tools/gpu.sh ./node_modules/.bin/bun test packages   # 全部 528 個測試（含 153 個 d3d9 測試，在 Dawn + SwiftShader 上執行）
+./tools/gpu.sh ./node_modules/.bin/bun test packages   # 全部 562 個測試（含 154 個 d3d9 測試，在 Dawn + SwiftShader 上執行）
 ./node_modules/.bin/bun run tools/verify-ksm.ts   # KME/KSM/KAC 全部資產驗證（約 45 秒）；其餘見 package.json 的 verify:*
 ./tools/gpu.sh ./node_modules/.bin/bun run tools/verify-ksm-load.ts   # 1,031 個 KSM 全部經引擎載入器載入（約 90 秒）
 pip install --target /home/user/work/pycap unicorn pefile capstone   # CPU 模擬器與 PE／反組譯函式庫（`ELS_PYLIBS` 可改目錄）

@@ -223,7 +223,7 @@ python3 tools/index_decomp.py data/x2.exe.c /home/user/work/analysis/functions.t
 python3 tools/bindings.py && python3 tools/ledger.py                                # docs/HOST_API.md, docs/LEDGER.md
 ./node_modules/.bin/bun test packages                                                 # unit tests that need no GPU: asset decoders, Lua loader, KLuaManagerProxy (the d3d9 GPU tests skip)
 ./tools/setup-gpu.sh                                                                   # software Vulkan for Dawn -> /home/user/work/swsh (about 2 s)
-./tools/gpu.sh ./node_modules/.bin/bun test packages                                   # everything: 528 tests (389 + 139 that need the GPU), incl. the 153 d3d9 tests on Dawn + SwiftShader
+./tools/gpu.sh ./node_modules/.bin/bun test packages                                   # everything: 562 tests (423 + 139 that need the GPU), incl. the 154 d3d9 tests on Dawn + SwiftShader
 ./node_modules/.bin/bun run tools/gen-d3d9-enums.ts --check                            # enums.generated.ts is current
 ./node_modules/.bin/bun run tools/census-xscene.ts                                     # integrity of all 25,313 X / Y scenes
 ./tools/gpu.sh ./node_modules/.bin/bun run tools/census-skin.ts                        # hierarchy loader + skin conversion + animation over all 7,395 skinned files, ~3 min
@@ -239,7 +239,7 @@ python3 -m venv /home/user/work/venv && /home/user/work/venv/bin/pip install pil
 ./tools/gpu.sh ./node_modules/.bin/bun run tools/verify-xmesh-load.ts --x 50   # 109 KME + every 50th X / Y file through loadXMesh, ~45 s
 pip install --target /home/user/work/pycap unicorn pefile capstone                      # CPU emulator + PE / disassembler libraries (ELS_PYLIBS overrides the directory)
 ./node_modules/.bin/bun run tools/verify-optimizekeys.ts              # OptimizeKeys of the exe (emulated) vs the port, bit for bit: 3,000 synthetic cases + every 400th shipped animation, ~1 min
-python3 tools/mutate-optimizekeys.py                                  # 22 mutants of kac-keys.ts against the unit tests (4 equivalent survivors are expected), seconds
+python3 tools/mutate-optimizekeys.py                                  # 22 mutants of kac-keys.ts against the unit tests (4 survivors are expected: equivalent or unreachable, FINDINGS 16.3), ~1 s
 ./node_modules/.bin/bun run tools/verify-ess.ts                       # string table
 ./node_modules/.bin/bun run tools/verify-kim.ts                       # item database, ~2 s
 ./node_modules/.bin/bun run tools/verify-effects.ts                   # particle / XMeshPlayer scripts, ~4 s
