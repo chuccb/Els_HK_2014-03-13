@@ -6,7 +6,7 @@
  * archives, the animation controller poses the frame hierarchy, skinned meshes are skinned on the CPU (`ID3DXSkinInfo::UpdateSkinnedMesh`) and drawn
  * with the fixed-function pipeline.  The game itself skins on the GPU with XRenderer.fx; this is the tool for looking at the data.
  */
-import { collisionFrames, loadSkinnedMesh, setupDrawFrameList } from "@els/engine";
+import { collisionFrames, isKmeData, loadSkinnedMesh, loadXMesh, setupDrawFrameList, xmeshAsFrame } from "@els/engine";
 import type { MultiAnimFrame, MultiAnimMC } from "@els/engine";
 import {
   D3DBLEND, D3DCLEAR, D3DCMP, D3DCULL, D3DFMT, D3DLIGHT, D3DPOOL, D3DRS, D3DSAMP, D3DTEXF, D3DTS, D3DTS_WORLD, D3DX_FILTER, D3DXCreateTextureFromFileInMemoryEx,
@@ -29,14 +29,21 @@ interface Drawn { frame: MultiAnimFrame; c: MultiAnimMC; mesh: D3DXMesh; skinned
 export async function meshPreview(env: PreviewEnv, name: string, bytes: Uint8Array): Promise<Preview> {
   const d3d = await env.d3d();
   const { dev } = d3d;
-  const loaded = loadSkinnedMesh(bytes, dev);
+  // "KME " data is a static mesh (CKTDXDeviceXMesh::_Load -> LoadKMEMesh): one frame around the mesh; everything else goes through the skin-mesh loader
+  const kme = isKmeData(bytes) ? loadXMesh(bytes, dev) : null;
+  if (kme && (kme.hr < 0 || !kme.mesh)) throw new Error(`KME load failed: 0x${(kme.hr >>> 0).toString(16)}`);
+  const loaded = kme ? null : loadSkinnedMesh(bytes, dev);
   // an X file with more than 255 frames is refused by the exe; the inspector still shows what D3DX made of it
-  const kept = loaded.hr >= 0 ? { root: loaded.frameRoot, controller: loaded.animController } : loaded.discarded ? { root: loaded.discarded.frameRoot, controller: loaded.discarded.animController } : null;
-  if (!kept?.root) throw new Error(`${loaded.format} load failed: 0x${(loaded.hr >>> 0).toString(16)}`);
+  const kept = kme ? { root: xmeshAsFrame(kme) as D3DXFrame | null, controller: null as D3DXAnimationController | null }
+    : loaded!.hr >= 0 ? { root: loaded!.frameRoot, controller: loaded!.animController }
+    : loaded!.discarded ? { root: loaded!.discarded.frameRoot, controller: loaded!.discarded.animController } : null;
+  if (!kept?.root) throw new Error(`${loaded!.format} load failed: 0x${(loaded!.hr >>> 0).toString(16)}`);
   const root = kept.root as MultiAnimFrame;
   const controller: D3DXAnimationController | null = kept.controller;
-  const frameList = loaded.hr >= 0 ? loaded.frameList : loaded.frames!.frames;
-  const drawFrames = (loaded.hr >= 0 ? loaded.drawFrameList : setupDrawFrameList(root)) as MultiAnimFrame[];
+  const format = kme ? "KME" : loaded!.format;
+  const refusedByExe = loaded !== null && loaded.hr < 0;
+  const frameList: D3DXFrame[] = kme ? [root] : refusedByExe ? loaded!.frames!.frames : loaded!.frameList;
+  const drawFrames = (kme ? [root] : refusedByExe ? setupDrawFrameList(root) : loaded!.drawFrameList) as MultiAnimFrame[];
 
   // ---- textures (shared by name), skinned clones
   const textures = new Map<string, Direct3DTexture9 | null>();
@@ -201,8 +208,10 @@ export async function meshPreview(env: PreviewEnv, name: string, bytes: Uint8Arr
     el("label", {}, rotate, " turntable"), el("label", { title: "off = D3DCULL_CCW, the D3D default" }, sided, " two-sided"), el("span", { class: "dim", text: "drag: orbit, wheel: zoom" }));
   const pane = el("div", { class: "pane" }, bar, el("div", { class: "glwrap" }, canvas));
   raf = requestAnimationFrame(tick);
-  const refused = loaded.hr < 0 ? " - the exe would refuse this mesh (more than 255 frames)" : "";
-  const info = `${loaded.format} ${numFrames} frames (${helperFrames} collision), ${containers.length} drawn mesh containers (${skinned} skinned), ${numVertices} vertices, ${numFaces} faces, ${textures.size} textures${missingTextures ? ` (${missingTextures} missing)` : ""}, ${sets.length} animation sets${refused}`;
+  const refused = refusedByExe ? " - the exe would refuse this mesh (more than 255 frames)" : "";
+  const info = kme
+    ? `KME static mesh, ${numVertices} vertices, ${numFaces} faces, ${kme.attributeRange.length} subsets of ${kme.materials.length} materials, ${textures.size} textures${missingTextures ? ` (${missingTextures} missing)` : ""}`
+    : `${format} ${numFrames} frames (${helperFrames} collision), ${containers.length} drawn mesh containers (${skinned} skinned), ${numVertices} vertices, ${numFaces} faces, ${textures.size} textures${missingTextures ? ` (${missingTextures} missing)` : ""}, ${sets.length} animation sets${refused}`;
   return {
     el: pane,
     info,

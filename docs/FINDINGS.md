@@ -223,7 +223,9 @@ at load time. Coverage of function bodies is shallow (most calls with stub argum
   structs of `x2.exe.h`), 5 are bound to a no-op (`__empty_global_delete`). Names the decompiler shows only as the address of a shared string
   are resolved in `docs/bindings-overrides.tsv` (marked `(inferred)` when they come from the usage in scripts, not from the binary).
 * 46 of the 33,294 functions could not be decompiled (`#error "call analysis failed"`); they are listed in `docs/LEDGER.md` and need
-  disassembly if the port depends on them.
+  disassembly if the port depends on them. The decompile is also unreliable for float code: Hex-Rays loses the XMM / x87 arguments of calls
+  (`sin`, `atan2`, ...) and confuses `float` with `double` in SSE code (`OptimizeKeys`, section 16.2). `python3 tools/disasm.py START END`
+  (Capstone; imports are named, also through the `jmp [slot]` thunks) reads the machine code instead.
 * Enum constants (`XUF_DODUM_*`, world ids, ...) are defined by `Enum.lua` / `DungeonEnum.lua` (`CX2Main::LoadLuaEnum`); the exe registers
   only the nation flags (`NF_NONE` 0, `NF_KR` 256, `NF_JP` 512, `NF_TW` 768, `NF_HK` 769, `NF_US` 1024, `NF_CN` 1536, ...).
 * Each manager's `OpenScriptFile` declares the globals its script may use (`g_pItemManager`, `g_pWorld`, `g_pUnitManager`, ...) and then
@@ -372,12 +374,11 @@ all looping, all 4800 ticks/s** - 967,449 animations, 109.6 M keys.
 **What the exe adds on top (the static-mesh part is now emulated by `@els/d3d9`, section 12.4)**: static meshes are cloned to FVF 338, their vertex colour is set to 0xFFFFFFFF,
 `D3DXComputeBoundingSphere`, `D3DXWeldVertices` (all epsilons 0) and `Optimize(MANAGED | ATTRSORT | VERTEXCACHE)` run, and the
 attribute table becomes the draw ranges; keys read from a KSM go through `OptimizeKeys` (32988610, tolerance 0.001) before
-`RegisterAnimationSRTKeys`; the `ID3DXAnimationController` is created with 2 tracks and 30 events. Open points for the renderer
-phase: (1) D3DX's `D3DXLoadMeshFromX` flattens multi-mesh files with the frame transforms applied (assumed from the documented
+`RegisterAnimationSRTKeys`; the `ID3DXAnimationController` is created with 2 tracks and 30 events. Open points that the renderer phase had: (1) D3DX's `D3DXLoadMeshFromX` flattens multi-mesh files with the frame transforms applied (assumed from the documented
 behaviour, not checked against the real library; 13,039 `.y` files depend on it); (2) the quaternion convention of X-file
-`AnimationKey`s (w,x,y,z, possibly conjugated) can be decided by comparing key 0 with the frame's rest matrix, the same
-relationship holds in the KSM files; (3) X-file skin meshes need `D3DXLoadMeshHierarchyFromX` semantics (frame names, `SkinWeights`
--> bone table, `VertexDuplicationIndices`).
+`AnimationKey`s - decided in 12.4 (the controller conjugates; the KSM keys are registered as they are) and confirmed by a standing
+Elsword (section 16); (3) X-file skin meshes need `D3DXLoadMeshHierarchyFromX` semantics (frame names, `SkinWeights`
+-> bone table, `VertexDuplicationIndices`) - done in 12.4. **The KSM / KAC / KME loaders themselves are ported in section 16.**
 
 ## 10. Particle and XMeshPlayer scripts (Phase 2)
 
@@ -641,7 +642,7 @@ average; the colour key compares the full ARGB value (0 = off) and writes transp
 `D3DERR_NOTAVAILABLE` (2 `.tga` files hold JPEG: left to the browser decoder); garbage gives `D3DXERR_INVALIDDATA` (0x88760B59); `SaveSurfaceToFileInMemory` always returns PNG data.
 The detail-level reduction therefore yields *smaller uncompressed* textures: **DXT compression is not implemented**.
 
-**Meshes** (`d3dx-mesh.ts`, `@els/assets/xscene.ts`). `CKTDXDeviceXMesh::_Load` (3296B780, L425250-426100) does: `D3DXLoadMeshFromXInMemory(options 0x220 = MANAGED)` -> if `GetFVF() != 338`
+**Meshes** (`d3dx-mesh.ts`, `@els/assets/xscene.ts`). `XMeshProxy::LoadD3DXMesh` (3296A130, L425208; `CKTDXDeviceXMesh::_Load` is 3296B780, L426604, and calls it for everything that is not a KME, section 16) does: `D3DXLoadMeshFromXInMemory(options 0x220 = MANAGED)` -> if `GetFVF() != 338`
 `CloneMeshFVF(MANAGED, 338)` -> writes 0xFFFFFFFF into every vertex colour (through the index buffer) -> `D3DXComputeBoundingSphere` -> `D3DXWeldVertices(mesh, 0, all epsilons 0, adjacency)` ->
 `Optimize(0x6000220 = ATTRSORT | VERTEXCACHE | MANAGED)` -> `GetAttributeTable` -> a bounding sphere per subset from its vertex range. `CKTDXDeviceXMesh::Render` (L426367) keeps
 the current material, then per attribute group `SetMaterial(m_pdxMaterials[AttribId])`, binds the group's texture **only if it has one (an untextured group keeps the previous texture)**, optionally sets
@@ -661,9 +662,13 @@ D3DX must pass NULL for a rigid mesh: the port does); `D3DXFrameFind` / `D3DXFra
 palette = min(bones, 20), adjacency)` (`MultiAnimMC::ConvertToSkinnedMesh` 3296D8B0, L428466) followed by the engine's own clone to FVF 4380 (XYZB4 | LASTBETA_UBYTE4 | NORMAL | TEX1, 48 bytes) and `UpdateSemantics`; `CloneAnimationController` (the engine clones the loader's
 controller with its own maxima: 2 tracks, 30 events) and `SetTrack*` / `KeyTrack*` / `AdvanceTime` (the cross-fade of `CKTDGXSkinAnim::ChangeAnim` 32976E60: old track `KeyTrackEnable(FALSE)` + speed / weight -> 0, new track speed 0
 -> play speed, weight 0 -> 1, over `transitionTime`). All of it exists now and is exercised on real files.
-* *Quaternion convention* (decided from data, not from a document): an X rotation key is stored `w, x, y, z`; the matching `D3DXQUATERNION` is **(-x, -y, -z, w)**. Of 323 key-0-versus-frame-matrix comparisons that carry
-  information the file's value matched the frame's rest matrix 0 times as is and 237 times conjugated (86 neither: other poses); and end to end on `LENA_SI_A_LE_BACKJUMP_SHOT01.X` (data121.kom: 7 frames, 2 bones, 7 animations,
-  0.367 s): after load and `AdvanceTime(0)` all 7 frame matrices equal their rest matrices (error < 1e-5), which also validates matrix keys (decomposed into S, R, T), the SRT composition `S * R * T` and the controller.
+* *Quaternion convention* (decided from data, not from a document): an X rotation key is stored `w, x, y, z`; the loader keeps it as the `D3DXQUATERNION` (x, y, z, w) **as stored**, a 4x4 matrix key is decomposed and its rotation
+  becomes the **conjugate** `(-x, -y, -z, w)`, and **the controller builds the matrix from the conjugate of the interpolated key** (`S * R(conj(q)) * T`; the separate rotation output, `GetSRT`, is the key itself - a guess, the exe registers
+  matrices only). Of 323 key-0-versus-frame-matrix comparisons that carry information the file's value matched the frame's rest matrix 0 times as is and 237 times conjugated (86 neither: other poses); in the first animation set of the 1,031 KSM
+  files 0 of the informative keys match as is and 30,009 match conjugated (1,524 neither, 16,069 symmetric); end to end on `LENA_SI_A_LE_BACKJUMP_SHOT01.X` (data121.kom: 7 frames, 2 bones, 7 animations, 0.367 s) after load and
+  `AdvanceTime(0)` all 7 frame matrices equal their rest matrices (error < 1e-5), which also validates matrix keys, the SRT composition and the controller. **The first version of the layer conjugated at load** (all three
+  facts above hold for that too, X files alone cannot tell loader from controller); the exe registers the KAC keys unconjugated (x2.exe.c L450508, `RegisterAnimationSRTKeys` straight from `UnpackKeys` / `OptimizeKeys`), so
+  the first KSM picture had Elsword upside down. The conjugate moved into the controller, and `ksm-load.test.ts` keeps the fact: at time 0 of `Wait3` at least half of the animated frames of `Motion_Elsword.x` equal their rest matrices.
 * *Controller*: defaults as D3DX documents (track priority LOW, weight 1, speed 1, position 0, disabled); per priority group a weighted sum of the enabled tracks (rotations sign-aligned and normalised, no weight
   normalisation), the two groups lerped by the priority blend; events (`KeyTrackSpeed / Weight / Position / Enable`, `KeyPriorityBlend`) run in segments from the value at their start, `LINEAR` or `EASEINEASEOUT` (smoothstep),
   the track position is the analytic integral of a speed ramp; a newer event of the same kind replaces a running one; 30 events at most (`Key*` returns handle 0 beyond that); `CloneAnimationController` keeps sets,
@@ -707,7 +712,7 @@ the file** (3ds Max leftovers such as `Object274`, `Cylinder01`, `COLLISION1`); 
 9. `DrawSubset` on a mesh that has no attribute table draws contiguous runs of the attribute (D3DX does the same lazily); with a table it draws each entry with its vertex range.
 10. Animation / skin (no D3DX oracle except the loader structure and `D3DXFrameFind` / `UpdateSkinnedMesh` / skin-info creation rules of 12.3): the controller maths of 12.4 (event segments, smoothstep for `EASEINEASEOUT`,
     blending, the 30-event limit and handle 0), slerp / lerp key sampling, clamping outside the key range, `D3DXFrameCalculateBoundingSphere`, the bone-combination packing and the choice of slot 0 for an
-    influence-less vertex, keeping the four strongest of more than four influences. The quaternion sign is data-derived (12.4) and checked on one real file end to end.
+    influence-less vertex, keeping the four strongest of more than four influences. The quaternion sign is data-derived (12.4), checked on one real X file end to end and on the standing Elsword of the KSM path (section 16).
 11. A mesh with vertex colours that lists only some vertices: the unlisted ones are white with alpha 1 here (the reader fills 1,1,1,1) whereas Wine's loader writes `0x00ffffff` (alpha 0); one mesh in the data has vertex
     colours and the question is untested. Several `FrameTransformMatrix` in one frame: the last replaces the earlier ones in the hierarchy loader (native-checked) but `D3DXLoadMeshFromX` accumulates them (Wine's
     test, not implemented; the data has none).
@@ -945,14 +950,14 @@ The page is an **asset viewer**: all 97,891 archive members and the 208 loose fi
 | tga / dds / bmp / png / jpg | `decodeImage` of `@els/assets` into a 2D canvas (JPEG through `createImageBitmap`) |
 | avi | `Mpeg1Movie` at 24 fps on a 2D canvas, pause / seek |
 | ogg / wav | `<audio>` (the browser decodes) |
-| x / y | `D3DXLoadMeshHierarchyFromXInMemory` + the exe's frame lists (§15.3) + textures from the archives + the animation controller + CPU skinning, drawn by the D3D9 layer on a WebGPU canvas (orbit, zoom, animation set, speed) |
+| x / y | chosen by content, not by extension: `KME ` -> `loadXMesh`; `KSM ` or DirectX X -> `loadSkinnedMesh` (§16; for X files `D3DXLoadMeshHierarchyFromXInMemory` + the exe's frame lists, §15.3); textures from the archives, the animation controller + CPU skinning, drawn by the D3D9 layer on a WebGPU canvas (orbit, zoom, animation set, speed) |
 | xet / tet | the parsers of `@els/assets`, as JSON |
 | lua | LuaJIT bytecode listing (`@els/lua` `disassemble`) |
 | others | text (BOM aware) or hex dump |
 
 The D3D9 layer presents with `copyTextureToTexture` from its back buffer (1024x768, the client's base resolution) into the canvas texture; the format is the canvas's preferred one
-(`?format=rgba8unorm|bgra8unorm` forces it; desktop browsers prefer `bgra8unorm`, this headless one `rgba8unorm`). Files that are not DirectX X (the KSM / KAC / KME formats) fall back to the
-hex view with a note: **rendering them (the playable characters, `Mesh_*_Base_SD.x` + `Motion_*.x`) is not done yet**.
+(`?format=rgba8unorm|bgra8unorm` forces it; desktop browsers prefer `bgra8unorm`, this headless one `rgba8unorm`). The playable characters (`Mesh_*_Base_SD.x` + `Motion_*.x`: KSM files with a KAC animation block) and the
+109 KME static meshes are drawn through the engine's loaders (§16); a file that the loaders refuse is shown as text / hex with the reason (`not shown as a mesh: ...`).
 
 ### 15.3 `CKTDXDeviceXSkinMesh::XSkinMeshProxy`: which frames are drawn
 
@@ -968,16 +973,15 @@ Ported as `setupFrameList`, `setupDrawFrameList`, `collisionFrames` in `packages
 What the data looks like: the body parts of the playable characters are X files with the 68-bone skeleton and one skinned mesh and **no animation sets** (`Mesh_ElSword_JP_Upbody09_Sorted.X`); their motions live in KAC files
 (`Motion_Elsword.x`, not X). Pets, NPCs and effect models (`Motion_PET_*_STEB_*.X`, 25 animation sets, 2-4 skinned meshes) are complete X files and animate in the viewer.
 
-### 15.4 Verification (`bun run tools/browser-test.ts [--shots dir] [--smoke N]`, 18 checks, about 17 s)
+### 15.4 Verification (`bun run tools/browser-test.ts [--shots dir] [--smoke N]`, 22 checks, about 21 s)
 
 It starts the server in the process, loads the page in headless Chromium and checks: 173 archives / 97,891 members mounted over Range requests with none missing; the TGA `dlg_first_loading0_hk.tga` pixel-identical to the
 Bun decode; picture 13 of `movie_create_aisha_base.avi` pixel-identical to the Bun decode; the wooden sword draws one container and lights pixels; `Motion_PET_SONOGONG_STEB_1.X` (56 frames, 7 drawn containers, 2 skinned, 25 sets, 3 textures) draws,
-changes with the animation time and switches animation sets; the Lua listing, `general.ess`, an XET and a TET, an `.ogg` (browser-decoded, 109.7 s) and the KSM fallback; **the sword and the animated pet are pixel-identical with an RGBA and a BGRA back buffer**;
+changes with the animation time and switches animation sets; the Lua listing, `general.ess`, an XET and a TET, an `.ogg` (browser-decoded, 109.7 s); the KSM character `Motion_Elsword.x` (68 frames, 6 skinned containers, 90 animation sets, 6 textures; the first set at time 0 is a standing figure - the lit picture is taller than wide - and the Walk set at 0.2 s changes the pose and stays upright), `Mesh_Elsword_Base_SD.x` (a static KSM) and a KME building (`Elder_Village_bigsang.Y`, 693 vertices after welding, 30 subsets, 9 textures); **the sword, the animated pet and the KSM character are pixel-identical with an RGBA and a BGRA back buffer**;
 no console error, exception, failed request or HTTP status >= 400. These show that the browser stack is consistent with the Bun stack, not that the pictures equal the original client's (there is no reference screenshot).
 
-`--smoke N` adds a 19th check: N X / Y files picked by a fixed LCG (seed 12345) are opened in the page one after the other; each must open without an error and, when it has a drawn mesh container, light at least one pixel
-(an animated one may be blank at t = 0 and is retried at 0.25 / 0.5 / 1 / 2 s). With N = 1,500 (5.7 % of the 26,453 files, 3.7 minutes): **1,445 drawn (407 skinned, 299 animated), 55 KSM / KME files (not X: hex fallback), 10 files with nothing
-to draw, 0 errors, 0 blank pictures of a file that has a drawn container.** The 10 are dummies and helper-only files by design: `Darkcloud_AttackBox01.X` has only `ATTACK_SPHERE*` meshes, `Mesh_Common_Cash_AC_Lowbody_249270_Sorted.X` is a 452-byte file with two empty frames.
+`--smoke N` adds a 23rd check: N X / Y files picked by a fixed LCG (seed 12345) are opened in the page one after the other; each must open without an error and, when it has a drawn mesh container, light at least one pixel
+(an animated one may be blank at t = 0 and is retried at 0.25 / 0.5 / 1 / 2 s). With N = 1,500 (5.7 % of the 26,453 files, 4.1 minutes, after the KSM / KME loaders and the real `OptimizeKeys`): **all 1,500 open as meshes (440 skinned, 349 animated, 50 KSM, 5 KME), 10 have nothing to draw, 0 errors, 0 blank pictures of a file that has a drawn container.** The 10 are dummies and helper-only files by design: `Darkcloud_AttackBox01.X` has only `ATTACK_SPHERE*` meshes, `Mesh_Common_Cash_AC_Lowbody_249270_Sorted.X` is a 452-byte file with two empty frames.
 The sample found four things in the viewer (they are inspector choices; the exe sets cull and blend per object through its XMeshPlayer scripts and `CKTDGXRenderer`, the X files carry neither):
 
 1. Single-sided planes (stage backdrops, avatar face cards) vanished under `D3DCULL_CCW`: in a first sample of 400 files, 11 files with a drawn container gave a blank picture. The viewer is **two-sided by default** (checkbox "two-sided"; off = `D3DCULL_CCW`, D3D's default); 2 files were still blank.
@@ -987,5 +991,86 @@ The sample found four things in the viewer (they are inspector choices; the exe 
 
 ### 15.5 Not done
 
-KSM / KAC rendering (the characters), `CKTDGXRenderer` over the layer (the viewer uses the fixed-function path, CPU skinning and no XET texture changes), UI (`DLG_*.lua`), the real boot sequence.
+`CKTDGXRenderer` over the layer (the viewer uses the fixed-function path, CPU skinning and no XET texture changes), UI (`DLG_*.lua`), the real boot sequence. (The KSM / KAC characters and the KME meshes are done: section 16.)
 
+## 16. The KSM / KAC and KME loaders, `OptimizeKeys`, and checking a function against the exe itself
+
+### 16.1 What was ported (`packages/engine`)
+
+| x2.exe.c | port | checked by |
+|---|---|---|
+| `CKTDXDeviceXSkinMesh::_Load` 32970130 (L430796): `'KSM '` -> `LoadKSkinnedMesh`, anything else -> `LoadD3DXSkinnedMesh` (3296E760) | `loadSkinnedMesh` (`skinmesh.ts`) | the viewer, `browser-test.ts` |
+| `LoadKSkinnedMesh` 3296EBB0 (L429515), `MultiAnimMC::ReadKSM` 3296F7B0 (L430172), `KTDXAnimationController::ReadFromMemory` 32988150 (L448687), `ReadFromMemoryDeserializer` 32989F10 (L450334), `UnpackKeys` 3298A4E0, `OptimizeKeys` 32988610 | `ksm-load.ts`, `multianim.ts`, `kac-keys.ts` (+ `parseKsm` / `parseKac` of `@els/assets`) | `ksm-load.test.ts` (14 tests), `tools/verify-ksm-load.ts`, `kac-keys.test.ts` (11), 16.3 |
+| `CKTDXDeviceXMesh::_Load` 3296B780 (L426604): `'KME '` -> `LoadKMEMesh` 3296A880 (L425712), anything else -> `LoadD3DXMesh` 3296A130 (L425208) | `loadXMesh` (`xmesh.ts`) | `xmesh.test.ts` (7), `tools/verify-xmesh-load.ts` |
+
+**KSM.** The frames become `MultiAnimFrame`s in file order (frame 0 = root), every mesh container goes through `ReadKSM` (`D3DXCreateMeshFVF` with the file's 32-bit flag + `MANAGED`, vertices / indices / attributes copied,
+adjacency generated; bones -> `D3DXCreateSkinInfoFVF` with the name of the bone's frame, the offset matrix and the influences), and the animation block becomes an `ID3DXAnimationController` with 2 tracks and 30 events and one
+`D3DXCreateKeyframedAnimationSet` per KAC set (4800 ticks/s, the set's playback type). Every animation of a set is registered **by the name of its frame** (`RegisterAnimationSRTKeys`; then `D3DXFrameRegisterNamedMatrices`
+binds the names to the frames' matrices): `UnpackKeys` -> `OptimizeKeys(tolerance 0.001)` -> D3DX key arrays. The bounding sphere is the file header's (the X path computes it with `D3DXFrameCalculateBoundingSphere`).
+`tools/verify-ksm-load.ts` (87 s) loads **all 1,031 KSM files** and compares with `parseKsm`: 52,964 frames, 8,936 mesh containers (2,560 skinned, 25,763 bones), 1,562,248 vertices, 16,428 animation sets, 967,449 animations,
+**109,641,891 keys in the files -> 22,443,735 after `OptimizeKeys` (20.5 %)**; no channel gained a key or lost all of its keys; the first set of the 1,027 files that have animations poses finite matrices at three times;
+24 files contain duplicate frame names and 4,365 frames are unnamed (`<no_name>`). `Motion_Elsword.x` + the body parts draw the standing character in the viewer
+(`docs/img/web-viewer-elsword-walk.png`: the Walk set at 0.2 s); the tests keep two facts about it: at time 0 of `Wait3` at least half of the animated frames equal their rest matrices (this is what exposed the upside-down
+character of the first version, see the quaternion note in 12.4), and the Walk set changes the pose while the character stays upright (`browser-test.ts`).
+
+**KME / X static meshes.** Both paths end the same way (the exe's tail of `LoadD3DXMesh` / `LoadKMEMesh`): one `ID3DXMesh` of FVF 338, `D3DXWeldVertices` with zero epsilons, `Optimize(ATTRSORT | VERTEXCACHE | MANAGED)`,
+the attribute table as the draw ranges, a bounding sphere of the whole mesh and one per range (`KSubsetCullingInfo`). The X path is 12.4 (materials get Ambient = Diffuse, vertex colours 0xFFFFFFFF); the KME path reads the
+FVF 338 vertices, 16 / 32-bit indices, one attribute per face and the 72-byte materials as stored, with the whole-mesh sphere from the file and `GenerateAdjacency(0)`. `tools/verify-xmesh-load.ts --x 50` (45 s): all
+**109 KME files** load (11,110 vertices -> 10,409 after welding, 7,495 faces, 279 ranges) and so do 507 X / Y files (every 50th; 214,960 vertices, 201,055 faces, 2,574 ranges); 2 files have no mesh at all
+(`D3DXERR_LOADEDMESHASNODATA`, the exe's own failure). The viewer shows them (`docs/img/web-viewer-kme.png`: `Elder_Village_bigsang.Y`, 693 vertices after welding, 30 ranges, 9 textures). `D3DXWeldVertices` used
+`Buffer`, which the browser bundle does not have; it is Buffer-free now.
+
+### 16.2 `OptimizeKeys` (`packages/engine/src/kac-keys.ts`)
+
+`OptimizeKeys(&scalesBegin, &scalesEnd, &transBegin, &transEnd, &rotsBegin, &rotsEnd, 0.001f)` shortens the three key arrays of every animation in place. Per channel: `Correct*KeyOrder` (keys with a negative time are dropped, the last of them
+becomes the key at time 0 when the first later key is after 0; unsorted keys are sorted by time; keys of equal time collapse to the first), then a greedy reducer with three states (0: the last kept key is the previous key; 1: a run of keys
+within the tolerance of the last kept key is skipped; 2: a straight segment from the last kept key - lerp, for rotations slerp - is extended while the next keys stay within `tolerance / 10 * count` of the prediction, with a
+budget that lets the tolerance grow by at most ten keys' worth), the first key is always kept, and rotation keys are normalised and flipped into the hemisphere of the last kept key. The details are in the header of the file. Three things to know:
+
+* **Port from the machine code, not from the decompile.** Hex-Rays gets the types of this function wrong: it shows `double` operations where the code has `divss` / `mulss` / `cvtsd2ss`, and drops the arguments of `sin` and `atan2`
+  (it loses XMM / x87 call arguments, see section 7; `tools/disasm.py` prints the machine code with the imports named). All arithmetic is single precision: `Math.fround` after every operation, and only `sin` of the slerp weights and `atan2` of the slerp angle are double precision (rounded to float).
+* **The exe has an uninitialised-variable bug in the scale channel.** The two sign accumulators of the scale reducer (`[esp+48h]` for states 0 / 1, `[esp+8Ch]` for state 2) are never set; they hold whatever the stack contained (the frame of
+  `CorrectVectorKeyOrder`, which ran just before). Their low six bits are three 2-bit fields (x, y, z: 1 = a positive value seen, 2 = a negative one, 3 = both); a field that reaches 3 marks the keys "sign inconsistent" and **turns the reduction
+  of that channel off** (every key is kept). The port starts both at 0 (`options.signBits` overrides). How often the garbage matters was measured with the emulated stack (16.3): of 3,225 shipped animations (every 300th), **190 (5.9 %)** get a
+  different number of scale keys than with zeroed accumulators; translations and rotations are never affected. The animation is the same either way to within the reduction tolerance (0.001), so this is a known, harmless deviation in the number of scale keys.
+* **Sorting.** `std::sort` of MSVC is a stable insertion sort up to 32 keys and an introsort above (not stable), and the exe only sorts when the keys after the first non-negative one are out of order. The port sorts stably, which is exact up to 32
+  keys; for an unsorted array of more than 32 keys that contains keys of equal time the exe may keep a different one of them. The oracle never produces that, and **every key array of the shipped animations is already sorted** (`tools/verify-ksm.ts`
+  checks all 967,449), so the exe never reaches its sort for them. Not ported (noted in the ledger).
+
+### 16.3 Checking a function against the exe itself: `tools/peemu.py` + `tools/oracle-optimizekeys.py`
+
+`OptimizeKeys` has no reference implementation (D3DX does not have it; it is KOG's), and the quaternion / key conventions have no oracle either (12.5). But the exe is on disk, and a pure function can simply be **run**: `tools/peemu.py` maps `data/x2.exe` at its
+base on the Unicorn CPU emulator (x2.exe has no relocations, so the addresses of the decompile are valid as they are), pushes the cdecl arguments by hand and runs to a sentinel return address. Nothing of Windows is emulated: the IAT slots hold
+RVAs (the image is unbound), so every import the function uses is patched with a stub (`stub`, `hook`). `tools/oracle-optimizekeys.py` runs `OptimizeKeys` for a file of cases and writes the results; `tools/verify-optimizekeys.ts` generates the cases,
+runs the port and compares **bit for bit** (counts and every float; exit code 1 on any difference). What stands in for the imports: VCRUNTIME `memmove` (Python), UCRT `ceil` (x87 `frndint` rounding up), `_libm_sse2_sqrt_precise` (`sqrtsd`),
+`_CIatan2` (`fpatan`), `_libm_sse2_sin_precise` (Python's `math.sin` on the double in xmm0), and `D3DXQuaternionNormalize` / `D3DXQuaternionMultiply`. A flag byte of the CRT (0x3362A958) is set so that the float -> int helper takes its scalar path
+(Unicorn has no AVX-512). **What the oracle does not prove:** the two D3DX functions are Python models of the same formulas as `d3dx-math.ts` (the real ones are thunks that dispatch on the CPU's features, so they cannot be run as they are, and their
+last bits depend on the CPU), so what is compared is the logic of `OptimizeKeys` - which keys are kept, the tolerance and interpolation arithmetic - not those two functions; and `sin` comes from the host's libm instead of the exe's CRT code.
+
+Cases: random key sets (constants, ramps, piecewise-linear curves, random walks, noise around the tolerance; rotations as slerps, spins at several rates, random walks, hemisphere flips, tiny angles, quaternions of length != 1, steps of exactly 180
+degrees; 0 / 1 / 2 keys; unsorted, duplicate and negative times) and the animations of the shipped KSM files. **Results, all bit-identical:** 14,300 synthetic cases (seeds 1, 2, 3, 11; up to 150 keys per channel), 3,225 shipped animations (every
+300th of 967,449; 364,056 keys -> 74,874; also with the emulated stack garbage for the scale accumulators, 16.2), and the fixture run (seed 21: 2,500 synthetic + 1,613 shipped animations, 389,701 keys -> 168,816).
+
+**Mutation check** (`tools/mutate-optimizekeys.py`, 22 small changes to `kac-keys.ts`: the widening budget and tolerances of the vector reducer, the sign gate of the scale reducer, the slerp threshold / weight / switch and the 180-degree step of the
+rotation reducer, the key-order fix-ups, the end keys): the oracle comparison with only 600 cases caught 13 of the first 17; the survivors needed more cases (a 1e-7 change of the slerp weight differs in 9 of 9,000 cases) or are not changes
+(`--live` runs the mutants against the exe). The 8 smallest cases that catch the survivors were merged into the fixture (`--dump-failing`, `--merge`), and now **the unit tests alone kill 18 of the 22; the 4 survivors are equivalent or unreachable**: `count < 10`
+and `r <= 10` of the vector reducer (a run of 9 / 10 skipped keys would widen by 10, which the budget refuses anyway), `std::unique` with `!==` versus `<` (it runs on a sorted array), and the `max(|d.w|, 1)` of the identity test
+(it needs |d.w| > 1 by rounding *and* an error within 1e-7 of the tolerance).
+
+**Fixture and tests.** `packages/engine/test/fixtures/optimizekeys.bin` (247 KB, 202 cases with the oracle's answers) is replayed by `kac-keys.test.ts` without Python, next to hand cases whose expected values the oracle produced (steady and reversed spins -> 2 / 3 keys,
+constant / ramp / corner, negative / duplicate / unsorted times, -0 results, the sign gate). Reproducing:
+
+```
+pip install --target /home/user/work/pycap unicorn pefile                  # once (ELS_PYLIBS overrides the directory)
+./node_modules/.bin/bun run tools/verify-optimizekeys.ts                  # 3,000 synthetic cases + every 400th shipped animation, about a minute; --natural adds the stack-garbage run
+./node_modules/.bin/bun run tools/verify-optimizekeys.ts --synthetic 2500 --corpus 600 --seed 21 --record packages/engine/test/fixtures/optimizekeys.bin   # re-record the fixture
+./node_modules/.bin/bun test packages/engine/test/kac-keys.test.ts      # no Python needed
+python3 tools/mutate-optimizekeys.py [--live]
+```
+
+The same method fits any other pure function of the exe whose imports are few; `peemu.py` is generic.
+
+### 16.4 Not done
+
+GPU-skinning preparation of `_Load` (`EstimateDrawFrameWorkingPaletteSizeAndBoneNum`, `OptimizeDrawFrameMesh`, `ConvertDrawFrameToSkinnedMesh`: the viewer uses CPU skinning), the XET / texture part of `_Load`, the sort of 16.2 for more than 32 unsorted keys,
+the exact stack garbage of the scale accumulators (it depends on the loader's frames below `OptimizeKeys`, which the oracle does not run).

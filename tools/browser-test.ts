@@ -172,6 +172,12 @@ try {
       await page.waitForFunction("__els.viewer.preview.state().frames >= 1", { timeout: 60000, polling: 50 });
       const c = await page.evaluate<Look>(freeze({ set: 0, time: 0 }));
       check("ksm: Mesh_Elsword_Base_SD.x (KSM, 2 frames, one static container of 711 vertices) is drawn", /KSM 2 frames/.test(c.info) && c.state.containers === 1 && c.state.skinned === 0 && c.lit > 3000, `${c.info}; lit ${c.lit}`);
+      // a KME file (map objects: CKTDXDeviceXMesh::LoadKMEMesh): welded, attribute sorted, textured with the file's own vertex colours
+      await open(page, "Elder_Village_bigsang.Y");
+      await page.waitForFunction("__els.viewer.preview.state().frames >= 1", { timeout: 60000, polling: 50 });
+      const d = await page.evaluate<Look>(freeze({ set: 0, time: 0, yaw: 0.6, pitch: 0.35 }));
+      check("kme: Elder_Village_bigsang.Y is a static KME mesh (693 vertices after welding, 494 faces, 30 subsets, 9 textures) and is drawn", /KME static mesh, 693 vertices, 494 faces, 30 subsets of 71 materials, 9 textures/.test(d.info) && d.lit > 30000 && d.h > 100, `${d.info}; lit ${d.lit}, ${d.w} x ${d.h}`);
+      await shot(page, "05c-kme");
     }
     // ---- --smoke N: a deterministic pseudo-random sample of the X / Y files through the whole browser stack
     if (smoke > 0) {
@@ -179,7 +185,7 @@ try {
       await page.waitForFunction("window.__els && (window.__els.ready || window.__els.error)", { timeout: 60000, polling: 50 });
       const names = await page.evaluate<string[]>(`(() => { const rows = __els.vfs.rows.filter((r) => r.ext === 'x' || r.ext === 'y'); let seed = 12345; const out = [];
         for (let i = 0; i < ${smoke}; i++) { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; out.push(rows[seed % rows.length].name); } return out; })()`);
-      const tally = { drawn: 0, skinned: 0, animated: 0, notX: 0, failed: [] as string[], slow: [] as string[], blank: [] as string[], blankDrawn: [] as string[] };
+      const tally = { drawn: 0, skinned: 0, animated: 0, notX: 0, kme: 0, ksm: 0, failed: [] as string[], slow: [] as string[], blank: [] as string[], blankDrawn: [] as string[] };
       for (const name of names) {
         const t = Date.now();
         try {
@@ -196,13 +202,13 @@ try {
               return { err: document.querySelector('.err')?.textContent ?? null, info: document.querySelector('.info').textContent, lit, state: p?.state?.() ?? null }; })()`);
           if (r.err) tally.failed.push(`${name}: ${r.err}`);
           else if (/not shown as a mesh/.test(r.info)) tally.notX++;
-          else if (r.state && (r.state.containers ?? 0) >= 0) { tally.drawn++; if ((r.state.skinned ?? 0) > 0) tally.skinned++; if ((r.state.sets?.length ?? 0) > 0) tally.animated++; if (r.lit === 0) (r.state.containers ? tally.blankDrawn : tally.blank).push(`${name} (containers ${r.state.containers}, vertices ${r.state.vertices})`); }
+          else if (r.state && (r.state.containers ?? 0) >= 0) { tally.drawn++; if (/^[^-]* - KME /.test(r.info)) tally.kme++; else if (/^[^-]* - KSM /.test(r.info)) tally.ksm++; if ((r.state.skinned ?? 0) > 0) tally.skinned++; if ((r.state.sets?.length ?? 0) > 0) tally.animated++; if (r.lit === 0) (r.state.containers ? tally.blankDrawn : tally.blank).push(`${name} (containers ${r.state.containers}, vertices ${r.state.vertices})`); }
         } catch (e) { tally.failed.push(`${name}: ${e instanceof Error ? e.message : e}`); }
         if (Date.now() - t > 8000) tally.slow.push(`${name} ${Date.now() - t} ms`);
       }
       // a file with a drawn mesh container must show something; files without one (dummies, ATTACK_* / COLLISION* helper meshes only) are blank by design
-      check(`smoke: ${smoke} random X / Y files open without an error and show something (${tally.drawn} drawn, ${tally.skinned} skinned, ${tally.animated} animated, ${tally.notX} are KSM / KME, ${tally.blank.length} have nothing to draw)`,
-        tally.failed.length === 0 && tally.slow.length === 0 && tally.blankDrawn.length === 0, [...tally.failed, ...tally.slow, ...tally.blankDrawn.map((b) => `blank: ${b}`)].slice(0, 6).join(" | "));
+      check(`smoke: ${smoke} random X / Y files open without an error and show something (${tally.drawn} drawn, ${tally.skinned} skinned, ${tally.animated} animated, ${tally.kme} are KME, ${tally.ksm} KSM, ${tally.blank.length} have nothing to draw)`,
+        tally.failed.length === 0 && tally.slow.length === 0 && tally.blankDrawn.length === 0 && tally.notX === 0, [...tally.failed, ...tally.slow, ...tally.blankDrawn.map((b) => `blank: ${b}`), ...(tally.notX ? [`${tally.notX} not shown as a mesh`] : [])].slice(0, 6).join(" | "));
     }
 
     // ---- the same fixed views with the canvas / back buffer in either format: the layer must not depend on the swizzle (the preferred

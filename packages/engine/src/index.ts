@@ -7,7 +7,9 @@ export { NO_NAME, MAX_PALETTE_ENTRIES, MultiAnimFrame, MultiAnimMC, CMultiAnimAl
 export type { ErrorLog } from "./multianim.ts";
 export { KSM_CONTROLLER_TRACKS, KSM_CONTROLLER_EVENTS, isKsmData, readKSM, readKacController, loadKSkinnedMesh } from "./ksm-load.ts";
 export type { KSkinnedMesh } from "./ksm-load.ts";
-export { normalizeRotationKeys, prepareKeys } from "./kac-keys.ts";
-export type { PreparedKeys } from "./kac-keys.ts";
+export { KAC_OPTIMIZE_TOLERANCE, optimizeKeys, prepareKeys } from "./kac-keys.ts";
+export type { KeyArrays, OptimizeOptions, PreparedKeys } from "./kac-keys.ts";
 export { loadSkinnedMesh, loadD3DXSkinnedMesh } from "./skinmesh.ts";
 export type { SkinMesh } from "./skinmesh.ts";
+export { XMESH_FVF, isKmeData, loadXMesh, loadD3DXMesh, loadKMEMesh, xmeshAsFrame } from "./xmesh.ts";
+export type { XMeshProxy, SubsetCullingInfo } from "./xmesh.ts";

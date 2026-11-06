@@ -130,6 +130,10 @@ export class D3DXKeyframedAnimationSet implements ID3DXAnimationSet {
     const t = f(periodicPosition * this.ticksPerSecond);
     return { hr: D3D_OK, scale: sampleVec(a.scale, t, V1), rotation: sampleQuat(a.rotation, t), translation: sampleVec(a.translation, t, V0) };
   }
+  /** `ID3DXKeyframedAnimationSet::GetNumScaleKeys` / `GetNumRotationKeys` / `GetNumTranslationKeys` (0 for an index that does not exist) */
+  GetNumScaleKeys(i: number): number { return this.anims[i]?.scale.length ?? 0; }
+  GetNumRotationKeys(i: number): number { return this.anims[i]?.rotation.length ?? 0; }
+  GetNumTranslationKeys(i: number): number { return this.anims[i]?.translation.length ?? 0; }
   /** The key lists of animation `i` (copies). */
   GetKeys(i: number): { scale: D3DXKeyVector3[]; rotation: D3DXKeyQuaternion[]; translation: D3DXKeyVector3[] } | null {
     const a = this.anims[i];

@@ -91,9 +91,19 @@ documents its design and assumptions; FINDINGS section 12 is the reference.
 without an adapter they skip themselves and only `pure.test.ts` and the effect-file parse test of `xrenderer.test.ts` run.
 
 ### `@els/engine` (`packages/engine`)
-The engine classes (`CKTDX*` / `CKTDG*`) over the D3D9 layer, ported function by function with their x2.exe.c anchors in the header comments. So far
-`skinmesh-frames.ts`: `setupFrameList`, `setupDrawFrameList`, `collisionFrames` of `CKTDXDeviceXSkinMesh::XSkinMeshProxy` (which frames of a model are drawn,
-FINDINGS 15.3). GPU test of the real sword: `./tools/gpu.sh ./node_modules/.bin/bun test packages/engine`.
+The engine classes (`CKTDX*` / `CKTDG*`) over the D3D9 layer, ported function by function with their x2.exe.c anchors in the header comments (FINDINGS 15.3, 16):
+
+| File | Content |
+|---|---|
+| `skinmesh-frames.ts` | `setupFrameList`, `setupDrawFrameList`, `collisionFrames` of `CKTDXDeviceXSkinMesh::XSkinMeshProxy`: which frames of a model are drawn |
+| `multianim.ts` | `CMultiAnimAllocateHierarchy`, `MultiAnimFrame`, `MultiAnimMC`: the frame / mesh-container classes the loaders fill (the exe's `ID3DXAllocateHierarchy`) |
+| `ksm-load.ts` | `loadKSkinnedMesh` (`LoadKSkinnedMesh`, `ReadKSM`, `KTDXAnimationController::ReadFromMemory`): a KSM file -> frames, skinned mesh containers, an `ID3DXAnimationController` with one keyframed set per KAC set |
+| `kac-keys.ts` | `optimizeKeys` (the key reducer `OptimizeKeys`, **bit-identical to the exe**, FINDINGS 16.2 / 16.3), `prepareKeys` (UnpackKeys output -> reduced D3DX key arrays) |
+| `skinmesh.ts` | `loadSkinnedMesh` (`CKTDXDeviceXSkinMesh::_Load`: KSM -> `ksm-load.ts`, anything else -> `D3DXLoadMeshHierarchyFromXInMemory` + frame lists) |
+| `xmesh.ts` | `loadXMesh` (`CKTDXDeviceXMesh::_Load`: `LoadKMEMesh` for KME, `LoadD3DXMesh` for X): FVF 338 mesh, welded, attribute sorted, one bounding sphere per range |
+
+Tests (`./tools/gpu.sh ./node_modules/.bin/bun test packages/engine`, 42): `skinmesh-frames.test.ts` (10), `ksm-load.test.ts` (14: the real `Motion_Elsword.x`, pose at time 0, Wait3 upright, the Walk set), `xmesh.test.ts` (7),
+`kac-keys.test.ts` (11, no GPU: hand cases from the oracle + the recorded fixture `test/fixtures/optimizekeys.bin`; `test/keys-fixture.ts` is its codec, shared with `tools/verify-optimizekeys.ts`).
 
 ### `@els/lua` (`packages/lua`)
 A register-based interpreter for LuaJIT 2.0.2 bytecode, following `lj_*` of the exe:
@@ -150,6 +160,11 @@ Design points that matter for faithfulness:
 | `verify-xfiles.ts` | container census of the 26,453 `.x` / `.y` entries; decompresses all 25,204 MSZIP entries (`--crosscheck` against fflate, `--dump DIR --every N` writes samples) |
 | `verify-xparse.ts` | parses all 25,313 DirectX-format files with `parseXFile`, object census and per-mesh consistency checks (`--limit N --filter RE --verbose`) |
 | `verify-ksm.ts` | parses the 109 KME + 1,031 KSM files (with their KAC animations) and checks the invariants the exe relies on |
+| `verify-ksm-load.ts` | loads all 1,031 KSM through `loadSkinnedMesh` on a software WebGPU device and compares with `parseKsm` (frames, containers, bones, sets, animations, poses; keys before / after `OptimizeKeys`), ~90 s |
+| `verify-xmesh-load.ts` | loads the 109 KME (and with `--x N` every N-th X / Y file) through `loadXMesh`, checks the tail of `_Load` (FVF 338, ranges tile the faces, finite spheres), ~45 s |
+| `peemu.py` | runs functions of `data/x2.exe` on the Unicorn CPU emulator (PE mapped at its base, imports replaced by stubs / Python hooks): the oracle for pure functions of the exe |
+| `oracle-optimizekeys.py`, `verify-optimizekeys.ts`, `mutate-optimizekeys.py` | `OptimizeKeys` of the exe on `peemu.py` for a file of cases; the TS tool generates cases (synthetic + the shipped animations), compares the port bit for bit and records / merges the fixture; the mutation check of `kac-keys.ts` (22 mutants; unit tests or `--live`) |
+| `disasm.py` | Capstone disassembly of a range of `x2.exe` by virtual address, imports named (also through the `jmp [slot]` thunks): for what the decompile gets wrong (float code, FINDINGS 7) |
 | `verify-ess.ts`, `verify-ess.py` | decodes `data/general.ess` and reports index mismatches, capped lines, placeholders, character classes; the Python script is an independent second implementation of the loader |
 | `verify-kim.ts` | decodes `item.kim` from its KOM, checks id order / id agreement / string length words / set cross references and reports every byte the decoder did not read |
 | `verify-effects.ts` + `lib/effect-oracle.ts` | parses the 37 particle / XMeshPlayer scripts of the KOMs and compares every field of all 13,882 blocks with an independent line-based reader; counts three ways, unread tokens, duplicate names per script system (`--census`: property and event usage) |
@@ -159,7 +174,7 @@ Design points that matter for faithfulness:
 | `census-skin.ts` | the D3DX hierarchy loader, `ConvertToIndexedBlendedMesh` (with the engine's palette) and the controller over every skinned X file (needs the GPU wrapper) |
 | `render-demo.ts` | the D3D9 visual milestone: loading screen + starter sword -> PNG (`docs/img/d3d9-demo.png` with `--docs`) |
 | `setup-browser.sh`, `browser.mjs` (+ `browser.d.mts`) | installs `puppeteer-core` and a headless Chromium (`@sparticuz/chromium`, WebGPU on SwiftShader) under `/home/user/work/browser` and `/tmp/chromium`; `node tools/browser.mjs URL [--shot f.png] [--wait EXPR] [--eval EXPR]... [--size WxH] [--settle ms]` opens a page, prints the console, evaluates, screenshots, exits 1 on a page error / failed request / timeout; `withPage` for scripts (FINDINGS 15.1) |
-| `browser-test.ts` | 18 browser checks of the web client (`--smoke N` opens N pseudo-random X / Y files as well; N = 1,500: 1,445 drawn, 0 errors) against the same decoders run in Bun (archives over Range, TGA and AVI pictures pixel-identical, static and skinned meshes through the WebGPU canvas, RGBA vs BGRA back buffer identical, Lua / XET / TET / audio previews, no console error); `--shots DIR` keeps screenshots |
+| `browser-test.ts` | 22 browser checks of the web client (`--smoke N` opens N pseudo-random X / Y files as well, N = 1,500: all open as meshes - 440 skinned, 349 animated, 50 KSM, 5 KME, 10 with nothing to draw - 0 errors) against the same decoders run in Bun (archives over Range, TGA and AVI pictures pixel-identical, static, skinned and KSM / KME meshes through the WebGPU canvas incl. the standing Elsword and a Walk pose, RGBA vs BGRA back buffer identical, Lua / XET / TET / audio previews, no console error); `--shots DIR` keeps screenshots |
 | `ledger.py` | coverage ledger keyed by IDA address -> `docs/LEDGER.md` (rules in `docs/ledger.tsv`, `docs/ledger-classes.tsv`) |
 | `index_decomp.py`, `komlib.py`, `kom_extract.py`, `luadecrypt.py`, `census.ts` | reverse-engineering helpers (function index, extraction, census) |
 
@@ -185,7 +200,7 @@ python3 tools/index_decomp.py data/x2.exe.c /home/user/work/analysis/functions.t
 python3 tools/bindings.py && python3 tools/ledger.py                                # docs/HOST_API.md, docs/LEDGER.md
 ./node_modules/.bin/bun test packages                                                 # unit tests that need no GPU: asset decoders, Lua loader, KLuaManagerProxy (the d3d9 GPU tests skip)
 ./tools/setup-gpu.sh                                                                   # software Vulkan for Dawn -> /home/user/work/swsh (about 2 s)
-./tools/gpu.sh ./node_modules/.bin/bun test packages                                   # everything: 495 tests, incl. the 153 d3d9 tests on Dawn + SwiftShader
+./tools/gpu.sh ./node_modules/.bin/bun test packages                                   # everything: 528 tests (389 + 139 that need the GPU), incl. the 153 d3d9 tests on Dawn + SwiftShader
 ./node_modules/.bin/bun run tools/gen-d3d9-enums.ts --check                            # enums.generated.ts is current
 ./node_modules/.bin/bun run tools/census-xscene.ts                                     # integrity of all 25,313 X / Y scenes
 ./tools/gpu.sh ./node_modules/.bin/bun run tools/census-skin.ts                        # hierarchy loader + skin conversion + animation over all 7,395 skinned files, ~3 min
@@ -197,6 +212,11 @@ python3 -m venv /home/user/work/venv && /home/user/work/venv/bin/pip install pil
 ./node_modules/.bin/bun run tools/verify-xfiles.ts --crosscheck       # MSZIP container, ~105 s
 ./node_modules/.bin/bun run tools/verify-xparse.ts                    # generic X reader on 25,313 files, ~100 s
 ./node_modules/.bin/bun run tools/verify-ksm.ts                       # KME / KSM / KAC, ~45 s
+./tools/gpu.sh ./node_modules/.bin/bun run tools/verify-ksm-load.ts   # all 1,031 KSM through the engine loader, ~90 s
+./tools/gpu.sh ./node_modules/.bin/bun run tools/verify-xmesh-load.ts --x 50   # 109 KME + every 50th X / Y file through loadXMesh, ~45 s
+pip install --target /home/user/work/pycap unicorn pefile capstone                      # CPU emulator + PE / disassembler libraries (ELS_PYLIBS overrides the directory)
+./node_modules/.bin/bun run tools/verify-optimizekeys.ts              # OptimizeKeys of the exe (emulated) vs the port, bit for bit: 3,000 synthetic cases + every 400th shipped animation, ~1 min
+python3 tools/mutate-optimizekeys.py                                  # 22 mutants of kac-keys.ts against the unit tests (4 equivalent survivors are expected), seconds
 ./node_modules/.bin/bun run tools/verify-ess.ts                       # string table
 ./node_modules/.bin/bun run tools/verify-kim.ts                       # item database, ~2 s
 ./node_modules/.bin/bun run tools/verify-effects.ts                   # particle / XMeshPlayer scripts, ~4 s
@@ -204,6 +224,6 @@ pip install --target /home/user/work/pyav av numpy                              
 PYTHONPATH=/home/user/work/pyav python3 tools/oracle-mpeg1.py --out /home/user/work/mpeg1_oracle.json data/movie/*.avi
 ./node_modules/.bin/bun run tools/verify-mpeg1.ts --hashes /home/user/work/mpeg1_oracle.json   # 30 movies, 18,514 pictures, ~22 s
 ./tools/setup-browser.sh                                                              # puppeteer-core + headless Chromium with WebGPU (SwiftShader), ~1 min (tools/browser.mjs runs it when missing)
-./node_modules/.bin/bun run tools/browser-test.ts --shots /home/user/work/shots       # 18 checks of apps/client + apps/server in the browser, ~17 s
+./node_modules/.bin/bun run tools/browser-test.ts --shots /home/user/work/shots       # 22 checks of apps/client + apps/server in the browser, ~21 s
 ./node_modules/.bin/bun run apps/server/src/main.ts --port 8080                       # the asset viewer on http://localhost:8080/ (needs a WebGPU browser for the mesh previews)
 ```

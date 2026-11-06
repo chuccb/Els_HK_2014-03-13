@@ -45,6 +45,8 @@ describe("D3DX keyframed animation set", () => {
     s.RegisterAnimationSRTKeys("b", [v3(0, 1, 1, 1), v3(2400, 3, 3, 3)], [qk(0, 0, 0, 0, 1), qk(4800, 0, half, 0, half)], []);
     expect(s.GetPeriod()).toBe(1);
     expect(s.GetNumAnimations()).toBe(2);
+    expect([0, 1].map((i) => [s.GetNumScaleKeys(i), s.GetNumRotationKeys(i), s.GetNumTranslationKeys(i)])).toEqual([[0, 0, 2], [2, 2, 0]]);
+    expect([s.GetNumScaleKeys(5), s.GetNumRotationKeys(-1), s.GetNumTranslationKeys(2)]).toEqual([0, 0, 0]);
     expect(s.GetAnimationIndexByName("b")).toEqual({ hr: 0, index: 1 });
     expect(s.GetAnimationIndexByName("zz").hr).toBeLessThan(0);
     expect(s.GetAnimationNameByIndex(0).name).toBe("a");

@@ -10,7 +10,7 @@ import { parseKsm } from "@els/assets";
 import { D3DXMESHTYPE, D3DXFrameFind, composeSRT, quatNormalize } from "@els/d3d9";
 import type { D3DXFrame, D3DXMesh, D3DXMaterial } from "@els/d3d9";
 import {
-  CMultiAnimAllocateHierarchy, MultiAnimFrame, MultiAnimMC, NO_NAME, isKsmData, loadKSkinnedMesh, loadSkinnedMesh, normalizeRotationKeys,
+  CMultiAnimAllocateHierarchy, MultiAnimFrame, MultiAnimMC, NO_NAME, isKsmData, loadKSkinnedMesh, loadSkinnedMesh,
 } from "../src/index.ts";
 import { gpuAvailable, newD3D9 } from "../../d3d9/test/gpu-helper.ts";
 
@@ -95,19 +95,6 @@ describe("CMultiAnimAllocateHierarchy.CreateMeshContainer (3296E0F0)", () => {
     expect(c(20).m_dwNumPaletteEntries).toBe(20);
     expect(c(43).m_dwNumPaletteEntries).toBe(20);
     expect(c(3).m_amxBoneOffsets!.map((m) => m[0])).toEqual([0, 100, 200]);
-  });
-});
-
-describe("rotation keys as OptimizeKeys leaves them", () => {
-  test("one key is left alone; two or more are normalised and flipped into the previous key's hemisphere (the first gets w >= 0)", () => {
-    expect(normalizeRotationKeys([{ time: 0, value: [0, 0, 0, 2] }])[0]!.Value).toEqual({ x: 0, y: 0, z: 0, w: 2 });
-    const k = normalizeRotationKeys([{ time: 0, value: [0, 0, 0, -2] }, { time: 1, value: [0, 0, 3, -3] }, { time: 2, value: [0, 0, -1, 0] }]);
-    expect(k[0]!.Value).toEqual({ x: -0, y: -0, z: -0, w: 1 });
-    const s = Math.fround(Math.SQRT1_2);
-    expect(k[1]!.Value).toEqual({ x: -0, y: -0, z: -s, w: s }); // dot with the first key was negative -> negated (the exe flips sign bits, so the zeros become -0)
-    expect(k[2]!.Value).toEqual({ x: 0, y: 0, z: -1, w: 0 }); // dot with the second key is +s -> kept
-    for (const q of k) expect(Math.hypot(q.Value.x, q.Value.y, q.Value.z, q.Value.w)).toBeCloseTo(1, 6);
-    expect(quatNormalize({ x: 0, y: 0, z: 0, w: 0 })).toEqual({ x: 0, y: 0, z: 0, w: 0 });
   });
 });
 

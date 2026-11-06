@@ -568,7 +568,7 @@ export function D3DXWeldVertices(mesh: D3DXMesh, flags: number, eps: D3DXWeldEps
   for (let v = 0; v < nV; v++) {
     const bytes = mesh.vb.cpu.subarray(v * stride, v * stride + stride);
     let key: string;
-    if (useBytes) key = Buffer.from(bytes).toString("latin1");
+    if (useBytes) key = String.fromCharCode.apply(null, bytes as unknown as number[]); // one char per byte (a vertex is far below the argument limit); no Node Buffer: this runs in the browser
     else { const q = Math.max(eps.Position, 1e-6) * 4; key = `${Math.floor(dv.getFloat32(v * stride, true) / q)},${Math.floor(dv.getFloat32(v * stride + 4, true) / q)},${Math.floor(dv.getFloat32(v * stride + 8, true) / q)}`; }
     key += `|${multi.has(v) ? "m" : groupOf[v]}`;
     const list = buckets.get(key);

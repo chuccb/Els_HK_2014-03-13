@@ -3,9 +3,11 @@
  * software WebGPU device and compare the result with what `parseKsm` says is in the file:
  *   ./tools/gpu.sh ./node_modules/.bin/bun run tools/verify-ksm-load.ts [--limit N] [--verbose]
  * Checks: the load succeeds and logs nothing; frame / container / skinned-container / bone / animation-set counts; every bone frame is the frame
- * the file's index names; the pose of the first set at three times has finite matrices.
+ * the file's index names; the pose of the first set at three times has finite matrices; OptimizeKeys left every channel with 1 .. n of its n keys
+ * (the totals before and after are printed).
  */
 import { parseKsm } from "@els/assets";
+import { D3DXKeyframedAnimationSet } from "@els/d3d9";
 import { MultiAnimMC, isKsmData, loadSkinnedMesh } from "@els/engine";
 import { newD3D9 } from "../packages/d3d9/test/gpu-helper.ts";
 import { indexAllKoms } from "./komindex.ts";
@@ -18,7 +20,7 @@ const verbose = args.includes("--verbose");
 const dev = await newD3D9(4, 4);
 const index = await indexAllKoms();
 const problems: string[] = [];
-const sum = { files: 0, frames: 0, containers: 0, skinned: 0, bones: 0, vertices: 0, sets: 0, animations: 0, dupNameFiles: 0, noNameFrames: 0, posed: 0 };
+const sum = { files: 0, frames: 0, containers: 0, skinned: 0, bones: 0, vertices: 0, sets: 0, animations: 0, dupNameFiles: 0, noNameFrames: 0, posed: 0, keysInFiles: 0, keysRegistered: 0 };
 const t0 = performance.now();
 for (const [key, hit] of index) {
   const ext = key.slice(key.lastIndexOf(".") + 1);
@@ -63,6 +65,17 @@ for (const [key, hit] of index) {
     else {
       sum.sets += c.GetNumAnimationSets();
       sum.animations += parsed.animation.sets.reduce((a, s) => a + s.animations.length, 0);
+      // OptimizeKeys only removes keys: every channel that had keys keeps at least one, none has more
+      parsed.animation.sets.forEach((ps, si) => {
+        const ks = c.GetAnimationSet(si).set as D3DXKeyframedAnimationSet;
+        ps.animations.forEach((pa, ai) => {
+          const pairs: Array<[number, number]> = [[pa.scales.length, ks.GetNumScaleKeys(ai)], [pa.translations.length, ks.GetNumTranslationKeys(ai)], [pa.rotations.length, ks.GetNumRotationKeys(ai)]];
+          for (const [before, after] of pairs) {
+            sum.keysInFiles += before; sum.keysRegistered += after;
+            if (after > before || (before > 0 && after === 0)) { problems.push(`${name}: set ${si} animation ${ai}: ${before} keys became ${after}`); return; }
+          }
+        });
+      });
       const set = c.GetAnimationSet(0).set!;
       c.SetTrackAnimationSet(0, set); c.SetTrackEnable(0, true); c.SetTrackPosition(0, 0);
       for (const f of [0, 0.5, 1]) {

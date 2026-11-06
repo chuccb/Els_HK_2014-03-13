@@ -8,14 +8,19 @@ the Hex-Rays export `data/x2.exe.c` / `data/x2.exe.h`, and verify it - not "make
 
 1. **The decompile** (`data/x2.exe.c`, `.h`). Every behaviour that is ported cites the function address (`//----- (ADDR)`
    marker, 8 hex digits) and, when helpful, the line number in the export. `tools/index_decomp.py` builds an
-   address -> name -> line index.
+   address -> name -> line index. **The decompile can be wrong**: Hex-Rays loses XMM / x87 arguments of calls and confuses `float` with
+   `double` in SSE code (`OptimizeKeys`, FINDINGS 16.2), so for float-heavy functions read the machine code (`tools/disasm.py START END`).
 2. **The data** (`data/*.kom`, `data/ui`, `data/movie`, ...). Formats are confirmed by parsing *every* file of that type,
    not a sample. A decoder is "done" when the whole corpus decodes and an independent check (checksum, reference decoder,
    round trip) agrees.
 3. **A native oracle** where one can be built from public source. For Lua this is LuaJIT 2.0.2 itself
    (`tools/setup-oracle.sh`, commit `21af151`, the version string found in the exe), patched only where the exe is
    32-bit/MSVC (`long` is 32 bit, `strtoul`, bytecode header). Differential tests compare the TS implementation against it.
-4. Public documentation / memory of other engines come last, and never override 1-3.
+3b. **The exe's own machine code, run on a CPU emulator**, for a pure function whose imports can be stubbed (`tools/peemu.py`, Unicorn; PE mapped
+   at its preferred base, so the addresses are those of the decompile). This is the strongest oracle there is, because it *is* the original: the port
+   of `OptimizeKeys` is compared with it bit for bit (FINDINGS 16.3). Say in the docs which imports were replaced by models, because the
+   comparison does not cover those.
+4. Public documentation / memory of other engines come last, and never override 1-3b.
 
 ## 2. Rules
 
