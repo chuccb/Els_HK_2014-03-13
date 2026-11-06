@@ -1,7 +1,7 @@
 # Rules for the C++ engine classes of x2.exe (regex on the class name, first match wins; default: todo).
 # columns: regex<TAB>status<TAB>ts<TAB>verification<TAB>note
 ^KGCMassFileManager	done	packages/kom	tools/verify-kom.ts: 97,891 entries, 0 failures	CRC, adler32, MSZIP/KOM v1-v4 container, per-entry encryption variants
-^CKTDXStringTable	todo	-	-	general.ess decode: algorithm known (docs/FINDINGS.md), not ported
+^CKTDXStringTable	partial	packages/assets/src/ess.ts	tools/verify-ess.ts: 30,584 entries, 0 index mismatches; packages/assets/test/ess.test.ts	LoadStringTable (exact fgetws / XOR / index rules), GetGeneralString, GetReplacedString (non-debug path) ported; the debug-info branch (m_bEnableDebugInfo) and the singleton / Script.ess handling are not
 ^lua_tinker.*(XETProxy|TETProxy)	n/a	-	docs/SCRIPT_API_USAGE.md: 0 uses in the 4,498 shipped scripts	binding thunks of the XET/TET authoring API (see the XETProxy / TETProxy rows)
 ^CKTDXDeviceXET_Preprocessing::XETProxy	n/a	-	docs/SCRIPT_API_USAGE.md: 0 uses in the 4,498 shipped scripts	Lua authoring API that writes .xet tables (AddAniData, AddChangeTexture, SetMultiTexStage1/2, ...); the shipped tables are already binary
 ^CKTDXDeviceTET_Preprocessing::TETProxy	n/a	-	docs/SCRIPT_API_USAGE.md: 0 uses in the 4,498 shipped scripts	Lua authoring API that writes .tet tables (AddRect, RotateRect); the shipped tables are already binary

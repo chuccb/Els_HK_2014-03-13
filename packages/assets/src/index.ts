@@ -10,6 +10,8 @@ export { decodePng } from "./png.ts";
 export { decompressXFile, isCompressedXFile, MszipError } from "./mszip.ts";
 export { parseXFile, XFileError } from "./xfile.ts";
 export { parseKme, parseKsm, parseKac, fvfVertexSize, KFormatError } from "./ksm.ts";
+export { parseEss, parseEssWithDiagnostics, StringTable, formatDefaultDouble, formatFixed } from "./ess.ts";
+export type { ReplaceArg, EssDiagnostics } from "./ess.ts";
 export type { KmeMesh, KsmFile, KsmFrame, KsmMeshContainer, KsmBone, KacFile, KacAnimationSet, KacAnimation, KMaterial, KMeshData } from "./ksm.ts";
 export type { XFile, XNode, XObject, XReference, XTemplate, XTemplateMember, XValue } from "./xfile.ts";
 export { compareIgnoreCase, parseTet, parseXet, readFormatString, TET_MAGIC, XET_MAGIC } from "./xet.ts";

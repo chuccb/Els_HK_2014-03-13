@@ -42,13 +42,14 @@ over HTTP range requests (browser).
 Decoders for the client's asset formats (Phase 2). `decodeImage(bytes)` sniffs the container from the content (as D3DX does) and
 returns level 0 as straight RGBA8, first row on top, plus the D3D9 source format name: `tga.ts` (types 1/2/3/9/10/11, 15-32 bpp,
 palettes, origin bits), `dds.ts` (BC1/BC2/BC3 block decoders, bit-mask formats), `bmp.ts`, `png.ts` (non-interlaced, via fflate);
-`xet.ts` reads the `.xet` / `.tet` tables with the exe's own `GetString` and binary search.
+`xet.ts` reads the `.xet` / `.tet` tables with the exe's own `GetString` and binary search; `ess.ts` loads `General.ess` (the string
+table: `parseEss`, `StringTable.get` / `.replaced`).
 Meshes: `mszip.ts` + `inflate.ts` (the `bzip` container of X files; own raw-deflate decoder because the files contain stored blocks
 without NLEN and chunks that reference the previous 32 KiB), `xfile.ts` (generic DirectX X reader, text + binary, template driven:
 `parseXFile` returns the object tree with typed members), `ksm.ts` (KOG's `KME` static mesh, `KSM` skinned mesh and `KAC` animation
 block, decoded from the exe's loaders with the same range checks). Mesh semantics (D3DX loading rules, skinning, animation
-evaluation) are not written yet, see ROADMAP phase 2. Tests: `packages/assets/test` (`bun test packages/assets`, 42 tests); corpus
-tools: `decode-images.ts` + `verify-images.py` (Pillow), `verify-xet-tet.ts`, `verify-xfiles.ts`, `verify-xparse.ts`, `verify-ksm.ts`.
+evaluation) are not written yet, see ROADMAP phase 2. Tests: `packages/assets/test` (`bun test packages/assets`, 51 tests); corpus
+tools: `decode-images.ts` + `verify-images.py` (Pillow), `verify-xet-tet.ts`, `verify-xfiles.ts`, `verify-xparse.ts`, `verify-ksm.ts`, `verify-ess.ts`.
 
 ### `@els/lua` (`packages/lua`)
 A register-based interpreter for LuaJIT 2.0.2 bytecode, following `lj_*` of the exe:
@@ -93,6 +94,7 @@ Design points that matter for faithfulness:
 | `verify-xfiles.ts` | container census of the 26,453 `.x` / `.y` entries; decompresses all 25,204 MSZIP entries (`--crosscheck` against fflate, `--dump DIR --every N` writes samples) |
 | `verify-xparse.ts` | parses all 25,313 DirectX-format files with `parseXFile`, object census and per-mesh consistency checks (`--limit N --filter RE --verbose`) |
 | `verify-ksm.ts` | parses the 109 KME + 1,031 KSM files (with their KAC animations) and checks the invariants the exe relies on |
+| `verify-ess.ts`, `verify-ess.py` | decodes `data/general.ess` and reports index mismatches, capped lines, placeholders, character classes; the Python script is an independent second implementation of the loader |
 | `ledger.py` | coverage ledger keyed by IDA address -> `docs/LEDGER.md` (rules in `docs/ledger.tsv`, `docs/ledger-classes.tsv`) |
 | `index_decomp.py`, `komlib.py`, `kom_extract.py`, `luadecrypt.py`, `census.ts` | reverse-engineering helpers (function index, extraction, census) |
 
@@ -121,4 +123,5 @@ python3 -m venv /home/user/work/venv && /home/user/work/venv/bin/pip install pil
 ./node_modules/.bin/bun run tools/verify-xfiles.ts --crosscheck       # MSZIP container, ~105 s
 ./node_modules/.bin/bun run tools/verify-xparse.ts                    # generic X reader on 25,313 files, ~100 s
 ./node_modules/.bin/bun run tools/verify-ksm.ts                       # KME / KSM / KAC, ~45 s
+./node_modules/.bin/bun run tools/verify-ess.ts                       # string table
 ```

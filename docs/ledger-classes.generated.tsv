@@ -416,7 +416,7 @@ CryptoPP::CFB_ModePolicy	6	91	328518B0	todo	-	crypto primitives of the protocol:
 'CKTDGUIIMEEditBox	6	44	328776A0	todo		
 boost::basic_format<wchar_t,std::char_traits<wchar_t>,std::allocator<wchar_t>>	6	776	32896F10	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CDXUTTimer	6	150	328A7F70	todo		
-CKTDXStringTable	6	1234	328ACCA0	todo	-	general.ess decode: algorithm known (docs/FINDINGS.md), not ported
+CKTDXStringTable	6	1234	328ACCA0	partial	packages/assets/src/ess.ts	LoadStringTable (exact fgetws / XOR / index rules), GetGeneralString, GetReplacedString (non-debug path) ported; the debug-info branch (m_bEnableDebugInfo) and the singleton / Script.ess handling are not
 CKTDGLensFlare	6	1006	328CD860	todo		
 std::_Hash<std::_Umap_traits<std::wstring,unsigned int,std::_Uhash_compare<std::wstring,std::hash<std::wstring>,std::equal_to<std::wstring>>,std::allocator<std::pair<std::wstring const,unsigned int>>,0>>	6	644	328E5C40	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 boost::basic_format<char,std::char_traits<char>,std::allocator<char>>	6	758	328E90F0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library

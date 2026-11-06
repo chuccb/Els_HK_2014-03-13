@@ -229,7 +229,21 @@ Open assumptions (no D3DX available to compare):
   (e.g. in `Mesh_Lire_Basic_Face_Sorted.XET` `CR_LobbyWait` sorts before `ComboX4`). `findAniDataIndex` reproduces the exact
   search, including those misses.
 
-Not done in Phase 2 (see section 9 for what the mesh work added): particle and XMeshPlayer text scripts, `item.kim`, `general.ess`,
+**`General.ess` is the string table** (`CKTDXStringTable::LoadStringTable` 328ADEF0; a plain file next to the exe, not in a KOM; the
+`Script.ess` name passed to `InitializeStringTable` is never loaded): UTF-16LE after a 2-byte BOM, one line per entry read with
+`fgetws(buf, 2048)` (so at most 2047 units per line), each line cut at its first CR LF, every code unit XORed with 0x10, then
+`<decimal id> TAB <text>`; an entry is kept only when its id equals the running line number (otherwise an empty string is stored and
+the counter still advances) and the two characters `\n` become CR LF. `GetGeneralString` 328ACCA0 gives `""` outside `0..size-1`;
+`GetReplacedString` 328ACE00 substitutes `@1`, `@2`, ... by the arguments described by a type string (`I` string id, `L`/`S`/`l`/`s`
+strings, `i`/`h` ints, `f`/`e` doubles rounded to two decimals and printed with the stream default `%g`). Measured on the shipped file
+(`tools/verify-ess.ts`; `tools/verify-ess.py` is an independent re-implementation and prints the same counts): **30,584 entries, 0 index mismatches, 0 capped
+lines, 3,625 empty texts, 3,029 entries with line breaks, 783 with `@N` placeholders (highest `@5`)**, all Traditional Chinese / ASCII
+with no stray control characters. Open point: whether the exe's CRT rounds exact `printf` ties half-to-even (modern UCRT, as ported) or
+half-up (older MSVC runtimes) only matters for values like 0.125 passed to `f` / `e`.
+
+Not done in Phase 2 (see section 9 for what the mesh work added): particle and XMeshPlayer text scripts (a custom block / `key = value`
+DSL: `particlesystem "Name" 1.00 { eventsequence "..." { particleType = PT_2D_PLANE ... Fade so From 0.000 to 0.300 Position = XYZ(...) } }`,
+parsed by `CKTDGParticleSystem::Compile` 328F5DB0 and `CKTDGXMeshPlayer::Compile` 32917A60 after a tokenizer), `item.kim`,
 MPEG-1, the `XETProxy` / `TETProxy` Lua authoring classes (registered with `lua_tinker`, but none of the 4,498 shipped scripts calls
 them; the shipped tables are already binary).
 
