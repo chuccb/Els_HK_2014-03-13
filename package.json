@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "./tools/lua-difftest.sh && bun test packages",
+    "test": "./tools/lua-difftest.sh && ./tools/gpu.sh bun test packages",
     "verify:kom": "bun run tools/verify-kom.ts",
     "verify:images": "bun run tools/decode-images.ts --tsv /tmp/images_ts.tsv",
     "verify:xet-tet": "bun run tools/verify-xet-tet.ts",
@@ -20,7 +20,8 @@
     "verify:ess": "bun run tools/verify-ess.ts",
     "verify:kim": "bun run tools/verify-kim.ts",
     "verify:lua": "./tools/lua-difftest.sh && ./tools/corpus-diff.sh 1",
-    "docs": "python3 tools/bindings.py && python3 tools/ledger.py"
+    "docs": "python3 tools/bindings.py && python3 tools/ledger.py",
+    "setup:gpu": "./tools/setup-gpu.sh"
   },
   "devDependencies": {
     "@els/assets": "workspace:*",
@@ -29,7 +30,8 @@
     "@types/bun": "1.4.4",
     "@webgpu/types": "0.1.74",
     "bun": "1.4.4",
-    "typescript": "7.1.0-beta"
+    "typescript": "7.1.0-beta",
+    "webgpu": "0.6.2"
   },
   "engines": {
     "bun": "1.4.4"

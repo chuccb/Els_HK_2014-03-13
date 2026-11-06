@@ -2,7 +2,7 @@
  * Minimal PNG decoder (non-interlaced, bit depth 1-16, colour types 0/2/3/4/6, tRNS for palettes). One entry of the client uses
  * it (`HQ_Shop_Common_Elite_AC_FACE2_30035.dds` is a 64x64 8-bit RGB PNG with a `.dds` name).
  */
-import { unzlibSync } from "fflate";
+import { unzlibSync, zlibSync } from "fflate";
 import { ImageFormatError } from "./image.ts";
 import type { DecodedImage, SourceFormat } from "./image.ts";
 
@@ -94,4 +94,50 @@ export function decodePng(b: Uint8Array): DecodedImage {
   if (!hasAlpha) hasAlpha = false;
   const format: SourceFormat = hasAlpha ? "A8R8G8B8" : "X8R8G8B8";
   return { width, height, rgba: out, container: "png", format, hasAlpha };
+}
+
+// ------------------------------------------------------------------------------------------------------------ encoder
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(parts: Uint8Array[]): number {
+  let c = 0xffffffff;
+  for (const p of parts) for (let i = 0; i < p.length; i++) c = CRC_TABLE[(c ^ p[i]!) & 255]! ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+/**
+ * Encode straight RGBA8 (first row = top) as an 8-bit RGBA PNG (filter 0 on every row).  Used by the headless renderer's test
+ * output; the decoder above is its inverse.
+ */
+export function encodePng(rgba: Uint8Array, width: number, height: number): Uint8Array {
+  if (rgba.length !== width * height * 4) throw new Error(`encodePng: ${rgba.length} bytes for ${width}x${height} RGBA`);
+  const raw = new Uint8Array((width * 4 + 1) * height);
+  for (let y = 0; y < height; y++) raw.set(rgba.subarray(y * width * 4, (y + 1) * width * 4), y * (width * 4 + 1) + 1);
+  const idat = zlibSync(raw, { level: 6 });
+  const chunk = (type: string, body: Uint8Array): Uint8Array => {
+    const out = new Uint8Array(12 + body.length);
+    const dv = new DataView(out.buffer);
+    dv.setUint32(0, body.length, false);
+    const t = new Uint8Array([type.charCodeAt(0), type.charCodeAt(1), type.charCodeAt(2), type.charCodeAt(3)]);
+    out.set(t, 4);
+    out.set(body, 8);
+    dv.setUint32(8 + body.length, crc32([t, body]), false);
+    return out;
+  };
+  const ihdr = new Uint8Array(13);
+  const dv = new DataView(ihdr.buffer);
+  dv.setUint32(0, width, false); dv.setUint32(4, height, false);
+  ihdr[8] = 8; ihdr[9] = 6; // 8-bit RGBA, deflate, adaptive filtering, no interlace
+  const parts = [new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IDAT", idat), chunk("IEND", new Uint8Array(0))];
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
 }

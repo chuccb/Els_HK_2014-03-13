@@ -1,0 +1,8 @@
+{
+  "name": "@els/d3d9",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "@els/assets": "workspace:*" }
+}

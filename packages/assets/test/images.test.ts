@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { zlibSync } from "fflate";
-import { decodeBc1, decodeBc3, decodeBmp, decodeDds, decodeImage, decodePng, decodeTga, ImageFormatError, sniffImage } from "../src/index.ts";
+import { decodeBc1, decodeBc3, decodeBmp, decodeDds, decodeImage, decodePng, decodeTga, encodePng, ImageFormatError, sniffImage } from "../src/index.ts";
 
 const u8 = (...v: number[]): Uint8Array => Uint8Array.from(v);
 const px = (img: { rgba: Uint8Array; width: number }, x: number, y: number): number[] => [...img.rgba.subarray((y * img.width + x) * 4, (y * img.width + x) * 4 + 4)];
@@ -187,6 +187,20 @@ describe("BMP and PNG", () => {
     expect(rgba.hasAlpha).toBe(true);
     expect(px(rgba, 0, 0)).toEqual([1, 2, 3, 4]);
     expect(px(rgba, 0, 1)).toEqual([2, 3, 4, 5]);
+  });
+});
+
+describe("PNG encoder", () => {
+  test("round trip through the decoder, CRCs of a known chunk", () => {
+    const w = 5, h = 3;
+    const rgba = new Uint8Array(w * h * 4).map((_, i) => (i * 37 + 11) & 255);
+    const png = encodePng(rgba, w, h);
+    const img = decodePng(png);
+    expect([img.width, img.height]).toEqual([w, h]);
+    expect(Buffer.compare(img.rgba, rgba)).toBe(0);
+    // the IEND chunk is the fixed 12 bytes with CRC AE426082
+    expect([...png.subarray(png.length - 12)]).toEqual([0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]);
+    expect(() => encodePng(new Uint8Array(3), 1, 1)).toThrow();
   });
 });
 

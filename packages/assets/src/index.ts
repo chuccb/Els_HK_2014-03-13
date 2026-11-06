@@ -6,7 +6,7 @@ export type { TgaHeader } from "./tga.ts";
 export { decodeDds, decodeBc1, decodeBc2, decodeBc3, readDdsHeader, ddsSourceFormat } from "./dds.ts";
 export type { DdsHeader, DdsPixelFormat } from "./dds.ts";
 export { decodeBmp } from "./bmp.ts";
-export { decodePng } from "./png.ts";
+export { decodePng, encodePng } from "./png.ts";
 export { decompressXFile, isCompressedXFile, MszipError } from "./mszip.ts";
 export { parseXFile, XFileError } from "./xfile.ts";
 export { parseKme, parseKsm, parseKac, fvfVertexSize, KFormatError } from "./ksm.ts";
