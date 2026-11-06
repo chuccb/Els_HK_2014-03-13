@@ -289,9 +289,9 @@ export function cInt(x: number): number {
 }
 
 /**
- * msvcr100 `atof`: optional blanks and sign, digits with an optional fraction, an optional exponent (`e`, `E`, `d` or `D`); stops at the
- * first byte that does not fit. No digits at all gives +0. (The CRT converts through an 80-bit intermediate, so in very rare halfway
- * cases the last bit of the double can differ from `Number()`; after the conversion to `float` that is invisible.)
+ * `atof` of the UCRT (the exe imports `api-ms-win-crt-convert`): optional blanks and sign, digits with an optional fraction, an optional
+ * exponent (`e`, `E`, `d` or `D`); stops at the first byte that does not fit. No digits at all gives +0. The UCRT rounds correctly, like
+ * `Number()` on the digit prefix.
  */
 export function catof(text: string): number {
   const m = /^[\t\n\v\f\r ]*([+-]?)(\d*)(?:\.(\d*))?/.exec(text)!;
@@ -434,7 +434,7 @@ export function processBillboardType(s: TokenStream): number {
 // ---------------------------------------------------------------------------------------------------------------------------------
 // The CRT's rand() and the exe's RandomNumber helpers
 
-/** msvcr100 `rand()`: a 32-bit linear congruential generator, 15 output bits. */
+/** The CRT `rand()` (the same generator in the UCRT): a 32-bit linear congruential generator, 15 output bits. */
 export class MsvcRand {
   #seed: number;
   constructor(seed = 1) { this.#seed = seed >>> 0; }

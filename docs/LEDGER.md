@@ -8,11 +8,11 @@ The export contains **33294** functions: **1172** belong to the embedded LuaJIT 
 
 | status | functions |
 |---|---|
-| done | 152 |
-| partial | 117 |
+| done | 162 |
+| partial | 112 |
 | stub | 17 |
-| n/a | 872 |
-| todo | 14 |
+| n/a | 879 |
+| todo | 2 |
 
 Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM is an interpreter, which LuaJIT guarantees to be semantically equivalent; nothing in the client reads `jit.*`), the FFI (flag 0 in all 4,498 scripts), the garbage collector and allocator (JS GC), and the C API used by the engine's own bindings (replaced by the host API of phase 5).
 
@@ -85,7 +85,6 @@ Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM i
 | 33367410 | `lj_err_str` (L2472067) | done | packages/lua/src/vm.ts resolveError, lib/util.ts argError | t06; corpus-diff (all error texts) |  |
 | 333674D0 | `lj_err_run` (L2472079) | done | packages/lua/src/vm.ts resolveError, lib/util.ts argError | t06; corpus-diff (all error texts) |  |
 | 33367600 | `lj_err_msg` (L2472184) | done | packages/lua/src/vm.ts resolveError, lib/util.ts argError | t06; corpus-diff (all error texts) |  |
-| 33367610 | `lj_err_lex` (L2472192) | todo | - | - | needs the source compiler (ROADMAP phase 1b) |
 | 333676A0 | `lj_err_optype` (L2472207) | done | packages/lua/src/vm.ts resolveError, lib/util.ts argError | t06; corpus-diff (all error texts) |  |
 | 33367740 | `lj_err_comp` (L2472249) | done | packages/lua/src/vm.ts resolveError, lib/util.ts argError | t06; corpus-diff (all error texts) |  |
 | 333677A0 | `lj_err_optype_call` (L2472279) | done | packages/lua/src/vm.ts resolveError, lib/util.ts argError | t06; corpus-diff (all error texts) |  |
@@ -145,24 +144,18 @@ Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM i
 | 33373A90 | `strscan_dec` (L2483659) | done | packages/lua/src/strscan.ts scanNumber (vm.ts strToNumber) | t12 (700 random doubles x 24 formats, tonumber/coercion fuzz, special spellings) | literal port, including the cases that are not correctly rounded |
 | 33374190 | `strscan_double` (L2484144) | done | packages/lua/src/strscan.ts scanNumber (vm.ts strToNumber) | t12 (700 random doubles x 24 formats, tonumber/coercion fuzz, special spellings) | literal port, including the cases that are not correctly rounded |
 | 333742E0 | `strscan_hex` (L2484219) | done | packages/lua/src/strscan.ts scanNumber (vm.ts strToNumber) | t12 (700 random doubles x 24 formats, tonumber/coercion fuzz, special spellings) | literal port, including the cases that are not correctly rounded |
-| 33376640 | `lj_lex_setup` (L2486458) | todo | - | - | source compiler: ROADMAP phase 1b (needed for GameOption.txt, TutorSystem.lua, loadstring) |
-| 333768A0 | `lj_lex_cleanup` (L2486660) | todo | - | - | source compiler: ROADMAP phase 1b (needed for GameOption.txt, TutorSystem.lua, loadstring) |
-| 33376900 | `lj_lex_token2str` (L2486688) | todo | - | - | source compiler: ROADMAP phase 1b (needed for GameOption.txt, TutorSystem.lua, loadstring) |
-| 33376950 | `lj_lex_error` (L2486702) | todo | - | - | source compiler: ROADMAP phase 1b (needed for GameOption.txt, TutorSystem.lua, loadstring) |
-| 333769C0 | `lj_lex_init` (L2486735) | todo | - | - | source compiler: ROADMAP phase 1b (needed for GameOption.txt, TutorSystem.lua, loadstring) |
-| 33376A10 | `fillbuf` (L2486749) | todo | - | - | source compiler: ROADMAP phase 1b (needed for GameOption.txt, TutorSystem.lua, loadstring) |
-| 33376A50 | `save_grow` (L2486770) | todo | - | - | source compiler: ROADMAP phase 1b (needed for GameOption.txt, TutorSystem.lua, loadstring) |
-| 333785B0 | `lua_load` (L2489067) | partial | packages/lua/src/lib/base.ts loadChunk | t08 | bytecode only; the BOM/`iEncoding` check of luaL_loadfilex is not ported |
+| 33376640 | `lj_lex_setup` (L2486458) | done | packages/lua/src/lib/base.ts (lexSetupIsBytecode, loadChunk) | t15_loader, loader.test.ts | the only lexer function that does anything here: skips a UTF-8 BOM and a `#` line, returns 1 only for ESC (a BOM / `#` line before the ESC is "cannot load malformed bytecode"); every text chunk gets 0 (the exe has no lj_lex_next / lj_parse: FINDINGS section 11) |
+| 333785B0 | `lua_load` (L2489067) | partial | packages/lua/src/lib/base.ts loadChunk, loadFileChunk | t08, t15_loader (392 lines vs the oracle), loader.test.ts | luaL_loadfilex iEncoding (BOM consumed, "invalid encoding") and the bytecode-only rule ported; damaged table constants that make stock raise "table overflow" / "table index is nil" / "string length overflow" (or read out of bounds) are reported as "malformed" (34 of 1,880 random mutations) |
 | 33378640 | `lua_dump` (L2489111) | todo | - | - | string.dump / lua_dump (bytecode writer) |
-| 33378650 | `lua_loadx` (L2489117) | partial | packages/lua/src/lib/base.ts loadChunk | t08 | bytecode only; the BOM/`iEncoding` check of luaL_loadfilex is not ported |
-| 333786E0 | `luaL_loadfile` (L2489161) | partial | packages/lua/src/lib/base.ts loadChunk | t08 | bytecode only; the BOM/`iEncoding` check of luaL_loadfilex is not ported |
-| 33378700 | `luaL_loadbuffer` (L2489170) | partial | packages/lua/src/lib/base.ts loadChunk | t08 | bytecode only; the BOM/`iEncoding` check of luaL_loadfilex is not ported |
-| 33378790 | `luaL_loadstring` (L2489214) | partial | packages/lua/src/lib/base.ts loadChunk | t08 | bytecode only; the BOM/`iEncoding` check of luaL_loadfilex is not ported |
-| 33378830 | `luaL_loadfilex` (L2489258) | partial | packages/lua/src/lib/base.ts loadChunk | t08 | bytecode only; the BOM/`iEncoding` check of luaL_loadfilex is not ported |
-| 33378AC0 | `luaL_loadbufferx` (L2489371) | partial | packages/lua/src/lib/base.ts loadChunk | t08 | bytecode only; the BOM/`iEncoding` check of luaL_loadfilex is not ported |
-| 33378B50 | `cpparser` (L2489419) | todo | - | - | source compiler: ROADMAP phase 1b (needed for GameOption.txt, TutorSystem.lua, loadstring) |
-| 33378BF0 | `reader_file` (L2489457) | todo | - | - | source compiler: ROADMAP phase 1b (needed for GameOption.txt, TutorSystem.lua, loadstring) |
-| 33378C30 | `reader_string` (L2489469) | todo | - | - | source compiler: ROADMAP phase 1b (needed for GameOption.txt, TutorSystem.lua, loadstring) |
+| 33378650 | `lua_loadx` (L2489117) | partial | packages/lua/src/lib/base.ts loadChunk, loadFileChunk | t08, t15_loader (392 lines vs the oracle), loader.test.ts | luaL_loadfilex iEncoding (BOM consumed, "invalid encoding") and the bytecode-only rule ported; damaged table constants that make stock raise "table overflow" / "table index is nil" / "string length overflow" (or read out of bounds) are reported as "malformed" (34 of 1,880 random mutations) |
+| 333786E0 | `luaL_loadfile` (L2489161) | partial | packages/lua/src/lib/base.ts loadChunk, loadFileChunk | t08, t15_loader (392 lines vs the oracle), loader.test.ts | luaL_loadfilex iEncoding (BOM consumed, "invalid encoding") and the bytecode-only rule ported; damaged table constants that make stock raise "table overflow" / "table index is nil" / "string length overflow" (or read out of bounds) are reported as "malformed" (34 of 1,880 random mutations) |
+| 33378700 | `luaL_loadbuffer` (L2489170) | partial | packages/lua/src/lib/base.ts loadChunk, loadFileChunk | t08, t15_loader (392 lines vs the oracle), loader.test.ts | luaL_loadfilex iEncoding (BOM consumed, "invalid encoding") and the bytecode-only rule ported; damaged table constants that make stock raise "table overflow" / "table index is nil" / "string length overflow" (or read out of bounds) are reported as "malformed" (34 of 1,880 random mutations) |
+| 33378790 | `luaL_loadstring` (L2489214) | partial | packages/lua/src/lib/base.ts loadChunk, loadFileChunk | t08, t15_loader (392 lines vs the oracle), loader.test.ts | luaL_loadfilex iEncoding (BOM consumed, "invalid encoding") and the bytecode-only rule ported; damaged table constants that make stock raise "table overflow" / "table index is nil" / "string length overflow" (or read out of bounds) are reported as "malformed" (34 of 1,880 random mutations) |
+| 33378830 | `luaL_loadfilex` (L2489258) | partial | packages/lua/src/lib/base.ts loadChunk, loadFileChunk | t08, t15_loader (392 lines vs the oracle), loader.test.ts | luaL_loadfilex iEncoding (BOM consumed, "invalid encoding") and the bytecode-only rule ported; damaged table constants that make stock raise "table overflow" / "table index is nil" / "string length overflow" (or read out of bounds) are reported as "malformed" (34 of 1,880 random mutations) |
+| 33378AC0 | `luaL_loadbufferx` (L2489371) | partial | packages/lua/src/lib/base.ts loadChunk, loadFileChunk | t08, t15_loader (392 lines vs the oracle), loader.test.ts | luaL_loadfilex iEncoding (BOM consumed, "invalid encoding") and the bytecode-only rule ported; damaged table constants that make stock raise "table overflow" / "table index is nil" / "string length overflow" (or read out of bounds) are reported as "malformed" (34 of 1,880 random mutations) |
+| 33378B50 | `cpparser` (L2489419) | done | packages/lua/src/lib/base.ts loadChunk | t15_loader, loader.test.ts, corpus-diff | lj_lex_setup == 0 -> "cannot load malformed bytecode" (LUA_ERRSYNTAX, no chunk name); mode without b -> XMODE; else lj_bcread. This is where the exe's lack of a Lua source compiler shows |
+| 33378BF0 | `reader_file` (L2489457) | done | packages/lua/src/lib/base.ts (loadstring, load with a function, loadFileChunk) | t08, t15_loader | file / string / function chunk readers: the bytes reach loadChunk in one piece |
+| 33378C30 | `reader_string` (L2489469) | done | packages/lua/src/lib/base.ts (loadstring, load with a function, loadFileChunk) | t08, t15_loader | file / string / function chunk readers: the bytes reach loadChunk in one piece |
 | 3338D240 | `luaopen_base` (L2508374) | done | packages/lua/src/lib/*.ts | t09 (library surface identical to the oracle) | includes the exe's LUA_COMPAT_GFIND (string.gfind) and LUA_COMPAT_MOD (math.mod) |
 | 3338D420 | `lj_cf_getfenv` (L2508481) | partial | packages/lua/src/lib/base.ts | t08 | setfenv(0, t) is a no-op |
 | 3338D490 | `lj_cf_setfenv` (L2508511) | partial | packages/lua/src/lib/base.ts | t08 | setfenv(0, t) is a no-op |
@@ -171,12 +164,12 @@ Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM i
 | 3338D5E0 | `lj_cf_unpack` (L2508580) | done | packages/lua/src/lib/base.ts | t06, t08; corpus-diff |  |
 | 3338D6B0 | `lj_cf_select` (L2508634) | done | packages/lua/src/lib/base.ts | t06, t08; corpus-diff |  |
 | 3338D990 | `lj_cf_error` (L2508805) | done | packages/lua/src/lib/base.ts | t06, t08; corpus-diff |  |
-| 3338DA10 | `lj_cf_loadfile` (L2508829) | partial | packages/lua/src/lib/base.ts | t08 | bytecode only until phase 1b |
-| 3338DA70 | `reader_func` (L2508849) | todo | - | - | source compiler: ROADMAP phase 1b (needed for GameOption.txt, TutorSystem.lua, loadstring) |
-| 3338DB00 | `lj_cf_load` (L2508892) | partial | packages/lua/src/lib/base.ts | t08 | bytecode only until phase 1b |
-| 3338DBD0 | `lj_cf_loadstring` (L2508947) | partial | packages/lua/src/lib/base.ts | t08 | bytecode only until phase 1b |
-| 3338DCA0 | `lj_cf_dofile` (L2509002) | partial | packages/lua/src/lib/base.ts | t08 | bytecode only until phase 1b |
-| 3338DD00 | `lj_cf_dofile_UTF8` (L2509016) | partial | packages/lua/src/lib/base.ts dofile | - | same as dofile, no BOM requirement |
+| 3338DA10 | `lj_cf_loadfile` (L2508829) | done | packages/lua/src/lib/base.ts | t08, t15_loader, loader.test.ts | bytecode only, like the exe (text gives "cannot load malformed bytecode"); loadfile / dofile use lua_getencoding |
+| 3338DA70 | `reader_func` (L2508849) | done | packages/lua/src/lib/base.ts (loadstring, load with a function, loadFileChunk) | t08, t15_loader | file / string / function chunk readers: the bytes reach loadChunk in one piece |
+| 3338DB00 | `lj_cf_load` (L2508892) | done | packages/lua/src/lib/base.ts | t08, t15_loader, loader.test.ts | bytecode only, like the exe (text gives "cannot load malformed bytecode"); loadfile / dofile use lua_getencoding |
+| 3338DBD0 | `lj_cf_loadstring` (L2508947) | done | packages/lua/src/lib/base.ts | t08, t15_loader, loader.test.ts | bytecode only, like the exe (text gives "cannot load malformed bytecode"); loadfile / dofile use lua_getencoding |
+| 3338DCA0 | `lj_cf_dofile` (L2509002) | done | packages/lua/src/lib/base.ts | t08, t15_loader, loader.test.ts | bytecode only, like the exe (text gives "cannot load malformed bytecode"); loadfile / dofile use lua_getencoding |
+| 3338DD00 | `lj_cf_dofile_UTF8` (L2509016) | done | packages/lua/src/lib/base.ts dofile_UTF8 | loader.test.ts (the stock oracle has no dofile_UTF8; t09 leaves it out of the library listing) | dofile with iEncoding 1: the file must start with a UTF-8 BOM or be a dump |
 | 3338DD60 | `lj_cf_gcinfo` (L2509030) | done | packages/lua/src/lib/base.ts | t06, t08; corpus-diff |  |
 | 3338DD90 | `lj_cf_collectgarbage` (L2509041) | partial | packages/lua/src/lib/base.ts | t08 | 'count'/'collect' only; 'step' always false |
 | 3338DE30 | `lj_cf_newproxy` (L2509081) | done | packages/lua/src/lib/base.ts | t06, t08; corpus-diff |  |
@@ -250,17 +243,17 @@ Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM i
 | 333935F0 | `io_std_getset` (L2514263) | partial | packages/lua/src/lib/misc.ts | t08, t09 | read-only files from the host, in-memory writes; popen unsupported |
 | 33393670 | `io_tofile` (L2514297) | partial | packages/lua/src/lib/misc.ts | t08, t09 | read-only files from the host, in-memory writes; popen unsupported |
 | 333936B0 | `luaopen_os` (L2514311) | done | packages/lua/src/lib/*.ts | t09 (library surface identical to the oracle) | includes the exe's LUA_COMPAT_GFIND (string.gfind) and LUA_COMPAT_MOD (math.mod) |
-| 333936E0 | `lj_cf_os_execute` (L2514318) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 33393720 | `lj_cf_os_remove` (L2514335) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 33393750 | `lj_cf_os_rename` (L2514346) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 33393790 | `lj_cf_os_tmpname` (L2514359) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 33393800 | `lj_cf_os_getenv` (L2514370) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 33393830 | `lj_cf_os_exit` (L2514382) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 33393890 | `lj_cf_os_clock` (L2514401) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 333938C0 | `lj_cf_os_date` (L2514409) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 33393B40 | `lj_cf_os_time` (L2514505) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 33393DA0 | `lj_cf_os_difftime` (L2514581) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 33393E10 | `lj_cf_os_setlocale` (L2514595) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 333936E0 | `lj_cf_os_execute` (L2514318) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; UCRT range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 33393720 | `lj_cf_os_remove` (L2514335) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; UCRT range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 33393750 | `lj_cf_os_rename` (L2514346) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; UCRT range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 33393790 | `lj_cf_os_tmpname` (L2514359) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; UCRT range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 33393800 | `lj_cf_os_getenv` (L2514370) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; UCRT range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 33393830 | `lj_cf_os_exit` (L2514382) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; UCRT range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 33393890 | `lj_cf_os_clock` (L2514401) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; UCRT range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 333938C0 | `lj_cf_os_date` (L2514409) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; UCRT range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 33393B40 | `lj_cf_os_time` (L2514505) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; UCRT range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 33393DA0 | `lj_cf_os_difftime` (L2514581) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; UCRT range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 33393E10 | `lj_cf_os_setlocale` (L2514595) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; UCRT range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
 | 33393EA0 | `luaopen_package` (L2514640) | done | packages/lua/src/lib/*.ts | t09 (library surface identical to the oracle) | includes the exe's LUA_COMPAT_GFIND (string.gfind) and LUA_COMPAT_MOD (math.mod) |
 | 333940B0 | `lj_cf_package_loadlib` (L2514711) | partial | packages/lua/src/lib/misc.ts | t08, t09 | require/module/seeall/loaders/searchpath; no C modules |
 | 33394120 | `lj_cf_package_unloadlib` (L2514733) | partial | packages/lua/src/lib/misc.ts | t08, t09 | require/module/seeall/loaders/searchpath; no C modules |
@@ -329,7 +322,7 @@ Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM i
 
 ## C++ engine classes
 
-2879 classes / 26233 methods. Status by class: done 9, n/a 1338, partial 52, todo 1480; by method: done 61, n/a 4225, partial 258, todo 21689.
+2879 classes / 26233 methods. Status by class: done 11, n/a 1338, partial 53, todo 1477; by method: done 68, n/a 4225, partial 276, todo 21664.
 
 The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes:
 

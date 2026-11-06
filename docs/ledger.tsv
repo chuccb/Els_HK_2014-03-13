@@ -7,7 +7,7 @@
 ^lj_meta_comp$	done	packages/lua/src/vm.ts metaComp	t04; corpus-diff flavors 1-3	LuaJIT operand and metamethod order (not Lua 5.1's); ISGE/ISGT are "not ISLT/ISLE" (true for NaN)
 ^lj_meta_	done	packages/lua/src/vm.ts (index, setIndex, arith, concat, len, equals, call, forPrep)	t01, t04; corpus-diff	
 ^lj_obj_equal$	done	packages/lua/src/vm.ts rawEquals	t04	
-^lj_err_lex$	todo	-	-	needs the source compiler (ROADMAP phase 1b)
+^lj_err_lex$	n/a	-	-	formats "chunk:line: msg near token" for lexer / parser errors; the exe links no token scanner or parser, lj_lex_error is only reached for LJ_ERR_XLINES (more than 2^31 lines) and LJ_ERR_XELEM (token buffer overflow)
 ^lj_err_	done	packages/lua/src/vm.ts resolveError, lib/util.ts argError	t06; corpus-diff (all error texts)	
 ^lj_debug_getinfo$	partial	packages/lua/src/lib/misc.ts debug.getinfo	-	only source/short_src/what/linedefined/func/nups; scripts never call it
 ^lj_debug_	done	packages/lua/src/vm.ts frameLoc, slotName, funcName, shortName	t06; corpus-diff	all scripts are stripped: `chunk:0:` locations
@@ -30,12 +30,15 @@
 ^lj_mem_|^lj_alloc|^(tmalloc_|prepend_alloc|segment_holding|add_segment|release_unused)	n/a	-	-	allocator
 ^lj_gc_|^gc_	n/a	-	-	garbage collector (weak tables and __gc are not supported)
 # --- lexer / parser / dump (phase 1b)
-^(lj_lex_|fillbuf|save_grow|lj_parse|cpparser|reader_)	todo	-	-	source compiler: ROADMAP phase 1b (needed for GameOption.txt, TutorSystem.lua, loadstring)
-^(lua_load|lua_loadx|luaL_load)	partial	packages/lua/src/lib/base.ts loadChunk	t08	bytecode only; the BOM/`iEncoding` check of luaL_loadfilex is not ported
+^lj_lex_setup$	done	packages/lua/src/lib/base.ts (lexSetupIsBytecode, loadChunk)	t15_loader, loader.test.ts	the only lexer function that does anything here: skips a UTF-8 BOM and a `#` line, returns 1 only for ESC (a BOM / `#` line before the ESC is "cannot load malformed bytecode"); every text chunk gets 0 (the exe has no lj_lex_next / lj_parse: FINDINGS section 11)
+^(lj_lex_cleanup|lj_lex_init|lj_lex_token2str|lj_lex_error|fillbuf|save_grow)$	n/a	-	-	lexer buffers, keyword interning and error formatting: nothing observable without a token scanner (the readers feed lj_bcread directly)
+^cpparser$	done	packages/lua/src/lib/base.ts loadChunk	t15_loader, loader.test.ts, corpus-diff	lj_lex_setup == 0 -> "cannot load malformed bytecode" (LUA_ERRSYNTAX, no chunk name); mode without b -> XMODE; else lj_bcread. This is where the exe's lack of a Lua source compiler shows
+^reader_	done	packages/lua/src/lib/base.ts (loadstring, load with a function, loadFileChunk)	t08, t15_loader	file / string / function chunk readers: the bytes reach loadChunk in one piece
+^(lua_load|lua_loadx|luaL_load)	partial	packages/lua/src/lib/base.ts loadChunk, loadFileChunk	t08, t15_loader (392 lines vs the oracle), loader.test.ts	luaL_loadfilex iEncoding (BOM consumed, "invalid encoding") and the bytecode-only rule ported; damaged table constants that make stock raise "table overflow" / "table index is nil" / "string length overflow" (or read out of bounds) are reported as "malformed" (34 of 1,880 random mutations)
 ^lua_dump$	todo	-	-	string.dump / lua_dump (bytecode writer)
-^lj_cf_dofile_UTF8$	partial	packages/lua/src/lib/base.ts dofile	-	same as dofile, no BOM requirement
+^lj_cf_dofile_UTF8$	done	packages/lua/src/lib/base.ts dofile_UTF8	loader.test.ts (the stock oracle has no dofile_UTF8; t09 leaves it out of the library listing)	dofile with iEncoding 1: the file must start with a UTF-8 BOM or be a dump
 # --- base library
-^lj_cf_(dofile|loadfile|load|loadstring)$	partial	packages/lua/src/lib/base.ts	t08	bytecode only until phase 1b
+^lj_cf_(dofile|loadfile|load|loadstring)$	done	packages/lua/src/lib/base.ts	t08, t15_loader, loader.test.ts	bytecode only, like the exe (text gives "cannot load malformed bytecode"); loadfile / dofile use lua_getencoding
 ^lj_cf_collectgarbage$	partial	packages/lua/src/lib/base.ts	t08	'count'/'collect' only; 'step' always false
 ^lj_cf_(getfenv|setfenv)$	partial	packages/lua/src/lib/base.ts	t08	setfenv(0, t) is a no-op
 ^lj_cf_(rawset|rawequal|unpack|select|error|gcinfo|newproxy|print)$	done	packages/lua/src/lib/base.ts	t06, t08; corpus-diff	
@@ -53,7 +56,7 @@
 ^(lj_ff_math_|lj_cf_math_|lj_vm_(floor|ceil|trunc|mod|modi|log2|exp|pow|powi|foldfpm|foldarith|sinh|cosh|tanh))	partial	packages/lua/src/lib/misc.ts, vm.ts arith	t07	transcendental functions use V8's libm instead of x87/CRT: last-ulp differences are possible (x87 fyl2x/f2xm1 are not reproducible bit-exactly anyway)
 ^(lj_ff_bit_|lj_cf_bit_)	done	packages/lua/src/lib/misc.ts	t07	
 ^lj_cf_coroutine_	partial	packages/lua/src/lib/misc.ts	t05	no yield across metamethods / native iterators
-^lj_cf_os_	partial	packages/lua/src/lib/misc.ts	t08, t14 (os.date/os.time on fixed instants)	time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs
+^lj_cf_os_	partial	packages/lua/src/lib/misc.ts	t08, t14 (os.date/os.time on fixed instants)	time/date/clock/getenv; UCRT range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs
 ^(lj_cf_io_|io_|luaopen_io)	partial	packages/lua/src/lib/misc.ts	t08, t09	read-only files from the host, in-memory writes; popen unsupported
 ^lj_cf_debug_	partial	packages/lua/src/lib/misc.ts	t09	names only for locals/upvalues (scripts are stripped); traceback approximate
 ^lj_cf_package_	partial	packages/lua/src/lib/misc.ts	t08, t09	require/module/seeall/loaders/searchpath; no C modules

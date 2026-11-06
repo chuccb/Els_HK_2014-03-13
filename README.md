@@ -18,7 +18,7 @@
 |---|---|---|
 | 1a | `@els/kom`：KOM 封存檔讀取（173 個檔、97,891 個項目，大小與 Adler-32 全數正確） | 完成 |
 | 1a | `@els/lua`：LuaJIT 2.0.2 位元碼載入器 + 直譯器 + 標準函式庫 | 部分完成（見下） |
-| 1b | Lua **原始碼**編譯器（`lj_lex`/`lj_parse` 移植；`GameOption.txt`、`TutorSystem.lua`、`loadstring` 需要） | 未開始 |
+| 1b | Lua 載入器與文字設定檔。**更正**：x2.exe 沒有 Lua 原始碼編譯器（`lj_parse` 未連結，`cpparser` 對任何非位元碼的內容直接丟出 `cannot load malformed bytecode`），所以不做編譯器；改為 ① `loadChunk`／`luaL_loadfilex(iEncoding)`／`dofile_UTF8` 與 exe 一致；② 移植 KOG 自製的文字設定檔直譯器 `KLuaManagerProxy`（`GameOption*.txt`、伺服器群組檔、教學系統檔、控制台指令） | 完成（`KLuaManagerProxy` 沒有原生 oracle，只能以反組譯碼手算驗證） |
 | 2 | 資產解碼器（TGA/DDS/X/Y/XET/TET/粒子腳本/KIM/ESS/MPEG-1） | **進行中**：圖片（TGA/DDS/BMP/PNG）、XET/TET、字串表（ESS）、物品資料庫（KIM）、X 檔容器（MSZIP）與通用 X 讀取器、KME/KSM/KAC、粒子與 XMeshPlayer 腳本（解析端，37 個檔案、13,882 個區塊與獨立讀取器逐欄位一致）已完成並以全部資產驗證；網格語意、粒子／XMeshPlayer 執行期、MPEG-1 未做（見下） |
 | 3 | WebGPU 的 D3D9 相容層 | 未開始 |
 | 4 | UI 框架（`DLG_*.lua`） | 未開始 |
@@ -28,11 +28,11 @@
 ### Lua VM 的驗證結果（誠實版）
 
 * 位元碼載入器與反組譯器：4,498 個腳本、26,565 個函式原型，與 oracle 的 `jit.bc` 輸出逐行相同。
-* 9 個手寫差異測試（`tests/lua/`）：全數與原生 LuaJIT 輸出相同。
+* 15 個差異測試（`tests/lua/`：t01–t09 手寫、t10–t14 模糊測試、t15 載入器）：全數與原生 LuaJIT 輸出相同。
 * **stub 環境全腳本差異測試**（`tools/corpus-diff.sh`）：4,498 個遊戲腳本 × 3 種 stub 回傳模式，原生 LuaJIT 與 TS VM 的記錄逐位元組相同。這個測試找出並修掉 3 個 VM 錯誤（`%q`、比較運算的運算元順序、NaN 比較）。
 * **這只證明 VM 與標準函式庫在這些腳本的載入期行為上正確**；真正的引擎物件、長時間執行、GC 等不在其中。
 
-已知缺口（也記錄於 `docs/FINDINGS.md` 第 4 節）：metamethod 內的 `yield` 不支援；`setfenv(0, t)` 為 no-op；`collectgarbage('step')` 恆回傳 false；weak table 與 `__gc` 不支援；`load/loadstring/loadfile/dofile` 只接受位元碼（沒有原始碼編譯器）；`debug/io/os/package` 為近似實作；`pow/exp/log/三角函數` 使用 V8 的 libm，與 exe 的 CRT/x87 最後一位可能不同；`tostring(table)`／`%p` 的位址不可能與 exe 相同。
+已知缺口（也記錄於 `docs/FINDINGS.md` 第 4 節）：metamethod 內的 `yield` 不支援；`setfenv(0, t)` 為 no-op；`collectgarbage('step')` 恆回傳 false；weak table 與 `__gc` 不支援；`load/loadstring/loadfile/dofile` 只接受位元碼（exe 本身沒有原始碼編譯器，文字一律回傳 `cannot load malformed bytecode`）；`debug/io/os/package` 為近似實作；`pow/exp/log/三角函數` 使用 V8 的 libm，與 exe 的 CRT/x87 最後一位可能不同；`tostring(table)`／`%p` 的位址不可能與 exe 相同。
 
 ### Phase 2（資產）的驗證結果
 
@@ -52,7 +52,7 @@
 
 ```
 packages/kom      @els/kom   KOM 封存檔（zlib、XORCRC 演算法 2、Adler-32、HTTP range 來源）
-packages/lua      @els/lua   LuaJIT 2.0.2 位元碼 VM 與標準函式庫（對照 x2.exe 內的 lj_* 實作）
+packages/lua      @els/lua   LuaJIT 2.0.2 位元碼 VM 與標準函式庫（對照 x2.exe 內的 lj_* 實作）、`KLuaManagerProxy`（文字設定檔直譯器）
 packages/assets   @els/assets  圖片（TGA/DDS/BMP/PNG）、XET/TET、字串表（general.ess）、物品資料庫（item.kim）、MSZIP、DirectX X 讀取器、KME/KSM/KAC 解碼器、粒子／XMeshPlayer 腳本解析器
 tests/lua         差異測試（兩個 VM 執行同一份 luajit -b -s 位元碼）
 tools             驗證、分析與產生文件的工具（見 docs/ARCHITECTURE.md）
@@ -68,8 +68,8 @@ npm install --no-audit --no-fund        # 安裝 bun、typescript、fflate 到 n
 ./node_modules/.bin/bun run tools/verify-kom.ts          # 驗證全部 KOM（約 2 分鐘）
 ./tools/setup-oracle.sh                 # 建置 LuaJIT 2.0.2 oracle 到 /home/user/work/luajit-2.0
 python3 tools/kom_extract.py /home/user/work/ex lua,LUA  # 取出 4,498 個腳本
-./tools/lua-difftest.sh                 # 14 個差異測試（t10–t14 為模糊測試）
-./node_modules/.bin/bun test packages/assets   # 資產解碼器單元測試（232 個）
+./tools/lua-difftest.sh                 # 15 個差異測試（t10–t14 為模糊測試、t15 為載入器）
+./node_modules/.bin/bun test packages   # 單元測試（資產解碼器 232 + Lua 載入器 14 + KLuaManagerProxy 38 = 284 個）
 ./node_modules/.bin/bun run tools/verify-ksm.ts   # KME/KSM/KAC 全部資產驗證（約 45 秒）；其餘見 package.json 的 verify:*
 ./tools/corpus-diff.sh 1                # stub 環境全腳本差異測試（flavor 1/2/3，各約 3 分鐘）
 ./node_modules/.bin/tsc -p tsconfig.json --noEmit        # 型別檢查

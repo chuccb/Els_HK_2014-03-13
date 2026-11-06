@@ -192,7 +192,7 @@ CBandiVideoLibrary	18	260	329840C0	todo
 CKTDGUIScrollBar	18	1179	32984D70	todo		
 CX2Item	18	913	32AACE10	todo		
 CX2SocketItem::SocketData	18	6733	32AE48D0	todo		
-KLuaManagerProxy	18	2586	32C26B60	todo		
+KLuaManagerProxy	18	2586	32C26B60	partial	packages/lua/src/proxy.ts (LuaManagerProxy)	DoMemoryNotEncrypt, LuaParse, LuaKeyword, LuaTableIndex/Key, BeginTable/EndTable, StackGetValue, GetValue (bool / string), GetNumberFromLuaValue<int|float>, LuaCall; boost::lexical_cast formats and UTF-8 handling assumed; the callers (CX2GameOption, CX2InstanceData, CX2TutorSystem, CX2GameEdit) are not ported
 CX2UISkillNote	18	2189	32D1FC40	todo		
 CX2WorldMapUI	18	5497	32D23240	todo		
 CX2StateAutoChanger	18	869	32D8E480	todo		
@@ -640,7 +640,7 @@ CX2ItemManager::CashItem	4	346	32C48110	todo
 CX2OldGageManager::Gage	4	137	32C59340	todo		
 std::vector<boost::intrusive_ptr<CX2GageManager::CX2GageSet>>	4	228	32C5EE50	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CX2GageUI	4	24	32C5F660	todo		
-KLuaManagerProxyLuaValue	4	145	32C6A540	todo		
+KLuaManagerProxyLuaValue	4	145	32C6A540	done	packages/lua/src/proxy.ts (ProxyValue)	nil / boolean / number / string / shared table value; Reset, operator=, LuaResetFromTop
 CX2PlayGuide::GuideOrderManager	4	184	32C6AC70	todo		
 CX2PageMgrItem::CX2PageSlotItem	4	40	32CA40F0	todo		
 CX2SkillTreeSlotData	4	1106	32CCE2A0	todo		
@@ -755,7 +755,7 @@ std::list<CX2TFieldGame::AddUserInUnitLoader>	3	130	32C23340	n/a	-	C++ runtime l
 KncSecurity::KByteStream	3	165	32C233F0	todo		
 boost::bad_lexical_cast	3	35	32C26F70	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CX2GameOption::OptionList	3	253	32C37150	todo		
-KLuaManagerProxyLuaTable	3	106	32C6A450	todo		
+KLuaManagerProxyLuaTable	3	106	32C6A450	done	packages/lua/src/proxy.ts (ProxyTable)	array part + name map, reference counted in the exe (JS references here)
 std::map<std::string,char>	3	210	32C83DF0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<KEGS_RECEIVE_LETTER_NOT>	3	162	32CA1050	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CryptoPP::Exception	3	53	32CA2C50	todo	-	crypto primitives of the protocol: WebCrypto or a port, decided with the network layer

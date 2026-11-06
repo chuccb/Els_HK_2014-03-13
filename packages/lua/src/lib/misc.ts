@@ -230,7 +230,7 @@ export interface OsHost extends BaseHost {
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-/** 3000-12-31 23:59:59 UTC: the last instant msvcr100's 64-bit time functions accept. */
+/** 3000-12-31 23:59:59 UTC: the last instant the UCRT's 64-bit time functions accept. */
 const MAX_CRT_TIME = 32535215999;
 
 function strftime(fmt: string, d: Date, utc: boolean): string {
@@ -299,12 +299,12 @@ function installOs(G: LuaState, host: OsHost): void {
       d.setFullYear(year + 1900, month, day);
       d.setHours(hour, min, sec, 0);
       const secs = Math.floor(d.getTime() / 1000);
-      return secs >= 0 && secs <= MAX_CRT_TIME ? [secs] : [undefined]; // msvcr100 _mktime64 returns -1 (=> nil) outside 1970..3000
+      return secs >= 0 && secs <= MAX_CRT_TIME ? [secs] : [undefined]; // the UCRT's _mktime64 returns -1 (=> nil) outside 1970..3000
     },
     clock: () => [(host.clock ? host.clock() : performance.now() / 1000) - t0],
     date(_L, a) {
       let fmt = optStr(a, 0, "date", "%c");
-      // (time_t)luaL_checknumber(L, 2): truncation toward zero. The exe's CRT (msvcr100) _gmtime64/_localtime64 only handle
+      // (time_t)luaL_checknumber(L, 2): truncation toward zero. The exe's CRT (the UCRT) _gmtime64/_localtime64 only handle
       // 1970-01-01 00:00:00 .. 3000-12-31 23:59:59 UTC and return NULL otherwise, which os.date turns into nil.
       const t = a[1] === undefined ? Math.floor(now() / 1000) : Math.trunc(checkNum(a, 1, "date"));
       let utc = false;

@@ -53,7 +53,7 @@ Effect scripts: `effectscript.ts` (the shared tokenizer with the exe's quirks, `
 `RandomNumber`, `EFFECT_SYSTEMS` = which file feeds which of the eight systems), `particle.ts` (`parseParticleScript` -> sequences with
 their properties and events, `ParticleLibrary`) and `xmeshplayer.ts` (`parseXMeshPlayerScript` -> templets with Global / Anim / Die
 timelines, `XMeshLibrary`): the compile side of `CKTDGParticleSystem` / `CKTDGXMeshPlayer`; the run-time simulation is not ported.
-Tests: `packages/assets/test` (`bun test packages/assets`, 232 tests); corpus tools: `decode-images.ts` + `verify-images.py` (Pillow),
+Tests: `packages/assets/test` (232 tests) and `packages/lua/test` (`loader.test.ts` 14, `proxy.test.ts` 38); all with `bun test packages`; corpus tools: `decode-images.ts` + `verify-images.py` (Pillow),
 `verify-xet-tet.ts`, `verify-xfiles.ts`, `verify-xparse.ts`, `verify-ksm.ts`, `verify-ess.ts`, `verify-kim.ts`, `verify-effects.ts`.
 
 ### `@els/lua` (`packages/lua`)
@@ -68,15 +68,16 @@ A register-based interpreter for LuaJIT 2.0.2 bytecode, following `lj_*` of the 
 | `numfmt.ts` | C-correct `%e/%f/%g` (ties-to-even) used by `tostring` and `string.format` |
 | `strscan.ts` | literal port of `lj_strscan.c` (`tonumber`, string arithmetic coercions; not always correctly rounded, so never replace it by `Number()`) |
 | `cmath.ts` | `x ^ y` / `math.pow` exactly as `vm_pow_sse` (repeated squaring for int32 exponents, special cases; `Math.pow` for the x87 path) |
-| `lib/base.ts` | base library (`loadChunk`, `BaseHost`) |
+| `lib/base.ts` | base library; `loadChunk` (= `lj_lex_setup` + `cpparser` + `lj_bcread`: the exe has no source compiler, so text is refused), `loadFileChunk` (`luaL_loadfilex` with `iEncoding`), `dofile_UTF8`, `BaseHost` |
+| `proxy.ts` | `LuaManagerProxy`: port of KOG's `KLuaManagerProxy`, the interpreter of the text configuration files (`GameOption*.txt`, server group, tutor, console arguments); no Lua VM involved except for global lookups |
 | `lib/string.ts`, `lib/pattern.ts` | `string.*` (`lj_cf_string_format` port, Lua patterns) |
 | `lib/table.ts`, `lib/misc.ts` | `table.*`; `math` (Tausworthe PRNG as in `lj_math_random`), `bit`, `coroutine`, `os`, `io`, `debug`, `jit` stubs, `package`/`require`/`module` |
 | `index.ts` | `createLuaState(host)`, `runChunk` |
 
 Design points that matter for faithfulness:
 
-* **Bytecode only (so far).** Scripts are compiled stripped, so debug info is absent; error messages and `tostring` formats
-  follow the exe (see FINDINGS section 3).
+* **Bytecode only, like the exe.** The client has no Lua source compiler (FINDINGS section 11): scripts are precompiled and stripped, so debug info is
+  absent; text chunks fail with `cannot load malformed bytecode`. Error messages and `tostring` formats follow the exe (see FINDINGS section 3).
 * **Strings are byte strings** (code units 0-255): bytes round-trip exactly, string hashing and `#` match the 32-bit exe.
 * **Error context is computed lazily**: natives and VM raise `LuaError` with a *pending* description; `resolveError` (run when the
   error reaches the nearest frame boundary, while the frames are still intact) builds the final message, exactly as
@@ -92,7 +93,7 @@ Design points that matter for faithfulness:
 | `verify-kom.ts` | full verification of every KOM entry |
 | `verify-lua-bytecode.ts` + `lua/native_dump_bc.lua` | loader/disassembler vs the native `jit.bc` listing |
 | `setup-oracle.sh` | builds the LuaJIT 2.0.2 oracle (patched for 32-bit `long`, client header) |
-| `lua-difftest.sh` + `tests/lua/*.lua` | differential tests (t10-t14 are fuzzers); both VMs run the same `luajit -b -s` bytecode, the oracle with `-joff`; a compile error or non-zero exit fails the test |
+| `lua-difftest.sh` + `tests/lua/*.lua` | differential tests (t10-t14 are fuzzers, t15 the chunk loader); both VMs run the same `luajit -b -s` bytecode, the oracle with `-joff`; a compile error or non-zero exit fails the test |
 | `corpus-diff.sh` + `lua/stubrun.lua` + `corpus-run.ts` | stub-environment differential run of all 4,498 game scripts (native xargs -P2 vs one in-process TS run, ~3 minutes per flavor) |
 | `lua-run.ts` + `lib/lua-host.ts` | run a `.luac` in the TS VM (`arg` like the standalone interpreter); the shared runner of the corpus tool |
 | `bindings.py` | extracts the `lua_tinker` registrations from `data/x2.exe.c` -> `docs/HOST_API.md`, `docs/host_api.tsv` (phase 5 ground truth) |
@@ -118,13 +119,13 @@ ls /home/user/work/ex | sort > /home/user/work/lualist.txt
 LUA_PATH=/home/user/work/luajit-2.0/src/?.lua /home/user/work/luajit-2.0/src/luajit tools/lua/native_dump_bc.lua \
   /home/user/work/ex /home/user/work/lualist.txt > /home/user/work/native_bc.txt
 ./node_modules/.bin/bun run tools/verify-lua-bytecode.ts /home/user/work/native_bc.txt
-./tools/lua-difftest.sh                       # 14 differential tests (t10-t14 are fuzzers)
+./tools/lua-difftest.sh                       # 15 differential tests (t10-t14 are fuzzers, t15 the chunk loader)
 ./tools/corpus-diff.sh 1 && ./tools/corpus-diff.sh 2 && ./tools/corpus-diff.sh 3    # stub-environment corpus, 3 flavors
 python3 tools/index_decomp.py data/x2.exe.c /home/user/work/analysis/functions.tsv
 ./node_modules/.bin/bun run tools/api-census.ts --md docs/SCRIPT_API_USAGE.md --json /home/user/work/analysis/api_census.json --usage /home/user/work/analysis/member_usage.json
 ./node_modules/.bin/bun run tools/script-graph.ts --md docs/SCRIPT_GRAPH.md
 python3 tools/bindings.py && python3 tools/ledger.py                                # docs/HOST_API.md, docs/LEDGER.md
-./node_modules/.bin/bun test packages/assets                                          # asset decoder unit tests (232)
+./node_modules/.bin/bun test packages                                                 # unit tests: asset decoders (232), Lua loader (14), KLuaManagerProxy (38)
 ./node_modules/.bin/bun run tools/decode-images.ts --tsv /home/user/work/analysis/images_ts.tsv --dump /home/user/work/analysis/rgba_dump --every 40
 python3 -m venv /home/user/work/venv && /home/user/work/venv/bin/pip install pillow
 /home/user/work/venv/bin/python tools/verify-images.py /home/user/work/analysis/images_ts.tsv /home/user/work/analysis/rgba_dump

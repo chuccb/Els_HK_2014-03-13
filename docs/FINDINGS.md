@@ -8,6 +8,11 @@ unless marked *(assumption)*.
 
 * `data/x2.exe`: PE32 (Win32), 14.8 MB, MSVC. `data/x2.exe.c` has 2,610,163 lines (33,294 functions, 1,355 classes found
   by `tools/index_decomp.py`), `data/x2.exe.h` 446,629 lines.
+* **It is a recent rebuild, not a 2014 binary**: linker 14.51 (Rich header: VS 2022-era toolsets, builds 35721 / 36260), PE time stamp 2026-11-04,
+  and it imports the *Universal CRT* (`api-ms-win-crt-*`), `VCRUNTIME140`, `MSVCP140` and `mfc140u`, not `msvcr100` (the `msvcr100` / `msvcp100` /
+  `mfc100u` DLLs in `data/` belong to the side DLLs). So the exe's CRT behaviour is the UCRT's (printf with two-digit exponents and, on Windows 10 2004+,
+  ties-to-even; correctly rounded `atof`/`strtod`; 64-bit `time_t`). Other imports that matter later: `d3dx9_43`, `fmodex`, `libxml2`, `usp10`,
+  `dinput8`, `imm32`, `wininet`, `ws2_32`.
 * Data: 173 KOM archives (`data001..`, `datai001..datai023`, ...), 97,891 entries; loose `data/ui`, `data/movie`
   (30 MPEG-1 files), `data/music` (135 ogg), `general.ess`, fonts, DLLs. `data/x2.fx` is a DXUT sample, not the game's
   effect file (the game's effects live in the KOMs).
@@ -54,18 +59,20 @@ unless marked *(assumption)*.
   `string.format` 62, `math.floor` 19, `os.time` 9, `math.min` 9, `math.randomseed` 8, `table.sort` 7, `string.upper` 6,
   `math.sqrt` 5, `math.abs` 5, `ipairs` 16, `print` 8. Almost everything else is the host API (`g_pObjectMesh`,
   `D3DXVECTOR3`, `STATE_CHANGE_TYPE`, `g_pLineMap`, ... 89k distinct global names), i.e. the `lua_tinker` bindings of the exe.
-* Lua **source** exists in exactly three places: `data/TutorSystem.lua` (loose, UTF-8 BOM) and `GameOption.txt` /
+* Three files *look* like Lua source: `data/TutorSystem.lua` (loose; 3 bytes, only the UTF-8 BOM) and `GameOption.txt` /
   `GameOptionPreset.txt` inside the KOMs (Algorithm 2, UTF-8 BOM, `GAME_OPTION_CURRENT = { ... OPTION_LEVEL["OL_HIGH"] ... }`).
-  Running them unmodified needs a Lua source compiler (not written yet, see ROADMAP "1b").
-* The KOMs hold 41 Algorithm-2 `.txt`/`.kim` entries: 2 of them are the Lua sources above (`GameOption.txt`,
+  The exe cannot compile Lua source at all (section 11): these files are read by `KLuaManagerProxy`, KOG's own interpreter of a
+  small Lua-like subset (ported as `packages/lua/src/proxy.ts`).
+* The KOMs hold 41 Algorithm-2 `.txt`/`.kim` entries: 2 of them are the text configuration files above (`GameOption.txt`,
   `GameOptionPreset.txt`); the other 39 are not Lua: `particlesystem "GameMajor" 1.00 { ... }` particle scripts
   (`Game*/UI*Particle*.txt`), `XMESHPLAYER` scripts (`*XMeshPlayer*.txt`), a 0-byte `bossraid_dummy.txt`, and the 18.7 MB
   binary `item.kim` ("KIM" magic). They are parsed by C++ code of the exe and are phase 2 work (`item.kim` is done, see section 8).
 * The exe's LuaJIT is stock 2.0.2 plus a few KOG additions: `dofile_UTF8` (`luaL_loadfilex(L, name, mode, iEncoding)`:
   encoding 0 accepts a UTF-8 BOM, 1 *requires* one unless the file is bytecode (`invalid encoding <chunk>` otherwise), 2 does no
   check), `lua_setencoding`/`lua_getencoding` (a flag in `global_State`), and the compat aliases `string.gfind` and `math.mod`
-  (both reproduced; the library surface of the TS VM is identical to the oracle, test `t09_surface`). The lexer is stock
-  (`lj_lex_setup` skips a BOM and a `#` first line, detects `ESC` bytecode).
+  (both reproduced; the library surface of the TS VM is identical to the oracle, test `t09_surface`, which leaves out `dofile_UTF8`
+  that the stock oracle lacks). The lexer is cut down to `lj_lex_setup` (BOM / `#` line / `ESC` detection): the parser is not linked
+  into the exe (section 11).
 
 ### LuaJIT 2.0.2 behaviour reproduced (from the decompile)
 
@@ -99,7 +106,8 @@ unless marked *(assumption)*.
 | Check | Result |
 |---|---|
 | `tools/verify-lua-bytecode.ts`: TS loader + disassembler vs `jit.bc` listing of the oracle, all scripts | 4,498 scripts / 26,565 prototypes / 8.4 M listing lines identical |
-| `tools/lua-difftest.sh`: 14 differential tests, t01-t09 hand-written (basics, tables, strings, metatables, coroutines, errors, math, misc, library surface) and t10-t14 fuzzers (table sizing/`#`/`pairs` order, string library, number conversion and formatting, every operator x every operand type with metamethod logging, `table.sort` ties, 500 random Lua patterns, `os.date/os.time`). The oracle runs with `-joff` and a test fails on a compile error or a non-zero exit of either engine | 14/14 identical (see "Differential fuzz findings" below for what they found) |
+| `tools/lua-difftest.sh`: 15 differential tests, t01-t09 hand-written (basics, tables, strings, metatables, coroutines, errors, math, misc, library surface), t10-t14 fuzzers (table sizing/`#`/`pairs` order, string library, number conversion and formatting, every operator x every operand type with metamethod logging, `table.sort` ties, 500 random Lua patterns, `os.date/os.time`) and t15 (the chunk loader: all prefixes of 3 oracle dumps, header mutations, chunk names, BOM / `#` headers; 392 lines). The oracle runs with `-joff` and a test fails on a compile error or a non-zero exit of either engine | 15/15 identical (see "Differential fuzz findings" below for what they found) |
+| `bun test packages/lua` (`loader.test.ts` 14 tests: text refused, `iEncoding`, `dofile_UTF8`, `require` error wrapping; `proxy.test.ts` 38 tests: the `KLuaManagerProxy` reader, hand-derived from the decompile because there is no native oracle for it, plus the shipped `GameOption*.txt`) | 52 pass |
 | `tools/corpus-diff.sh`: every game script run under a stub environment on native LuaJIT and on the TS VM; log of host calls, global table contents (order-independent hash + iteration-order hash) and results of calling every defined function must be identical | see the table at the end of this file |
 
 Not verified / known gaps (also tracked in `docs/ROADMAP.md`):
@@ -108,7 +116,8 @@ Not verified / known gaps (also tracked in `docs/ROADMAP.md`):
   boundary".
 * `setfenv(0, t)` is a no-op; `collectgarbage('step')` always returns false; `__gc` is never called; weak tables
   (`__mode`) are strong.
-* No Lua *source* compiler yet: `load`, `loadstring`, `loadfile` accept bytecode only.
+* No Lua *source* compiler, like the exe (section 11): `load`, `loadstring`, `loadfile` accept bytecode only and answer
+  `cannot load malformed bytecode` to text.
 * `debug`, `io`, `os`, `package` are approximations: `debug.traceback` text, `debug.getinfo` fields, `os.date` formats,
   `io.input/output` do not switch the default files, `io.popen` raises, `os.execute/remove/rename/tmpname/exit/setlocale` are
   stubs, no C modules. The *names* in every library table are identical to the oracle.
@@ -121,7 +130,7 @@ Not verified / known gaps (also tracked in `docs/ROADMAP.md`):
 * `pcall()` / `xpcall()` with *no arguments* report "attempt to call a nil value" instead of "bad argument #1 to '?' (value
   expected)" (pcall/xpcall are synthetic bytecode closures).
 * `string.format('%a')` is not implemented (glibc and the UCRT print it differently anyway) and `%p` / addresses can never match.
-* `os.date` follows the exe's CRT (msvcr100) where it is known and glibc is not the reference: 1970..3000 only (else `nil`),
+* `os.date` follows the exe's CRT (the UCRT) where it is known and glibc is not the reference: 1970..3000 only (else `nil`),
   `%c` is the C-locale `%m/%d/%y %H:%M:%S`; the locale the exe selects at run time (`setlocale`) is not known.
 * Printed addresses (`tostring(table)`, `%p`) can never match.
 * JIT compilation is not implemented: the VM is an interpreter, semantically equivalent by LuaJIT's contract (nothing in the
@@ -282,8 +291,8 @@ the counter still advances) and the two characters `\n` become CR LF. `GetGenera
 strings, `i`/`h` ints, `f`/`e` doubles rounded to two decimals and printed with the stream default `%g`). Measured on the shipped file
 (`tools/verify-ess.ts`; `tools/verify-ess.py` is an independent re-implementation and prints the same counts): **30,584 entries, 0 index mismatches, 0 capped
 lines, 3,625 empty texts, 3,029 entries with line breaks, 783 with `@N` placeholders (highest `@5`)**, all Traditional Chinese / ASCII
-with no stray control characters. Open point: whether the exe's CRT rounds exact `printf` ties half-to-even (modern UCRT, as ported) or
-half-up (older MSVC runtimes) only matters for values like 0.125 passed to `f` / `e`.
+with no stray control characters. Open point: the exe is built with a modern toolset against the UCRT, whose `printf` rounds exact ties half-to-even on Windows 10 2004 and later
+(half-up before); the port does the former. It only matters for values like 0.125 passed to `f` / `e`.
 
 **`item.kim` is the item database as a flat memory image** (`packages/assets/src/kim.ts`, `tools/verify-kim.ts`). It sits in `data036.kom`
 (18,704,284 bytes after the KOM layer). `CX2ItemManager::OpenItemScriptFile` 32C49BC0 reads it through the mass-file manager,
@@ -376,8 +385,8 @@ relationship holds in the KSM files; (3) X-file skin meshes need `D3DXLoadMeshHi
 **What they are.** 40 `.txt` entries sit in the KOMs. 37 of them are scripts in two private, line-oriented text languages (not Lua):
 30 particle scripts (`CKTDGParticleSystem`: `GameMajorParticle.txt` + `2..23`, `GameMinorParticle`, `UIMajorParticle`, ... and their `_INT`
 companions; 10,399 sequences) and 7 XMeshPlayer scripts (`CKTDGXMeshPlayer`: `GameMajorXMeshPlayer.txt` alone has 3,339 templets; 3,483 in
-all). The other three are `GameOption.txt` and `GameOptionPreset.txt` (Lua source, they need the phase 1b compiler) and the empty
-`bossraid_dummy.txt`. `OpenScriptFile` (328FFC70) is the KOM read (decrypt + inflate, `@els/kom`) followed by `Compile(buffer, size)`,
+all). The other three are `GameOption.txt` and `GameOptionPreset.txt` (text configuration read by `KLuaManagerProxy`, section 11) and the
+empty `bossraid_dummy.txt`. `OpenScriptFile` (328FFC70) is the KOM read (decrypt + inflate, `@els/kom`) followed by `Compile(buffer, size)`,
 which reads **only the first top-level block** and ignores whatever follows its closing brace. Errors are thrown as `const char*` and
 nothing near the parser catches them; the port raises `EffectScriptError` with the exe's text.
 
@@ -421,7 +430,7 @@ delimiter and `_atof` reads its prefix, so the shipped typo `fade so from 0.s1 t
 `Random(a, b)` stays a range (`MinMax`); int fields keep `(int)max` or `(int)` of both ends as the exe does; spherical angles are converted
 to radians; fields the exe draws once when a sequence is *instantiated* (`TRIGGERCOUNT/TIME`, `DRAWCOUNT`, `LANDPOS`, `BLACKHOLEPOS`,
 `LIGHTPOS`, `ADDROTATEREL`, `SPHERICAL_EMITROTATION`) stay ranges, so that loading is deterministic and the run-time draws from them with
-`randomNumber` / `MsvcRand` (the msvcrt `rand`). Particle `final` events get the time range `[0, LIFETIME.max]` using the LIFETIME written
+`randomNumber` / `MsvcRand` (the CRT `rand`: the same generator in the UCRT). Particle `final` events get the time range `[0, LIFETIME.max]` using the LIFETIME written
 *before* them; XMeshPlayer `final` is a flag with time `[0, 0]`. Fading (`fade so`) is refused for `texture` / `eventtimer` / `blackholetime`
 (particle) and `aniname` / `slashtrace` / `anispeed` / `blackholetime` / `resetcrash` / `sound` / `render_type` (XMeshPlayer). Enumerations
 carry the D3D9 values (`D3DBLEND_*` 1..15, `D3DCULL_*` 1/2/3, tested against the documented numbers), the exe's own enums for `PT_*`, `BT_*`,
@@ -451,7 +460,102 @@ only): particle `ALPHATEST`, `SKINMESH`, `MULTITEXXET`, `ANIXET`, `ANINAME`, `SP
 
 **Not done.** Only the compile side is ported. The run-time (`CreateSequence` / `CParticleEventSequence` instantiation with the load-time draws,
 `OnFrameMove` of every event class, the emitter and mesh-instance simulation, rendering, the Lua handle API) belongs to phases 3 and 5 and needs
-the renderer to check against. `catof` uses `Number()` on the digit prefix: the CRT's `_atof` goes through an 80-bit path, so a literal with
-more than 15-17 significant digits could differ in the last bit before the float rounding (the shipped scripts write at most 3-4 decimals).
+the renderer to check against. `catof` uses `Number()` on the digit prefix, which is what the UCRT's correctly rounded `atof` gives.
 `isspace` and `_toupper` are assumed ASCII (the scripts are ASCII outside comments); `ConvertCharToWCHAR` of names is ACP-dependent for non-ASCII
 names, which do not occur.
+
+## 11. Chunk loading and the text configuration files (Phase 1b)
+
+**The client cannot compile Lua source.** Phase 1b was planned as a port of `lj_lex.c` / `lj_parse.c`, because three files look like Lua source
+(`GameOption.txt`, `GameOptionPreset.txt`, `TutorSystem.lua`). The decompile shows that the premise was wrong, so no source compiler is built:
+it would not be faithful, in the exe `loadstring("return 1")` fails.
+
+* Of the lexer, the exe links `lj_lex_setup` (33376640), `lj_lex_cleanup`, `lj_lex_token2str`, `lj_lex_error`, `lj_lex_init`, `fillbuf`,
+  `save_grow` and the readers `reader_file/string/func`. `lj_lex_next`, `lj_lex_lookahead` and every `lj_parse*` / `expr_*` / `parse_*` function are
+  *not among the 33,294 functions* (the `LJ_ERR_X*` parser messages are unused too).
+* `cpparser` (33378B50, the protected body of `lua_load`) is: `if (lj_lex_setup(L, ls) == 0)` throw `LJ_ERR_BCBAD` (`cannot load malformed bytecode`,
+  status `LUA_ERRSYNTAX`, no chunk name); then, if the `mode` string has no `b`, `LJ_ERR_XMODE`; then stock `lj_bcread`. `lj_lex_setup` is stock: it
+  returns 1 only when the first character (after an optional UTF-8 BOM and an optional `#` line) is ESC, and it throws `BCBAD` itself when a BOM or
+  `#` line came before the ESC (stock refuses a dump with an extra header "for security reasons" and echoes no chunk name).
+* Therefore **every chunk that is not a dump fails with `cannot load malformed bytecode`**: text, an empty buffer, a lone BOM, a lone `#` line, a dump
+  behind a BOM / `#` line. The game can only run precompiled scripts; stripping the parser also means no script (or injected string) can be compiled
+  at run time. *(That this was done on purpose is an inference; the effect is certain.)*
+* The stock oracle *does* compile text, so text cases can never be compared with it: they live in `packages/lua/test/loader.test.ts`; the
+  differential test `t15_loader.lua` feeds both sides only dumps.
+
+**Chunk loading as ported** (`packages/lua/src/lib/base.ts`, `bytecode.ts`).
+
+* `loadChunk(L, data, chunkname, env?)` = `lj_lex_setup` + `cpparser` + `lj_bcread`. A header failure (magic, version, flags, truncated header) is
+  `cannot load incompatible bytecode`, a failure in the body `cannot load malformed bytecode`; the chunk name in the message follows `bcread_error`:
+  `(binary)` when the name starts with ESC, otherwise the name without a leading `@` or `=` (the default name of `loadstring(s)` is `s` itself, so a
+  dump loaded without a name reads `(binary)`). A dump of the other byte order is accepted and swapped like `bcread_swap`; a dump that ends exactly at
+  its terminator is accepted (stock reads the NUL); sizes that the rest of the dump cannot hold are refused *before* allocating.
+* `luaL_loadfilex(L, name, mode, iEncoding)` (33378830, KOG added the 4th argument): with `iEncoding` 2 no check; otherwise a first byte 0xEF must be
+  followed by BB BF (the BOM is consumed and never reaches the lexer, so `BOM + dump` loads as a dump, while stock would refuse it), and any other first
+  byte that is not ESC gives `invalid encoding <chunkname>` unless `iEncoding` is 0. `luaL_loadfile` passes `lua_getencoding(L)` (`global_State` +380,
+  0..2; the game calls `lua_setencoding(L, 1)` at L2474299), `loadfile` / `dofile` use it, `dofile_UTF8` (`lj_cf_dofile_UTF8`, 3338DD00) always passes 1.
+  Unreadable files: `cannot open <name>: No such file or directory`. `require` wraps a loader error like `loaderror` of `lib_package.c`.
+* The host level: `KLuabinder::DoMemoryNotEncrypt` (L284138) and `KLuaManager::DoMemoryNotEncrypt` (L375218) decide *before* Lua sees a buffer: encoding 2 or
+  a first byte of 27 -> `dobuffer`; a BOM -> skip 3 bytes, then `dobuffer`; anything else -> return 0 (never reaches Lua). Phase 5 work.
+
+**`KLuaManagerProxy`: how the text files are really read** (`packages/lua/src/proxy.ts`; decompile L2579858-L2582535; `GetNumberFromLuaValue<int>` L982041,
+`<float>` L996114). The text is interpreted by a hand-written statement parser, not by Lua:
+
+* Callers: `CX2GameOption::OpenScriptFile` (L990011; `GameOption.txt`, table `GAME_OPTION_CURRENT`; presets from `GameOptionPreset.txt`),
+  `CX2InstanceData::OpenScriptServerGroupFile` (L981836; `SERVER_GROUP = SERVER_GROUP_ID["SGI_GAIA"]`, accepted values <= 1),
+  `CX2TutorSystem::OpenScriptFile` (L1521239; tables `UNIT0`, `UNIT1`, ... with `UNIT_NAME`, `VIEW_AFTER_A_WEEK`, `LAST_VIEW_YDAY_CANDIDATE_LIST`,
+  `REFUSE_FOR_A_WEEK`, `LAST_REFUSE_YDAY_TUTOR_REQUEST`; the shipped `TutorSystem.lua` is just a BOM, so the read returns false and the exe logs an
+  error) and `CX2GameEdit::ExecCommand` (L1033948; every console argument goes through `LuaParse` with name expansion, then `LuaCall`).
+* The model is a `Value` (nil, boolean, number = double, string = UTF-8 bytes, table = shared reference) and a `Table` (an array part `m_vec` and a
+  name map `m_map`). The proxy holds a deque of tables (the root created by the constructor, one more per open `{` / `BeginTable`) and the `lua_State`.
+* `DoMemoryNotEncrypt(buffer, size)`: a null buffer, an empty text (after an optional BOM) or a NUL as first byte -> false. The text is cut into
+  lines at every CR and every LF (an empty "line" between CR and LF is skipped); `--` starts a comment that runs to the end of the line *even inside
+  a string*; a NUL byte ends the text. Each line is tokenised like `boost::char_separator(" \t\n\v", "=,{}[]")` (blanks are dropped, the six
+  delimiters are tokens of their own, no empty tokens; `\f` and `\r` are NOT blanks). A state stack starts at `NONE`; the pending names `kw` / `kw2`
+  persist across lines.
+  * `,` and `}` settle the pending entry of the current table: `DONE` -> `NONE`; `KEYWORD` (a bare name) -> look the name up (`LuaKeyword`) and push it to
+    the array part; `ASSIGN_KEYWORD` (`NAME = OTHER`) -> look `OTHER` up, a non-nil value is stored as `NAME`, nil *removes* `NAME`. Every other state
+    is an error. `}` additionally needs an open `{` and pops the state and the table.
+  * `=` needs a bare name before it. `{` after `=` stores a new table under the name, in state `NONE` it appends an unnamed table to the array part
+    (anything else is an error). `[` / `]` bracket a reference (below). Any other token goes through `LuaParse`.
+  * `LuaParse(token, expand)`: trim; empty -> error. `"..."` (first and last char must be quotes; nothing is unescaped, so a string can contain no blank
+    and none of `= , { } [ ]`) -> string. A leading digit -> `boost::lexical_cast<double>` (throws `bad_lexical_cast` for `0x10`, `12abc`, `1;`; nothing
+    in the loader catches it). `nil`, `true`, `false` (exact case) -> values. An identifier -> `KEYWORD` (with `expand` it is resolved and must succeed).
+    `+` / `-` followed by a digit -> number. Everything else is an error (so no `.5`, `-x`, `'x'`, `f(1)`, `A.B`, `1 + 2`).
+  * Values: in `NONE` a value is appended to the array part, after `NAME =` it is stored under the name; `nil` removes the name. After a value the state is
+    `DONE`, which at the top level (no open `{`) still allows the next `NAME`, so **top-level statements need no commas but entries inside braces do**,
+    and **an identifier value (`A = TRUE`) is only resolved at the next `,` / `}` / end of text, so a following statement without a comma is an error**.
+  * `NAME[n]` / `NAME["key"]` (as a value or a list entry): `n` must be an integer >= 1; `NAME` is looked up in the statements read so far (the root
+    table), then among the Lua globals (a global must be a table). Out of range / missing key gives nil (and removes the name), an unknown or non-table
+    name is an error. This is how `OPTION_LEVEL["OL_HIGH"]` gets its number from `Enum.lua`.
+  * `LuaKeyword(name)` and the reference lookups read the **first (root) table** even inside nested braces; a name is looked up in the root map first, then
+    as a Lua global (`lua_getfield(L, LUA_GLOBALSINDEX, name)`; nil, booleans, numbers and strings (cut at the first NUL) convert, tables / functions /
+    userdata fail, an unknown name is nil, which is *not* an error). Because `NAME = {` stores the table before its contents are read, a table can
+    reference itself.
+  * Any error returns false at once and leaves what was read (the stacks are not unwound). At the end of the text the pending entry is settled like
+    `,` and the read succeeds only if every `{` was closed.
+* Queries (`StackGetValue`, `GetValue`, `BeginTable`, `EndTable`, `GetNumberFromLuaValue`): they use the *innermost* table. `BeginTable(name)` needs a table
+  under that name (`BeginTable(name, i)` looks up `name` + decimal `i`, e.g. `UNIT` 3 -> `UNIT3`), `EndTable` never pops the root. `GetValue(bool)`: nil is
+  false, boolean, number -> `(int)n != 0` (so 0.5 is false); strings and tables fail. `<int>`: boolean 0/1, number `(int)` (x87 truncation, out of range =
+  0x80000000), string -> `lexical_cast<int>` (throws); `<float>` likewise. String values: UTF-8 -> UTF-16; a number is formatted by
+  `lexical_cast<std::wstring>(double)`. `LuaCall(name, args)` calls a global *function* with boolean / number / string arguments (anything else is nil).
+* Shipped data it reads (verified by `proxy.test.ts` from `data036.kom`, with `Enum.lua` run in the VM: `TRUE` = 1, `FALSE` = 0, `OPTION_LEVEL` =
+  {`OL_HIGH` 0, `OL_MEDIUM` 1, `OL_LOW` 2}, `SERVER_GROUP_ID` = {`SGI_INVALID` -1, `SGI_SOLES` 0, `SGI_GAIA` 1, `SGI_END` 2}): `GameOption.txt` gives
+  `GAME_OPTION_CURRENT` with 13 numbers (`GRAPHIC_UNIT/TEXTURE/MAP` 0, `GRAPHIC_EFFECT` 1, 1024 x 768, `SOUND_VOLUME` -439, `MUSIC_VOLUME` -1871, ...);
+  `GameOptionPreset.txt` gives `GAME_OPTION_PRESET0..3` (640x480 low ... 1600x1200 high).
+
+**Verification and honest limits.**
+
+* Loader vs the native oracle: `t15_loader.lua` (392 output lines identical): every prefix of three dumps, header and flag mutations, chunk names
+  (`@`, `=`, ESC, none), BOM / `#` headers. The whole corpus still loads identically (corpus flavor 1: 4,498 identical). A mutation sweep of 1,880 damaged
+  dumps (every cut, 7 byte values at every position, a trailing NUL, a dump twice) classifies as: the oracle itself crashes on 45 (stock reads past the
+  buffer: `bcread_ktabk` has no `bcread_need` before `bcread_mem`, and `ls->n` underflows in release builds); 1,780 give the same answer; 21 differ because
+  byte 0 (ESC) was destroyed and the oracle then *compiles* the text; 34 differ because stock raises `table overflow`, `table index is nil` or
+  `string length overflow` for damaged table constants, where the port says `malformed` (the exe's behaviour there is a consequence of the unchecked
+  read, i.e. not a contract).
+* The proxy has **no native oracle** (the class only exists inside the exe), so `proxy.test.ts` (38 tests) was derived by hand from the decompile and the
+  shipped files; a misread of the decompile would not be caught by it. Assumed, not measured: the `boost::lexical_cast` formats (the exe's boost is older than
+  1.54, it goes through `istream`: a number must be a complete decimal literal, overflow fails, `lexical_cast<std::wstring>(double)` prints 17
+  significant digits), `MultiByteToWideChar` replacement characters, ASCII-only `isalpha/isdigit/isspace`.
+* Not ported: the callers (`CX2GameOption::OpenScriptFile`, `CX2InstanceData::OpenScriptServerGroupFile`, `CX2TutorSystem::OpenScriptFile`, `ExecCommand`), the host
+  level `DoMemoryNotEncrypt` of `KLuaManager` / `KLuabinder`, and writing the files back (`GameOption.txt` is saved by the game; its writer is not ported).

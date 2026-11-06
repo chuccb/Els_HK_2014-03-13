@@ -96,7 +96,7 @@ print("pat misc", show(pcall(string.gsub, "abc", "", "-")), show(pcall(string.gs
   show(pcall(string.find, "a", "(((((((((((((((((((((((((((((((((a)))))))))))))))))))))))))))))))))")), show(pcall(string.find, string.rep("a", 300), string.rep("a?", 300) .. string.rep("a", 300))))
 
 -- os.date / os.time on fixed instants ---------------------------------------------------------------------------------
--- (the exe's msvcr100 only accepts 1970..3000, glibc more: stay inside)
+-- (the exe's UCRT only accepts 1970..3000, glibc more: stay inside)
 local stamps = {0, 1, 86399, 86400, 951782400, 1078012800, 1394668800, 1394706000, 1700000000, 2147483647, 2^31, 4102444800, 1e10, 32535215999, 1.9, 59.5}
 for _, t in ipairs(stamps) do
   print("date", t, show(pcall(os.date, "!%Y-%m-%d %H:%M:%S|%y|%j|%a %A|%b %B|%w|%U|%W|%I %p|%%", t)))
