@@ -73,7 +73,9 @@ documents its design and assumptions; FINDINGS section 12 is the reference.
 | `device.ts`, `caps.ts`, `hresult.ts` | `Direct3DDevice9`, `D3DCAPS9` (a Shader Model 3 HAL), `D3D_OK` / `D3DERR_*` / `D3DXERR_*` |
 | `d3dx-math.ts` | the 26 D3DX math functions of the import table (single-precision at the same points as the SSE code) |
 | `d3dx-texture.ts` | `D3DXGetImageInfoFromFileInMemory`, `D3DXCheckTextureRequirements`, `D3DXCreateTextureFromFileInMemoryEx` (decoding by `@els/assets`), `D3DXCreateTexture`, `D3DXSaveSurfaceToFileInMemory`, `ID3DXBuffer` |
-| `d3dx-mesh.ts` | `ID3DXMesh` and the mesh functions (`D3DXLoadMeshFromXInMemory` = merge all meshes of the X file with their frame transforms baked in, `Optimize`, `WeldVertices`, `GetAttributeTable`, `DrawSubset`, `Intersect`, `ComputeBoundingSphere`) |
+| `d3dx-mesh.ts` | `ID3DXMesh` and the mesh functions (`D3DXLoadMeshFromXInMemory` = merge all meshes of the X file with their frame transforms baked in, `D3DXBuildMesh` = one X mesh as D3DX loads it, `Optimize`, `WeldVertices`, `GetAttributeTable`, `DrawSubset`, `Intersect`, `ComputeBoundingSphere`) |
+| `d3dx-animation.ts` | `D3DXCreateKeyframedAnimationSet` and `D3DXCreateAnimationController`: tracks, priority groups, keyed speed / weight / position / enable / priority-blend events (the exact cross-fade of `CKTDGXSkinAnim::ChangeAnim` is a test), `AdvanceTime`, `CloneAnimationController` |
+| `d3dx-skin.ts` | `ID3DXSkinInfo` (+ software `UpdateSkinnedMesh`), `ConvertToIndexedBlendedMesh`, `D3DXFrame*`, `ID3DXAllocateHierarchy` and `D3DXLoadMeshHierarchyFromXInMemory` (frames, mesh containers, skin info, controller from an X file) |
 
 `@els/assets` gained `xscene.ts` (`loadXScene`: frames, meshes, skin weights and animation sets of an X file as typed data) and
 `encodePng`. Tests are GPU tests: `./tools/gpu.sh ./node_modules/.bin/bun test packages/d3d9` (software Vulkan from `tools/setup-gpu.sh`);
@@ -131,6 +133,7 @@ Design points that matter for faithfulness:
 | `setup-gpu.sh`, `gpu.sh` | `setup-gpu.sh` installs the software Vulkan driver (SwiftShader, taken from the `@sparticuz/chromium` npm package) into `/home/user/work/swsh`; `gpu.sh CMD...` runs a command with the environment that lets Dawn (the `webgpu` npm package) find it (`ELS_GPU_NATIVE=1` skips this on a machine with a real GPU) |
 | `gen-d3d9-enums.ts` | regenerates `packages/d3d9/src/enums.generated.ts` from `data/x2.exe.h` (`--check` fails when the file is stale) |
 | `census-xscene.ts` | loads all 25,313 X / Y files through `loadXScene` and checks every index (faces, normals, texture coordinates, materials, bones, animation targets); prints the census quoted in FINDINGS section 12 |
+| `census-skin.ts` | the D3DX hierarchy loader, `ConvertToIndexedBlendedMesh` (with the engine's palette) and the controller over every skinned X file (needs the GPU wrapper) |
 | `render-demo.ts` | the D3D9 visual milestone: loading screen + starter sword -> PNG (`docs/img/d3d9-demo.png` with `--docs`) |
 | `ledger.py` | coverage ledger keyed by IDA address -> `docs/LEDGER.md` (rules in `docs/ledger.tsv`, `docs/ledger-classes.tsv`) |
 | `index_decomp.py`, `komlib.py`, `kom_extract.py`, `luadecrypt.py`, `census.ts` | reverse-engineering helpers (function index, extraction, census) |
@@ -138,7 +141,10 @@ Design points that matter for faithfulness:
 ## Reproducing the verification from a clean checkout
 
 ```sh
-npm install --no-audit --no-fund              # installs bun, typescript, fflate into node_modules
+# npm cannot read the `workspace:` specs of this repo, so bun is bootstrapped into a scratch prefix and does the real install
+npm install --no-audit --no-fund --prefix /home/user/work/boot bun@1.4.4 && /home/user/work/boot/node_modules/.bin/bun install   # bun, typescript, fflate, webgpu + the @els/* workspace links
+./tools/setup-gpu.sh                          # software Vulkan (SwiftShader) for the d3d9 tests -> /home/user/work/swsh (run code through ./tools/gpu.sh)
+python3 tools/index_decomp.py data/x2.exe.c /home/user/work/analysis/functions.tsv   # function index (needed by tools/ledger.py)
 ./tools/setup-oracle.sh                       # LuaJIT 2.0.2 oracle -> /home/user/work/luajit-2.0
 ./node_modules/.bin/bun run tools/verify-kom.ts
 python3 tools/kom_extract.py /home/user/work/ex lua,LUA
@@ -154,9 +160,10 @@ python3 tools/index_decomp.py data/x2.exe.c /home/user/work/analysis/functions.t
 python3 tools/bindings.py && python3 tools/ledger.py                                # docs/HOST_API.md, docs/LEDGER.md
 ./node_modules/.bin/bun test packages                                                 # unit tests that need no GPU: asset decoders, Lua loader, KLuaManagerProxy (the d3d9 GPU tests skip)
 ./tools/setup-gpu.sh                                                                   # software Vulkan for Dawn -> /home/user/work/swsh (about 2 s)
-./tools/gpu.sh ./node_modules/.bin/bun test packages                                   # everything, incl. the 92 d3d9 tests on Dawn + SwiftShader
+./tools/gpu.sh ./node_modules/.bin/bun test packages                                   # everything, incl. the 113 d3d9 tests on Dawn + SwiftShader
 ./node_modules/.bin/bun run tools/gen-d3d9-enums.ts --check                            # enums.generated.ts is current
 ./node_modules/.bin/bun run tools/census-xscene.ts                                     # integrity of all 25,313 X / Y scenes
+./tools/gpu.sh ./node_modules/.bin/bun run tools/census-skin.ts                        # hierarchy loader + skin conversion + animation over all 7,395 skinned files, ~3 min
 ./tools/gpu.sh ./node_modules/.bin/bun run tools/render-demo.ts /home/user/work/out --docs   # the picture in docs/img
 ./node_modules/.bin/bun run tools/decode-images.ts --tsv /home/user/work/analysis/images_ts.tsv --dump /home/user/work/analysis/rgba_dump --every 40
 python3 -m venv /home/user/work/venv && /home/user/work/venv/bin/pip install pillow

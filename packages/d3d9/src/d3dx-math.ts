@@ -289,6 +289,40 @@ export function quatSlerp(q1: Quat, q2: Quat, t: number): Quat {
   return { x: f(temp * q1.x + t * q2.x), y: f(temp * q1.y + t * q2.y), z: f(temp * q1.z + t * q2.z), w: f(temp * q1.w + t * q2.w) };
 }
 
+/** `D3DXQuaternionRotationMatrix` (row-vector convention, the inverse of `matRotationQuaternion`). */
+export function quatRotationMatrix(m: ArrayLike<number>): Quat {
+  const trace = f(m[0]! + m[5]! + m[10]! + 1);
+  if (trace > 1) {
+    const s = 2 * Math.sqrt(trace);
+    return { x: f((m[6]! - m[9]!) / s), y: f((m[8]! - m[2]!) / s), z: f((m[1]! - m[4]!) / s), w: f(Math.sqrt(trace) / 2) };
+  }
+  let maxi = 0, maxdiag = m[0]!;
+  if (m[5]! > maxdiag) { maxi = 1; maxdiag = m[5]!; }
+  if (m[10]! > maxdiag) { maxi = 2; maxdiag = m[10]!; }
+  void maxdiag;
+  let s: number;
+  switch (maxi) {
+    case 0:
+      s = 2 * Math.sqrt(1 + m[0]! - m[5]! - m[10]!);
+      return { x: f(0.25 * s), y: f((m[1]! + m[4]!) / s), z: f((m[2]! + m[8]!) / s), w: f((m[6]! - m[9]!) / s) };
+    case 1:
+      s = 2 * Math.sqrt(1 + m[5]! - m[0]! - m[10]!);
+      return { x: f((m[1]! + m[4]!) / s), y: f(0.25 * s), z: f((m[6]! + m[9]!) / s), w: f((m[8]! - m[2]!) / s) };
+    default:
+      s = 2 * Math.sqrt(1 + m[10]! - m[0]! - m[5]!);
+      return { x: f((m[2]! + m[8]!) / s), y: f((m[6]! + m[9]!) / s), z: f(0.25 * s), w: f((m[1]! - m[4]!) / s) };
+  }
+}
+
+/** `D3DXMatrixDecompose`: scale = row lengths, translation = last row, rotation from the normalised rows; null when a scale is 0 (D3DERR_INVALIDCALL). */
+export function matDecompose(m: ArrayLike<number>): { scale: Vec3; rotation: Quat; translation: Vec3 } | null {
+  const sx = f(Math.hypot(m[0]!, m[1]!, m[2]!)), sy = f(Math.hypot(m[4]!, m[5]!, m[6]!)), sz = f(Math.hypot(m[8]!, m[9]!, m[10]!));
+  if (sx === 0 || sy === 0 || sz === 0) return null;
+  const n = matIdentity();
+  for (let c = 0; c < 3; c++) { n[c] = f(m[c]! / sx); n[4 + c] = f(m[4 + c]! / sy); n[8 + c] = f(m[8 + c]! / sz); }
+  return { scale: { x: sx, y: sy, z: sz }, rotation: quatRotationMatrix(n), translation: { x: m[12]!, y: m[13]!, z: m[14]! } };
+}
+
 // ---------------------------------------------------------------- planes
 /** `D3DXPlaneFromPointNormal`. */
 export const planeFromPointNormal = (p: Vec3, n: Vec3): Plane => ({ a: n.x, b: n.y, c: n.z, d: f(-vec3Dot(p, n)) });

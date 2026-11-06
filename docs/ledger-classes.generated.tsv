@@ -89,7 +89,7 @@ CX2BattleFieldGame	42	3350	3318FB60	todo
 CX2Item::KItemFormatTemplet	41	904	32AACC60	partial	packages/assets/src/kim.ts	every accessor of KItemFormatTemplet / KItemFormatSetItemData (32B85150..32B85FD0) ported; the constructor and the KProxy2 writer are not
 CX2UICharInfo	41	6320	32CD7F60	todo		
 CKTDGParticleSystem::CParticleEventSequence	40	5254	328C0EF0	partial	packages/assets/src/particle.ts (newParticleSequence, ParticleSequence)	constructor defaults ported; the other functions (instantiation with the load-time random draws, emitter update, rendering, the handle API for Lua) are run-time and not ported
-CKTDGXSkinAnim	40	8392	328CE380	todo		
+CKTDGXSkinAnim	40	8392	328CE380	todo	packages/d3d9/src/d3dx-animation.ts (D3DX side)	the class is not ported; the controller calls its ChangeAnim / AdvanceTime make (ResetTime, UnkeyAllTrackEvents, KeyTrackEnable / Speed / Weight, SetTrackPosition, CloneAnimationController) are implemented and tested
 CX2ItemSlotManager	40	11473	3299B330	todo		
 CX2PremiumBuffManager	40	3247	32D1C170	todo		
 CX2SMTPMail	39	2292	3298A6F0	todo		
@@ -266,7 +266,7 @@ CX2TalkBoxManager	12	200	33196090	todo
 CKTDGPicChar	12	1291	333DCDA0	todo		
 CKTDXLog	11	1661	328AFBC0	todo		
 CKTDGSlashTrace	11	2024	32918750	todo		
-CKTDXDeviceXSkinMesh::XSkinMeshProxy	11	2199	3296C400	partial	packages/assets/src/ksm.ts (parseKsm)	LoadKSkinnedMesh frame table, tree checks and embedded animation block decoded; X-file skin meshes (LoadD3DXSkinnedMesh), draw frame lists, blended-mesh conversion and collision data are todo
+CKTDXDeviceXSkinMesh::XSkinMeshProxy	11	2199	3296C400	partial	packages/assets/src/ksm.ts (parseKsm)	LoadKSkinnedMesh frame table, tree checks and embedded animation block decoded; X-file skin meshes: D3DXLoadMeshHierarchyFromXInMemory + frames + skin info + controller exist in packages/d3d9 (d3dx-skin.ts, d3dx-animation.ts; census over all 7,395 skinned files in tools/census-skin.ts); the LoadD3DXSkinnedMesh glue, draw frame lists and collision data are todo
 KTRUser	11	1486	32C22750	todo		
 CX2CashShop::PresentItemPopup	11	1545	32C89E50	todo		
 CX2PageManager	11	403	32CA49B0	todo		
@@ -421,7 +421,7 @@ CKTDGLensFlare	6	1006	328CD860	todo
 std::_Hash<std::_Umap_traits<std::wstring,unsigned int,std::_Uhash_compare<std::wstring,std::hash<std::wstring>,std::equal_to<std::wstring>>,std::allocator<std::pair<std::wstring const,unsigned int>>,0>>	6	644	328E5C40	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 boost::basic_format<char,std::char_traits<char>,std::allocator<char>>	6	758	328E90F0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDXDevice	6	182	329670D0	todo		
-CKTDXDeviceXSkinMesh	6	840	3296C000	todo	-	skin meshes: D3DXLoadMeshHierarchyFromXInMemory + ID3DXSkinInfo + animation controller are the next D3DX step (FINDINGS 12.6)
+CKTDXDeviceXSkinMesh	6	840	3296C000	todo	packages/d3d9/src/d3dx-skin.ts, d3dx-animation.ts (D3DX side)	the class is not ported; the D3DX calls of LoadD3DXSkinnedMesh / ConvertToSkinnedMesh (hierarchy loader, FrameFind, bounding sphere, ConvertToIndexedBlendedMesh with palette min(bones, 20)) are implemented and tested (FINDINGS 12.4)
 CKTDSMP3Play	6	188	32986C70	todo		
 std::vector<KItemInfo>	6	581	3298E870	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<KBuffBehaviorFactor>	6	406	32995F40	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -595,7 +595,7 @@ KJohnThread	4	58	328ED050	todo
 kog::indexed_list<CKTDGParticleSystem::KSequenceHandleInfo>	4	149	32905320	todo		
 CKTDGUIControl::UITextureData	4	104	329234D0	todo		
 CKTDXDeviceXMesh::XMeshProxy	4	1255	32969E60	partial	packages/assets/src/ksm.ts (parseKme), xfile.ts	file decoding only: LoadKMEMesh fields and checks are ported, LoadD3DXMesh is replaced by the generic X reader; D3DX mesh objects (weld, optimize, attribute table, culling info), textures and XET are phase 3
-CKTDXDeviceXSkinMesh::CMultiAnimAllocateHierarchy	4	428	3296DE80	todo		
+CKTDXDeviceXSkinMesh::CMultiAnimAllocateHierarchy	4	428	3296DE80	todo	packages/d3d9/src/d3dx-skin.ts (ID3DXAllocateHierarchy contract)	the exe's allocator (null name -> <no_name>, a skin info with 0 bones is an error, no materials -> one grey 0.5) is not ported; the D3DX side calls it as D3DX does
 std::vector<KGamePlayStatus>	4	251	32996270	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::map<int,KInventoryItemInfo>	4	115	32996980	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::map<int,KSubQuestInfo>	4	185	329969F0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -709,7 +709,7 @@ std::vector<CX2UIQuestNew::QuestInfo>	3	116	32913E90	n/a	-	C++ runtime library (
 CKTDGXMeshPlayer::XMeshTemplet	3	371	329165A0	partial	packages/assets/src/xmeshplayer.ts (newXMeshTemplet, XMeshTemplet)	constructor defaults ported; destructor and assignment are C++ ownership
 CKTDSManager	3	152	329620F0	todo		
 KMemoryDeserializer	3	59	329663B0	done	packages/assets/src/ksm.ts (class Mem)	AccessData / RetrieveData / RetrieveDupString: range checks, u32-length strings
-CKTDXDeviceXSkinMesh::MultiAnimMC	3	717	3296C380	partial	packages/assets/src/ksm.ts (readMeshContainer)	ReadKSM decoded (materials, vertices, indices, attributes, bones, influences); ID3DXSkinInfo and the draw lists are phase 3
+CKTDXDeviceXSkinMesh::MultiAnimMC	3	717	3296C380	partial	packages/assets/src/ksm.ts (readMeshContainer)	ReadKSM decoded (materials, vertices, indices, attributes, bones, influences); the D3DX side it relies on (ID3DXSkinInfo, ConvertToIndexedBlendedMesh, bone offsets / palette) is in packages/d3d9/src/d3dx-skin.ts; the draw lists and the class itself are todo
 CKTDGFrustum	3	69	32986810	todo		
 std::vector<CX2SMTPMail::Recipent>	3	241	3298DED0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<std::string>	3	243	3298E0F0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library

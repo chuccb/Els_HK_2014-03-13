@@ -613,13 +613,23 @@ produced by the D3D9 device and the D3DX functions on a software WebGPU device.
 
 ### 12.3 What is verified, and how
 
-`packages/d3d9/test` (92 tests, run with `./tools/gpu.sh bun test packages/d3d9`; all on Dawn + SwiftShader; expectations are analytic or computed on the CPU):
+`packages/d3d9/test` (113 tests in 13 files, run with `./tools/gpu.sh bun test packages/d3d9`; all on Dawn + SwiftShader; expectations are analytic or computed on the CPU):
 vertex formats and the draw path (all primitive types, indexed / user-pointer / base vertex, triangle fans), clear / viewport / scissor / colour mask / stencil
 (D3D compare is `(ref & mask) FUNC (buffer & mask)`, DECR wraps 0 -> 255), blend / alpha test / depth / cull, the full texture-stage cascade, all light types with
 attenuation, spot cone and the four colour sources, vertex / table / pre-transformed fog, texture coordinate generation and 2D / 3D texture transforms, sampler address /
 filter / LOD / anisotropy, 12 uncompressed formats and BC1 / 3 / 5 (within +-1 of the CPU decode), render-target textures, `StretchRect`, `UpdateTexture`, `Reset`, D3DX math (identities, the operand
-order of `D3DXQuaternionMultiply`), D3DX textures and meshes (below). Mutating the code (flipping a blend factor, dropping a stage) makes the corresponding test fail; the tests that
+order of `D3DXQuaternionMultiply`), D3DX textures, meshes, animation and skinning (below). Mutating the code (flipping a blend factor, dropping a stage) makes the corresponding test fail; the tests that
 saved pictures were looked at once. What is *not* verified is anything that needs the real D3D9 (see 12.5).
+
+**The one oracle there is for D3DX.** Wine's `dlls/d3dx9_36/tests/mesh.c` (read through `api.github.com`, repository `wine-mirror/wine`) holds expectations that Wine must also meet on *native* Windows.
+`packages/d3d9/test/loader-native.test.ts` re-types its X files and uses its numbers: the cube loads as 24 vertices / 12 triangles with the split vertices in order of first appearance,
+`D3DCOLOR`s from float colours (`0.1` -> `0x1a`: `(BYTE)(c * 255.0f + 0.5f)` in float arithmetic, `0.7` -> `0xb3`), a quad becomes the fan `(0,1,3) (0,3,2)`, the material fields are
+Diffuse = faceColor, **Ambient = (0,0,0,1)**, Specular / Emissive = colour with alpha 1, and a file without materials gives one default material (diffuse and specular 0.5, *alpha 0*, everything else 0);
+`D3DXLoadMeshHierarchyFromXInMemory` makes a frame with a **NULL** name around a top-level `Mesh`, names unnamed `Frame` / `Mesh` blocks `""`, adds one more root frame (NULL name, identity) when the file has
+several top-level frames / meshes, returns `E_FAIL` for a file without frames, `D3DERR_INVALIDCALL` for empty data / no device / no allocator and no controller when there is no `AnimationSet`;
+`D3DXFrameFind` is breadth first (siblings first, then the children of the first frame, then of the second ...: Wine's sequence of 14 checks is replayed in `skin.test.ts`); `UpdateSkinnedMesh` does not apply the
+stored offset matrices and zeroes position and normal of vertices that no bone influences. The same file showed three mistakes of the first version, now fixed: ambient was set to the diffuse colour, equal normal
+*values* under different normal indices were split (the data never does this: of 107,183 meshes 4 split at load, 16 extra vertices, none skinned, and value and index comparison always agree), the D3DCOLOR rounding was done in double precision.
 
 ### 12.4 D3DX
 
@@ -641,14 +651,42 @@ has 3 meshes (the sword and two 8-corner helper boxes `ATTACK_LINE_*`), loads as
 `[attr 0: faces 0-53, vertices 0-36] [1: 54-65, 37-56] [2: 66-77, 57-76]` (the weld merges the boxes' duplicated corners: 24 -> 20 each).
 Semantics that the sequence makes observable and that are implemented as D3DX documents them (flagged where they are guesses, 12.5): `LoadMeshFromX` merges every mesh of the file with its
 accumulated frame transform baked into positions and normals (row vectors: `world = local * parentWorld`), appends the materials of each mesh, adds vertices where a face corner uses another
-normal index than the first corner that used the position, triangulates polygons as fans (the data has none); `Optimize(ATTRSORT)` sorts faces by attribute (stable) and, unless DONOTSPLIT,
+normal *value* than the first corner that used the position (Wine / native: appended in order of first appearance), triangulates polygons as fans (the data has none), sorts the faces by material with the
+loader's own `OptimizeInplace(ATTRSORT | IGNOREVERTS | DONOTSPLIT)` (so the mesh already has an attribute table), gives a mesh without any material one default material; `Optimize(ATTRSORT)` sorts faces by attribute (stable) and, unless DONOTSPLIT,
 gives each attribute group its own vertex range by duplicating shared vertices (so the per-subset bounding spheres see exactly the subset's vertices); `D3DXComputeBoundingSphere` is the centroid plus the
 largest distance (not the minimal sphere); `D3DXIntersect` returns the closest hit with the barycentric weights of vertices 1 and 2.
 
+**Frames, skinning, animation** (`d3dx-skin.ts`, `d3dx-animation.ts`, `tools/census-skin.ts`). What the engine's skinned-mesh path (`CKTDXDeviceXSkinMesh`, `LoadD3DXSkinnedMesh` 3296E760, L429311) asks of D3DX:
+`D3DXLoadMeshHierarchyFromXInMemory(MANAGED, allocator)` -> frames, mesh containers, skin info, controller (its allocator's `CreateMeshContainer` 3296E0F0, L428910, treats a *non-NULL skin info with 0 bones as an error*, so
+D3DX must pass NULL for a rigid mesh: the port does); `D3DXFrameFind` / `D3DXFrameCalculateBoundingSphere` / `D3DXFrameRegisterNamedMatrices`; `ID3DXSkinInfo::ConvertToIndexedBlendedMesh(options & 1 | 0x220,
+palette = min(bones, 20), adjacency)` (`MultiAnimMC::ConvertToSkinnedMesh` 3296D8B0, L428466) followed by the engine's own clone to FVF 4380 (XYZB4 | LASTBETA_UBYTE4 | NORMAL | TEX1, 48 bytes) and `UpdateSemantics`; `CloneAnimationController` (the engine clones the loader's
+controller with its own maxima: 2 tracks, 30 events) and `SetTrack*` / `KeyTrack*` / `AdvanceTime` (the cross-fade of `CKTDGXSkinAnim::ChangeAnim` 32976E60: old track `KeyTrackEnable(FALSE)` + speed / weight -> 0, new track speed 0
+-> play speed, weight 0 -> 1, over `transitionTime`). All of it exists now and is exercised on real files.
+* *Quaternion convention* (decided from data, not from a document): an X rotation key is stored `w, x, y, z`; the matching `D3DXQUATERNION` is **(-x, -y, -z, w)**. Of 323 key-0-versus-frame-matrix comparisons that carry
+  information the file's value matched the frame's rest matrix 0 times as is and 237 times conjugated (86 neither: other poses); and end to end on `LENA_SI_A_LE_BACKJUMP_SHOT01.X` (data121.kom: 7 frames, 2 bones, 7 animations,
+  0.367 s): after load and `AdvanceTime(0)` all 7 frame matrices equal their rest matrices (error < 1e-5), which also validates matrix keys (decomposed into S, R, T), the SRT composition `S * R * T` and the controller.
+* *Controller*: defaults as D3DX documents (track priority LOW, weight 1, speed 1, position 0, disabled); per priority group a weighted sum of the enabled tracks (rotations sign-aligned and normalised, no weight
+  normalisation), the two groups lerped by the priority blend; events (`KeyTrackSpeed / Weight / Position / Enable`, `KeyPriorityBlend`) run in segments from the value at their start, `LINEAR` or `EASEINEASEOUT` (smoothstep),
+  the track position is the analytic integral of a speed ramp; a newer event of the same kind replaces a running one; 30 events at most (`Key*` returns handle 0 beyond that); `CloneAnimationController` keeps sets,
+  tracks, events and time but not the registered outputs; keyframed sets: period = last key time, `LOOP` / `ONCE` / `PINGPONG`, linear key interpolation, slerp for rotations, clamped outside the key range, sets are `LOOP` with
+  the file's `AnimTicksPerSecond` (4800 default).
+* *Loader*: one container per X `Mesh` (container name = the mesh name or `""`), the skin info replicates the influences to vertices that the load split off (never needed in the data), the controller has 2 tracks, 30 events and
+  one output per named frame; outputs of animations that target a frame the file lacks (483 in 42 files) are ignored. `D3DXFrameCalculateBoundingSphere` = centroid + largest distance of the world-space vertices (a guess).
+* *`ConvertToIndexedBlendedMesh`* (own packing; D3DX's exact order of combinations is not reproduced and cannot be observed through the exe's use): faces are grouped by material and packed greedily into bone
+  combinations whose bone set fits the palette (a face that needs more bones fails with `E_FAIL`); vertices are duplicated per combination, palette slots follow ascending bone index, weights are renormalised, FVF =
+  `(source & ~0xE) | XYZB(m) | LASTBETA_UBYTE4` with `m` = the largest influence count, **limited to 4** (a vertex with more keeps its four strongest influences, renormalised; the UBYTE4 holds four indices), a vertex without
+  influence is bound to slot 0 with weight 1 (an assumption), the attribute table has one range per combination (`DrawSubset(i)`), `BoneCombination.AttribId` = the material.
+* *Census* (`./tools/gpu.sh bun run tools/census-skin.ts`, 3 min): 7,395 skinned files, 22,563 mesh containers of which 8,312 skinned (4.10 M skinned vertices, 4.10 M after conversion: only 1,680 vertices are duplicated across
+  combinations, 8,048 meshes need exactly one bone combination, the most any needs is 6). **0 load failures, 0 unresolved bone names, 0 conversion failures at the engine's palette of min(bones, 20)** (the largest face
+  influence count is 11, in two `MOTION_PET_RAINCOAT_CAT_*_STEB_3.X`). Bones per skin: 1 (893 meshes) ... 20 (1,308) ... 40+ (7). Max influences per vertex: 1 (1,402), 2 (5,931), 3 (888), 4 (67), 5 (22), 11 (2); **24 meshes
+  have vertices with more than 4 influences** (566 vertices; the cash-shop `*_SORTED.X` parts and the cat raincoats) and lose the weakest ones; 76 vertices have no influence at all and 14 have a weight sum that is not 1
+  (> 1e-3 off). Two files (`MESH_RAVEN_CASH_AC_FACE2_259120/259130_SORTED.X`) name two frames `Bone03`: with the breadth-first `D3DXFrameFind` the shallower one wins. Animation: 469 of the skinned files carry sets
+  (the other 6,926 are equipment parts animated by another file's skeleton); of 11,083 animated frames 82.4 % are at their rest matrix at t = 0, the rest start in another pose.
+
 **X scene census** (`tools/census-xscene.ts`, all 25,313 DirectX-format files through `loadXScene`; complements section 9): 0 errors; 107,183 meshes (12.05 M vertices, 10.49 M faces, **0 polygons**),
 1,982,092 frames, 14,151 files with several meshes, 7,395 skinned files (8,312 skinned meshes, 78,639 bones - every bone name resolves to a frame of the same file, all weight vertex indices in range),
-every face / normal-face / texture-coordinate / material index in range, 63 meshes without texture coordinates, 1 with vertex colours, 77,305 duplicate frame names (the first one wins in
-`D3DXFrameFind`), 810,120 frames with a non-unit 3x3 part, up to 113 materials and 26,900 vertices per mesh. Animation: 6,856 sets, 108,944 animations (75,014 with separate rotation / scale / position keys,
+every face / normal-face / texture-coordinate / material index in range, 63 meshes without texture coordinates, 1 with vertex colours, 77,305 duplicate frame names (the first one in breadth-first order wins in
+`D3DXFrameFind`), no Frame with a `{ Mesh }` / `{ Frame }` reference or with two `FrameTransformMatrix`, 9 files with several top-level frames / meshes (they get the synthetic root), 810,120 frames with a non-unit 3x3 part, up to 113 materials and 26,900 vertices per mesh. Animation: 6,856 sets, 108,944 animations (75,014 with separate rotation / scale / position keys,
 33,930 with 4x4 matrix keys; key times sorted in all), `AnimTicksPerSecond` is 4800 wherever present (the D3DX default 4800 otherwise). **483 animations in 42 files target a frame that does not exist in
 the file** (3ds Max leftovers such as `Object274`, `Cylinder01`, `COLLISION1`); a D3DX controller ignores outputs it has no registered matrix for, so the loader keeps them and the controller must skip them.
 
@@ -668,12 +706,18 @@ the file** (3ds Max leftovers such as `Object274`, `Cylinder01`, `COLLISION1`); 
    *indices* after `Optimize` can differ from the real library while the subsets, ranges and bounding spheres do not; normals are renormalised after the frame transform; `FVFData` (72 `UI_AD_*` meshes)
    is ignored; `CloneMeshFVF` zero-fills components the source lacks (the exe overwrites the colour itself); a mesh without `MeshMaterialList` is not in the data (all 107,183 have one).
 9. `DrawSubset` on a mesh that has no attribute table draws contiguous runs of the attribute (D3DX does the same lazily); with a table it draws each entry with its vertex range.
+10. Animation / skin (no D3DX oracle except the loader structure and `D3DXFrameFind` / `UpdateSkinnedMesh` / skin-info creation rules of 12.3): the controller maths of 12.4 (event segments, smoothstep for `EASEINEASEOUT`,
+    blending, the 30-event limit and handle 0), slerp / lerp key sampling, clamping outside the key range, `D3DXFrameCalculateBoundingSphere`, the bone-combination packing and the choice of slot 0 for an
+    influence-less vertex, keeping the four strongest of more than four influences. The quaternion sign is data-derived (12.4) and checked on one real file end to end.
+11. A mesh with vertex colours that lists only some vertices: the unlisted ones are white with alpha 1 here (the reader fills 1,1,1,1) whereas Wine's loader writes `0x00ffffff` (alpha 0); one mesh in the data has vertex
+    colours and the question is untested. Several `FrameTransformMatrix` in one frame: the last replaces the earlier ones in the hierarchy loader (native-checked) but `D3DXLoadMeshFromX` accumulates them (Wine's
+    test, not implemented; the data has none).
 
 ### 12.6 Not emulated / todo
 
 Reported once through the device's `warn`: wireframe / point fill, point sprites, clip planes, border and mirror-once addressing (clamp is used), dual-source blending, bump mapping,
 multiple render targets, multisampling, float textures other than as render targets. Not implemented at all: `GetRenderTargetData` / `CreateOffscreenPlainSurface` (DXUT cursor and screenshots only),
-JPEG textures, DXT compression, the D3DX frame / skin / animation-controller family (next), `D3DXCreateLine`, and `XRenderer.fx` with its `ID3DXEffect` surface (next). Also open: the
+JPEG textures, DXT compression, `CreateCompressedAnimationSet` (the exe's KSM path uses keyframed sets), `D3DXCreateLine`, and `XRenderer.fx` with its `ID3DXEffect` surface (next). Also open: the
 reference pictures. The layer was developed without any screenshot of the real client; a few frames of the loading screen, the character select and a field would let the
 assumptions above (and the sampling / filtering details) be checked pixel for pixel.
 

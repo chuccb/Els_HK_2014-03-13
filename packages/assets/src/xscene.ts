@@ -62,6 +62,8 @@ export interface XFrameData {
   matrix: Float32Array;
   children: XFrameData[];
   meshes: XMeshData[];
+  /** true for the frame this reader makes up around a top-level Mesh (D3DX creates that frame with a NULL name; the mesh keeps its own name) */
+  synthetic?: boolean;
 }
 
 /** One animated frame: the key lists that were present (`AnimationKey` keyType 0 rotation, 1 scale, 2 position, 3 and 4 matrix). */
@@ -169,13 +171,16 @@ function parseMesh(o: XObject): XMeshData {
   return mesh;
 }
 
-function parseFrame(o: XObject): XFrameData {
+function parseFrame(o: XObject, active: readonly XObject[] = []): XFrameData {
   const f: XFrameData = { name: o.name, matrix: Float32Array.of(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1), children: [], meshes: [] };
+  const stack = [...active, o];
   for (const c of o.children) {
-    if (c.kind !== "object") continue;
-    if (c.type === "FrameTransformMatrix") f.matrix = matrixOf(c.data.frameMatrix);
-    else if (c.type === "Frame") f.children.push(parseFrame(c));
-    else if (c.type === "Mesh") f.meshes.push(parseMesh(c));
+    // D3DX enumerates a `{ Name }` reference like the object it points to (none of the shipped files has one inside a Frame; the guard stops a frame that contains itself)
+    const obj_ = c.kind === "ref" ? c.target : c;
+    if (!obj_ || obj_.kind !== "object") continue;
+    if (obj_.type === "FrameTransformMatrix") f.matrix = matrixOf(obj_.data.frameMatrix);
+    else if (obj_.type === "Frame") { if (!stack.includes(obj_)) f.children.push(parseFrame(obj_, stack)); }
+    else if (obj_.type === "Mesh") f.meshes.push(parseMesh(obj_));
   }
   return f;
 }
@@ -209,7 +214,7 @@ export function loadXScene(bytes: Uint8Array): XScene {
       case "Frame": scene.frames.push(parseFrame(o)); break;
       case "Mesh": {
         const m = parseMesh(o);
-        scene.frames.push({ name: o.name, matrix: Float32Array.of(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1), children: [], meshes: [m] });
+        scene.frames.push({ name: o.name, matrix: Float32Array.of(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1), children: [], meshes: [m], synthetic: true });
         break;
       }
       case "AnimTicksPerSecond": scene.ticksPerSecond = num(o.data.AnimTicksPerSecond, 4800); break;

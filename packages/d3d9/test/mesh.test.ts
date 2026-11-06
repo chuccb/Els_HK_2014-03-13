@@ -220,7 +220,9 @@ describe("D3DX meshes (need a WebGPU adapter for the buffers)", () => {
     });
     // meshes A and B each use material 0 / 1 of their own list, so the merged attributes are 0 (A) and 2 (B); relabel B's faces as attribute 1
     const m = D3DXLoadMeshFromXScene(scene([frame("f", IDENT, [quad(0, 0), quad(1, 0)])]), D3DXMESH.MANAGED, dev).mesh!;
+    expect(m.GetAttributeTable().map((r) => r.AttribId)).toEqual([0, 2]); // the loader sorted the faces by material and built the table
     m.LockAttributeBuffer(0).data!.set([0, 0, 1, 1]); m.UnlockAttributeBuffer();
+    m.SetAttributeTable(null); // the table is stale after relabelling: drop it to get a mesh without one (DrawSubset then scans the attribute buffer)
     // x in [0,2], y in [0,1] fills the target; z shifted into the ortho range
     dev.SetTransform(D3DTS_WORLD, matIdentity());
     dev.SetTransform(D3DTS.VIEW, matTranslation(-1, -0.5, 0.5));

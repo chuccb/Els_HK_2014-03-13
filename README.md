@@ -64,7 +64,9 @@ apps/client, apps/server   預留（尚未實作）
 ## 快速開始
 
 ```sh
-npm install --no-audit --no-fund        # 安裝 bun、typescript、fflate 到 node_modules（會產生 package-lock.json，可刪除）
+npm install --no-audit --no-fund --prefix /home/user/work/boot bun@1.4.4   # npm 讀不懂本倉庫的 workspace: 規格，先把 bun 裝到暫存前綴
+/home/user/work/boot/node_modules/.bin/bun install   # 由 bun 安裝 typescript、fflate、webgpu 並連結 @els/* 工作區
+./tools/setup-gpu.sh                    # d3d9 測試用的軟體 Vulkan（SwiftShader），之後以 ./tools/gpu.sh <指令> 執行
 ./node_modules/.bin/bun run tools/verify-kom.ts          # 驗證全部 KOM（約 2 分鐘）
 ./tools/setup-oracle.sh                 # 建置 LuaJIT 2.0.2 oracle 到 /home/user/work/luajit-2.0
 python3 tools/kom_extract.py /home/user/work/ex lua,LUA  # 取出 4,498 個腳本

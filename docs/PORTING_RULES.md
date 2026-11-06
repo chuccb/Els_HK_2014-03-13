@@ -47,6 +47,11 @@ the Hex-Rays export `data/x2.exe.c` / `data/x2.exe.h`, and verify it - not "make
 * **No oracle exists on this machine** (no Windows, no D3D9 runtime, no reference screenshots), so a device behaviour is verified against
   (1) the D3D9 documentation turned into an analytic expectation (lighting, fog, blend, filters, formats) or a CPU reference, and (2) the exact
   call sequences of the exe. A choice the documentation leaves open is a *flagged assumption* in FINDINGS section 12 and has a test that pins it.
+* **Wine's d3dx9 tests are the one source of native D3DX behaviour.** `dlls/d3dx9_36/tests/*.c` of `wine-mirror/wine` must also pass on real
+  Windows, so what they expect is what d3dx9 does (`gh api -H "Accept: application/vnd.github.raw" repos/wine-mirror/wine/contents/dlls/d3dx9_36/tests/mesh.c`;
+  Wine's *implementation* is only as good as its tests - its controller and `ConvertToIndexedBlendedMesh` are stubs). Before writing a D3DX behaviour
+  from the documentation, look there; copy no code (LGPL), re-type the X files and the expected numbers into a test and say so in its header
+  (`packages/d3d9/test/loader-native.test.ts` is the model).
 * **Every feature the layer does not emulate is reported once through the device's `warn` hook** instead of silently drawing something else.
 * **GPU tests skip without an adapter** (`gpuAvailable()`); run them with `./tools/gpu.sh`. A test that saves a picture does so only when
   `D3D9_TEST_OUT` is set, so the suite never writes into the repository.

@@ -23,7 +23,7 @@
 import { loadXScene, walkFrames } from "@els/assets";
 import type { XMeshData, XScene } from "@els/assets";
 import { D3DDECLTYPE, D3DDECLUSAGE, D3DFMT, D3DPOOL, D3DPT, D3DUSAGE } from "./enums.ts";
-import { D3DERR_INVALIDCALL, D3DXERR_INVALIDDATA, D3D_OK, E_FAIL } from "./hresult.ts";
+import { D3DERR_INVALIDCALL, D3DXERR_INVALIDDATA, D3DXERR_LOADEDMESHASNODATA, D3D_OK, E_FAIL } from "./hresult.ts";
 import { fvfToElements, fvfVertexSize } from "./vertex.ts";
 import type { VertexElement } from "./vertex.ts";
 import { matMultiply, vec3TransformCoord, vec3TransformNormal } from "./d3dx-math.ts";
@@ -72,7 +72,7 @@ export class D3DXMesh {
   private attrLocked = false;
 
   constructor(
-    readonly device: Direct3DDevice9, readonly numFaces: number, readonly numVertices: number, readonly options: number, readonly fvf: number,
+    readonly device: Direct3DDevice9, readonly numFaces: number, readonly numVertices: number, readonly options: number, public fvf: number,
     readonly vb: Direct3DVertexBuffer9, readonly ib: Direct3DIndexBuffer9, public attributeBuffer: Uint32Array,
   ) {
     this.stride = fvfVertexSize(fvf);
@@ -100,6 +100,20 @@ export class D3DXMesh {
     return { hr: D3D_OK, data: this.attributeBuffer };
   }
   UnlockAttributeBuffer(): number { if (!this.attrLocked) return D3DERR_INVALIDCALL; this.attrLocked = false; return D3D_OK; }
+
+  /**
+   * `UpdateSemantics`: the new declaration must describe the same bytes (same element sizes at the same offsets); only the types / usages may change
+   * (the exe turns BLENDINDICES from UBYTE4 into D3DCOLOR so that the vs_1_1 shader receives them in colour order).  The mesh's FVF follows the declaration
+   * (LASTBETA_UBYTE4 <-> LASTBETA_D3DCOLOR).
+   */
+  UpdateSemantics(declaration: readonly VertexElement[]): number {
+    const fvf = declarationToFvf(declaration);
+    if (fvf === null || fvfVertexSize(fvf) !== this.stride) return D3DERR_INVALIDCALL;
+    const old = fvfToElements(this.fvf).elements, now = fvfToElements(fvf).elements;
+    if (old.length !== now.length || old.some((e, i) => e.offset !== now[i]!.offset)) return D3DERR_INVALIDCALL;
+    this.fvf = fvf;
+    return D3D_OK;
+  }
 
   /** The face index list as a typed view over the buffer shadow (3 entries per face). */
   indices(): Uint16Array | Uint32Array {
@@ -312,22 +326,40 @@ export function D3DXCreateMeshFVF(numFaces: number, numVertices: number, options
   return { hr: D3D_OK, mesh: new D3DXMesh(device, numFaces, numVertices, options, fvf, vbr.vb, ibr.ib, new Uint32Array(numFaces)) };
 }
 
-/** D3DFVF code for a declaration made of the standard FVF elements (what CloneMesh needs here); null for anything else. */
+/**
+ * D3DFVF code for a declaration made of the elements an FVF can express (position, blend weights + indices, normal, point size, two colours, texture
+ * coordinate sets of 1-4 floats); null for anything else.  Elements must be in FVF order.
+ */
 export function declarationToFvf(decl: readonly VertexElement[]): number | null {
-  let fvf = 0, tex = 0;
+  let fvf = 0, texSizes = 0, tex = 0, weights = 0, indices: number | null = null;
   for (const e of decl) {
     if (e.stream === 0xff) break;
     switch (e.usage) {
       case D3DDECLUSAGE.POSITION: fvf |= 0x002; break;
       case D3DDECLUSAGE.POSITIONT: fvf |= 0x004; break;
+      case D3DDECLUSAGE.BLENDWEIGHT: weights = e.type === D3DDECLTYPE.FLOAT1 ? 1 : e.type === D3DDECLTYPE.FLOAT2 ? 2 : e.type === D3DDECLTYPE.FLOAT3 ? 3 : e.type === D3DDECLTYPE.FLOAT4 ? 4 : -1; if (weights < 0) return null; break;
+      case D3DDECLUSAGE.BLENDINDICES: if (e.type !== D3DDECLTYPE.UBYTE4 && e.type !== D3DDECLTYPE.D3DCOLOR) return null; indices = e.type; break;
       case D3DDECLUSAGE.NORMAL: fvf |= 0x010; break;
       case D3DDECLUSAGE.PSIZE: fvf |= 0x020; break;
       case D3DDECLUSAGE.COLOR: fvf |= e.usageIndex === 0 ? 0x040 : 0x080; break;
-      case D3DDECLUSAGE.TEXCOORD: tex = Math.max(tex, e.usageIndex + 1); break;
+      case D3DDECLUSAGE.TEXCOORD: {
+        const bits = e.type === D3DDECLTYPE.FLOAT1 ? 3 : e.type === D3DDECLTYPE.FLOAT2 ? 0 : e.type === D3DDECLTYPE.FLOAT3 ? 1 : e.type === D3DDECLTYPE.FLOAT4 ? 2 : -1;
+        if (bits < 0 || e.usageIndex > 7) return null;
+        tex = Math.max(tex, e.usageIndex + 1);
+        texSizes |= bits << (16 + 2 * e.usageIndex);
+        break;
+      }
       default: return null;
     }
   }
-  return fvf | (tex << 8);
+  const betas = weights + (indices !== null ? 1 : 0);
+  if (betas > 0) {
+    if ((fvf & 0x006) !== 0x002 || betas > 5) return null;
+    fvf = (fvf & ~0x00e) | (0x004 + 2 * betas);
+    if (indices === D3DDECLTYPE.UBYTE4) fvf |= 0x1000;
+    else if (indices === D3DDECLTYPE.D3DCOLOR) fvf |= 0x8000;
+  }
+  return (fvf | (tex << 8) | texSizes) >>> 0;
 }
 
 /** Copy vertices between two FVF layouts: elements present in both are copied (float components up to the smaller size), new ones are zero. */
@@ -359,9 +391,9 @@ function declSize(t: number): number {
 // --------------------------------------------------------------------------------------------------- X file loading
 const IDENTITY: Mat4 = Float32Array.of(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
 
-interface FlatMesh { data: XMeshData; world: Mat4 }
+export interface FlatMesh { data: XMeshData; world: Mat4 }
 
-function flatten(scene: XScene): FlatMesh[] {
+export function flatten(scene: XScene): FlatMesh[] {
   const out: FlatMesh[] = [];
   const worlds = new Map<object, Mat4>();
   walkFrames(scene.frames, (f, parent) => {
@@ -372,16 +404,30 @@ function flatten(scene: XScene): FlatMesh[] {
   return out;
 }
 
+export interface BuiltMesh { hr: number; mesh: D3DXMesh | null; adjacency: Uint32Array | null; materials: D3DXMaterial[]; /** per output vertex: the vertex of its source mesh it was made from (splits repeat an index) */ vertexOrigin: Uint32Array }
+
 /** The mesh and its materials from an already parsed scene (what D3DXLoadMeshFromXInMemory returns, see the file header). */
 export function D3DXLoadMeshFromXScene(scene: XScene, options: number, device: Direct3DDevice9): { hr: number; mesh: D3DXMesh | null; adjacency: Uint32Array | null; materials: D3DXMaterial[] } {
-  const meshes = flatten(scene).filter((m) => m.data.faces.length > 0 && m.data.positions.length > 0);
-  if (meshes.length === 0) return { hr: D3DXERR_INVALIDDATA, mesh: null, adjacency: null, materials: [] };
+  const b = D3DXBuildMesh(flatten(scene), options, device);
+  // a mesh without any material gets one default material (grey 0.5 diffuse and specular, everything else 0 - alpha too), like D3DXLoadMeshFromX
+  const materials = b.hr >= 0 && b.materials.length === 0
+    ? [{ MatD3D: { diffuse: { r: 0.5, g: 0.5, b: 0.5, a: 0 }, ambient: { r: 0, g: 0, b: 0, a: 0 }, specular: { r: 0.5, g: 0.5, b: 0.5, a: 0 }, emissive: { r: 0, g: 0, b: 0, a: 0 }, power: 0 }, pTextureFilename: null }]
+    : b.materials;
+  return { hr: b.hr, mesh: b.mesh, adjacency: b.adjacency, materials };
+}
+
+/** Merge meshes (each with the world matrix to bake in) into one `D3DXMesh`.  With a single item the result is that mesh as D3DXLoadMeshHierarchyFromX hands it to `CreateMeshContainer`. */
+export function D3DXBuildMesh(items: readonly FlatMesh[], options: number, device: Direct3DDevice9): BuiltMesh {
+  const meshes = items.filter((m) => m.data.faces.length > 0 && m.data.positions.length > 0);
+  const fail = (hr: number): BuiltMesh => ({ hr, mesh: null, adjacency: null, materials: [], vertexOrigin: new Uint32Array(0) });
+  if (meshes.length === 0) return fail(D3DXERR_INVALIDDATA);
   const anyNormals = meshes.some((m) => m.data.normals), anyTex = meshes.some((m) => m.data.texCoords), anyColor = meshes.some((m) => m.data.vertexColors);
   const fvf = 0x002 | (anyNormals ? 0x010 : 0) | (anyColor ? 0x040 : 0) | (anyTex ? 0x100 : 0);
   const stride = fvfVertexSize(fvf);
   const oN = 12, oC = 12 + (anyNormals ? 12 : 0), oT = oC + (anyColor ? 4 : 0);
 
   const vertexBytes: Uint8Array[] = [];
+  const origin: number[] = [];
   const faceIdx: number[] = [], faceAttr: number[] = [];
   const materials: D3DXMaterial[] = [];
   let vertexBase = 0;
@@ -389,60 +435,70 @@ export function D3DXLoadMeshFromXScene(scene: XScene, options: number, device: D
     const nV = m.positions.length / 3;
     const base = vertexBase;
     const verts: Uint8Array[] = new Array(nV);
+    // D3DX transforms normals by the frame matrix and renormalises; a mesh at the identity (the hierarchy loader) keeps the stored normals bit for bit
+    const identity = world.every((v, i) => v === (i % 5 === 0 ? 1 : 0));
     const make = (pi: number, ni: number): Uint8Array => {
       const b = new Uint8Array(stride), dv = new DataView(b.buffer);
-      const p = vec3TransformCoord({ x: m.positions[pi * 3]!, y: m.positions[pi * 3 + 1]!, z: m.positions[pi * 3 + 2]! }, world);
+      const p = identity ? { x: m.positions[pi * 3]!, y: m.positions[pi * 3 + 1]!, z: m.positions[pi * 3 + 2]! } : vec3TransformCoord({ x: m.positions[pi * 3]!, y: m.positions[pi * 3 + 1]!, z: m.positions[pi * 3 + 2]! }, world);
       dv.setFloat32(0, p.x, true); dv.setFloat32(4, p.y, true); dv.setFloat32(8, p.z, true);
       if (anyNormals && m.normals && ni >= 0) {
-        let n: Vec3 = vec3TransformNormal({ x: m.normals[ni * 3]!, y: m.normals[ni * 3 + 1]!, z: m.normals[ni * 3 + 2]! }, world);
-        const len = Math.hypot(n.x, n.y, n.z);
-        if (len > 0) n = { x: n.x / len, y: n.y / len, z: n.z / len };
+        let n: Vec3 = { x: m.normals[ni * 3]!, y: m.normals[ni * 3 + 1]!, z: m.normals[ni * 3 + 2]! };
+        if (!identity) {
+          n = vec3TransformNormal(n, world);
+          const len = Math.hypot(n.x, n.y, n.z);
+          if (len > 0) n = { x: n.x / len, y: n.y / len, z: n.z / len };
+        }
         dv.setFloat32(oN, n.x, true); dv.setFloat32(oN + 4, n.y, true); dv.setFloat32(oN + 8, n.z, true);
       }
       if (anyColor) {
         const c = m.vertexColors ? [m.vertexColors[pi * 4]!, m.vertexColors[pi * 4 + 1]!, m.vertexColors[pi * 4 + 2]!, m.vertexColors[pi * 4 + 3]!] : [1, 1, 1, 1];
-        const q = (x: number): number => Math.max(0, Math.min(255, Math.round(x * 255)));
+        const q = (x: number): number => Math.max(0, Math.min(255, Math.floor(Math.fround(Math.fround(Math.min(1, Math.max(0, x))) * 255) + 0.5)));
         dv.setUint32(oC, ((q(c[3]!) << 24) | (q(c[0]!) << 16) | (q(c[1]!) << 8) | q(c[2]!)) >>> 0, true);
       }
       if (anyTex && m.texCoords) { dv.setFloat32(oT, m.texCoords[pi * 2]!, true); dv.setFloat32(oT + 4, m.texCoords[pi * 2 + 1]!, true); }
       return b;
     };
-    // vertex i keeps its index; it takes the normal of the first corner using it, later corners with another normal add vertices
-    const firstNormal = new Int32Array(nV).fill(-2);
-    m.faces.forEach((face, fi) => face.forEach((pi, c) => { if (firstNormal[pi] === -2) firstNormal[pi] = m.normalFaces ? m.normalFaces[fi]![c]! : -1; }));
-    for (let v = 0; v < nV; v++) verts[v] = make(v, firstNormal[v] === -2 ? -1 : firstNormal[v]!);
-    const extra = new Map<string, number>();
-    const extras: Uint8Array[] = [];
-    const cornerVertex = (fi: number, c: number): number => {
-      const pi = m.faces[fi]![c]!;
-      const ni = m.normalFaces ? m.normalFaces[fi]![c]! : -1;
-      if (ni === firstNormal[pi]) return base + pi;
-      const key = `${pi}/${ni}`;
-      let id = extra.get(key);
-      if (id === undefined) { id = base + nV + extras.length; extras.push(make(pi, ni)); extra.set(key, id); }
-      return id;
-    };
+    // D3DX (as Wine's D3DXLoadSkinMeshFromXof, whose tests also run on native): vertex i keeps its index and takes the normal of the first corner that uses it;
+    // a later corner whose normal has a different VALUE (x, y, z compared exactly) gets a new vertex, appended in order of first appearance and shared by the corners with that value.
+    const chain: { id: number; nx: number; ny: number; nz: number; ni: number }[][] = Array.from({ length: nV }, () => []);
+    const extras: Uint8Array[] = [], extraOrigin: number[] = [];
+    const cornerId: number[][] = m.faces.map((f) => new Array<number>(f.length));
+    m.faces.forEach((face, fi) => face.forEach((pi, c) => {
+      const ni = m.normalFaces && m.normals ? m.normalFaces[fi]![c]! : -1;
+      const nx = ni >= 0 ? m.normals![ni * 3]! : 0, ny = ni >= 0 ? m.normals![ni * 3 + 1]! : 0, nz = ni >= 0 ? m.normals![ni * 3 + 2]! : 0;
+      const list = chain[pi]!;
+      if (list.length === 0) { list.push({ id: base + pi, nx, ny, nz, ni }); cornerId[fi]![c] = base + pi; return; }
+      const hit = list.find((e) => e.nx === nx && e.ny === ny && e.nz === nz);
+      if (hit) { cornerId[fi]![c] = hit.id; return; }
+      const id = base + nV + extras.length;
+      extras.push(make(pi, ni)); extraOrigin.push(pi);
+      list.push({ id, nx, ny, nz, ni });
+      cornerId[fi]![c] = id;
+    }));
+    for (let v = 0; v < nV; v++) verts[v] = make(v, chain[v]!.length ? chain[v]![0]!.ni : -1);
     const matBase = materials.length;
     m.faces.forEach((face, fi) => {
       for (let k = 1; k + 1 < face.length; k++) { // fan triangulation
-        faceIdx.push(cornerVertex(fi, 0), cornerVertex(fi, k), cornerVertex(fi, k + 1));
+        faceIdx.push(cornerId[fi]![0]!, cornerId[fi]![k]!, cornerId[fi]![k + 1]!);
         faceAttr.push(matBase + (m.faceMaterial[fi] ?? 0));
       }
     });
     for (const mat of m.materials) materials.push({
       MatD3D: {
-        diffuse: { r: mat.diffuse[0], g: mat.diffuse[1], b: mat.diffuse[2], a: mat.diffuse[3] }, ambient: { r: mat.diffuse[0], g: mat.diffuse[1], b: mat.diffuse[2], a: mat.diffuse[3] },
+        diffuse: { r: mat.diffuse[0], g: mat.diffuse[1], b: mat.diffuse[2], a: mat.diffuse[3] }, ambient: { r: 0, g: 0, b: 0, a: 1 },
         specular: { r: mat.specular[0], g: mat.specular[1], b: mat.specular[2], a: 1 }, emissive: { r: mat.emissive[0], g: mat.emissive[1], b: mat.emissive[2], a: 1 }, power: mat.power,
       },
       pTextureFilename: mat.textureFilename,
     });
     vertexBytes.push(...verts, ...extras);
+    for (let v = 0; v < nV; v++) origin.push(v);
+    origin.push(...extraOrigin);
     vertexBase += nV + extras.length;
   }
   const nF = faceIdx.length / 3;
   const want32 = (options & D3DXMESH._32BIT) !== 0 || vertexBase > 0xffff;
   const created = D3DXCreateMeshFVF(nF, vertexBase, want32 ? options | D3DXMESH._32BIT : options, fvf, device);
-  if (created.hr < 0 || !created.mesh) return { hr: created.hr, mesh: null, adjacency: null, materials: [] };
+  if (created.hr < 0 || !created.mesh) return fail(created.hr);
   const mesh = created.mesh;
   vertexBytes.forEach((b, i) => mesh.vb.cpu.set(b, i * stride));
   mesh.vb.markDirty(0, mesh.vb.length);
@@ -450,14 +506,23 @@ export function D3DXLoadMeshFromXScene(scene: XScene, options: number, device: D
   for (let i = 0; i < faceIdx.length; i++) di[i] = faceIdx[i]!;
   mesh.ib.markDirty(0, mesh.ib.length);
   mesh.attributeBuffer.set(faceAttr);
-  return { hr: D3D_OK, mesh, adjacency: mesh.GenerateAdjacency(0), materials };
+  // with a material list D3DX sorts the faces by material (stable, vertices untouched) before generating the adjacency; that also gives the mesh its attribute table
+  if (materials.length > 0) mesh.OptimizeInplace(D3DXMESHOPT.ATTRSORT | D3DXMESHOPT.IGNOREVERTS | D3DXMESHOPT.DONOTSPLIT, null);
+  return { hr: D3D_OK, mesh, adjacency: mesh.GenerateAdjacency(0), materials, vertexOrigin: Uint32Array.from(origin) };
 }
 
-/** `D3DXLoadMeshFromXInMemory`. */
-export function D3DXLoadMeshFromXInMemory(data: Uint8Array, options: number, device: Direct3DDevice9): { hr: number; mesh: D3DXMesh | null; adjacency: Uint32Array | null; materials: D3DXMaterial[] } {
+/**
+ * `D3DXLoadMeshFromXInMemory`.  Results as Wine's tests (which also pass on native d3dx9) expect: empty data / no device is `D3DERR_INVALIDCALL`, a file without any frame or mesh is
+ * `E_FAIL`, a file whose meshes are all empty is `D3DXERR_LOADEDMESHASNODATA`.
+ */
+export function D3DXLoadMeshFromXInMemory(data: Uint8Array, options: number, device: Direct3DDevice9 | null): { hr: number; mesh: D3DXMesh | null; adjacency: Uint32Array | null; materials: D3DXMaterial[] } {
+  const bad = (hr: number) => ({ hr, mesh: null, adjacency: null, materials: [] as D3DXMaterial[] });
+  if (!data || data.length === 0 || !device) return bad(D3DERR_INVALIDCALL);
   let scene: XScene;
-  try { scene = loadXScene(data); } catch { return { hr: D3DXERR_INVALIDDATA, mesh: null, adjacency: null, materials: [] }; }
-  return D3DXLoadMeshFromXScene(scene, options, device);
+  try { scene = loadXScene(data); } catch { return bad(D3DXERR_INVALIDDATA); }
+  if (scene.frames.length === 0) return bad(E_FAIL);
+  const r = D3DXLoadMeshFromXScene(scene, options, device);
+  return r.hr === D3DXERR_INVALIDDATA ? bad(D3DXERR_LOADEDMESHASNODATA) : r;
 }
 
 // -------------------------------------------------------------------------------------------------------- welding

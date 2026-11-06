@@ -16,3 +16,5 @@ export type { ProgramDesc, StageDesc } from "./ffp.ts";
 export * from "./caps.ts";
 export * from "./d3dx-texture.ts";
 export * from "./d3dx-mesh.ts";
+export * from "./d3dx-animation.ts";
+export * from "./d3dx-skin.ts";
