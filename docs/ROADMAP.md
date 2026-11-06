@@ -23,7 +23,7 @@ Status legend: `done` verified, `partial` works but not fully verified, `todo`.
 ## Phase 2 - Asset decoders (`packages/assets`)
 
 Census of the KOMs (`bun run tools/census.ts`): `tga` 23,784 (2.4 GB), `dds` 31,593, `x` 13,305 (skin meshes + animations, 1.2 GB), `y` 13,148
-(static meshes), `ogg` 5,625, `lua` 4,498, `xet` 4,552, `tet` 1,247, `wav` 67, particle/XMeshPlayer `txt` 40, `kim` 1 (`item.kim`,
+(static meshes), `ogg` 5,625, `lua` 4,498, `xet` 4,552, `tet` 1,247, `wav` 67, particle/XMeshPlayer `txt` 37 (+ 2 Lua `txt`, 1 empty), `kim` 1 (`item.kim`,
 18 MB), fonts 5, `fx` 4, plus loose `data/ui`, `data/movie` (30 MPEG-1), `data/music`, `general.ess` (string table).
 
 | Format | Notes | Status |
@@ -36,7 +36,7 @@ Census of the KOMs (`bun run tools/census.ts`): `tga` 23,784 (2.4 GB), `dds` 31,
 | XET / TET | done: binary tables (not text), 5,799 files parse with 0 structural problems; exact `FindAniDataIndex` (16 shipped files defeat it, kept) | `xet.ts`, `tools/verify-xet-tet.ts` |
 | `general.ess` string table | done: exe-exact loader (`fgetws` lines, XOR 0x10, id check), `GetGeneralString`, `GetReplacedString`; 30,584 entries, 0 index mismatches (FINDINGS section 8) | `ess.ts`, `tools/verify-ess.ts` |
 | `item.kim` item database (57,106 items, 3,811 sets) | done: flat image decoded with the exe's accessors (`KItemFormatTemplet` 188-byte records + pool); whole file accounted for (FINDINGS section 8). Also the oracle for the Phase 5 `Item.lua` -> `AddItemTemplet` host API | `kim.ts`, `tools/verify-kim.ts` |
-| particle / XMeshPlayer text scripts (39 `.txt` entries, e.g. `GameMajorParticle*.txt`) | custom parsers in the exe (`CKTDGParticleSystem::Compile`, `CKTDGXMeshPlayer::Compile` with their tokenizers) | todo |
+| particle / XMeshPlayer text scripts (37 `.txt` entries, 10,399 sequences + 3,483 templets) | parsers done, ported from `CKTDGParticleSystem::Compile` / `CKTDGXMeshPlayer::Compile` with their tokenizers (quirks kept); all 37 files parse and equal an independent line reader field by field; library semantics (replace by name) and which file feeds which of the eight systems (FINDINGS section 10). The run-time simulation (instantiation, `OnFrameMove`, rendering) is not ported: it needs the renderer | `effectscript.ts`, `particle.ts`, `xmeshplayer.ts`, `tools/verify-effects.ts` |
 | audio | `ogg`/`wav` are decoded by the browser (WebAudio) | todo |
 | MPEG-1 movies | software decoder | todo |
 

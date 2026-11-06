@@ -370,3 +370,88 @@ behaviour, not checked against the real library; 13,039 `.y` files depend on it)
 `AnimationKey`s (w,x,y,z, possibly conjugated) can be decided by comparing key 0 with the frame's rest matrix, the same
 relationship holds in the KSM files; (3) X-file skin meshes need `D3DXLoadMeshHierarchyFromX` semantics (frame names, `SkinWeights`
 -> bone table, `VertexDuplicationIndices`).
+
+## 10. Particle and XMeshPlayer scripts (Phase 2)
+
+**What they are.** 40 `.txt` entries sit in the KOMs. 37 of them are scripts in two private, line-oriented text languages (not Lua):
+30 particle scripts (`CKTDGParticleSystem`: `GameMajorParticle.txt` + `2..23`, `GameMinorParticle`, `UIMajorParticle`, ... and their `_INT`
+companions; 10,399 sequences) and 7 XMeshPlayer scripts (`CKTDGXMeshPlayer`: `GameMajorXMeshPlayer.txt` alone has 3,339 templets; 3,483 in
+all). The other three are `GameOption.txt` and `GameOptionPreset.txt` (Lua source, they need the phase 1b compiler) and the empty
+`bossraid_dummy.txt`. `OpenScriptFile` (328FFC70) is the KOM read (decrypt + inflate, `@els/kom`) followed by `Compile(buffer, size)`,
+which reads **only the first top-level block** and ignores whatever follows its closing brace. Errors are thrown as `const char*` and
+nothing near the parser catches them; the port raises `EffectScriptError` with the exe's text.
+
+**Which script feeds which system** (`CX2StateStartUp::LoadData` 32ED9CB0, x2.exe.c L1544939; `CX2SquareGame` L863261 builds its own copies of
+the four game systems from the same files). The constructors take the system id (0 UI major, 1 UI minor, 2 game major, 3 game minor); every
+system is a separate name space in which a later definition replaces an earlier one (`EFFECT_SYSTEMS` in `effectscript.ts`):
+
+| system | files, in load order |
+|---|---|
+| UIMajorParticle | `UIMajorParticle.txt`, `UIMajorParticle_INT.txt` |
+| UIMinorParticle | `UIMinorParticle.txt` |
+| GameMajorParticle | `GameMajorParticle.txt`, `GameMajorParticle2.txt` .. `GameMajorParticle23.txt`, `GameMajorParticle_INT.txt` |
+| GameMinorParticle | `GameMinorParticle.txt`, `GameMinorParticle_INT.txt` |
+| UIMajorXMeshPlayer | `UIMajorXMeshPlayer.txt`, `UIMajorXMeshPlayer_INT.txt` |
+| UIMinorXMeshPlayer | `UIMinorXMeshPlayer.txt` (one empty templet) |
+| GameMajorXMeshPlayer | `GameMajorXMeshPlayer.txt`, `GameMajorXMeshPlayer_INT.txt` |
+| GameMinorXMeshPlayer | `GameMinorXMeshPlayer.txt` |
+
+`rena_A_trapingArrow_Particle.txt` and `rena_A_trapingArrow_Xmesh.txt` are named nowhere (exe literals and Lua constants checked): stale
+working copies of sequences that also live in `GameMajorParticle8.txt` / `GameMajorXMeshPlayer.txt` (9 of 12 sequences and 2 of 4
+templets are identical in the parsed model, the rest differ). 261 definitions repeat a name that an earlier file defines (counting the
+files in name order): 243 of them across different systems (e.g. `GameMajorParticle.txt` and `GameMinorParticle.txt` share some), which do
+not clash, 16 in the two unreferenced `rena_*` files, and **only 2 inside one system**: `PET_SNOWBUMP_Attack_C_M01` and
+`Pengzzang_Attack_C_Explosion` in `GameMajorXMeshPlayer`, where `GameMajorXMeshPlayer_INT.txt` (loaded last) replaces the first
+definition. No name is defined twice inside one file.
+
+**Replace semantics** (confirmed in the decompile for both languages): `ProcessEventSequenceBlock` (329007C0) and `ProcessTempletBlock`
+(3291ECD0) put the new object into the system's name map *as soon as its name has been read* and delete the previous object of that name
+(`ParticleLibrary.replaced`, `XMeshLibrary.replaced`). The `erase` that `ProcessParticleSystemBlock` does afterwards is dead code (the
+callee always returns 1), so a script that fails halfway still leaves the half-built object registered.
+
+**Tokenizer quirks, ported on purpose** (listed with examples in the header of `effectscript.ts`, one test each in
+`packages/assets/test/effectscript.test.ts`): the last token is emitted twice when the text ends in white space (the buffer is not
+cleared after a flush; a missing final `}` is therefore closed by the duplicate); `{abc` is one token, `x=5` is one token; a quote right
+behind a word appends the string to the word; `//` inside a word drops the word, `--` is a comment only where a token starts; a file
+that ends inside a comment ends with a stray `/` or `-` token; a number token is whatever starts with a digit or `-` up to the next
+delimiter and `_atof` reads its prefix, so the shipped typo `fade so from 0.s1 to 0.5` (sequence `Sand_villeage_balpanWIND_P02` in
+`GameMinorParticle.txt` and `UIMinorParticle.txt`) means 0.
+
+**Model.** The parse result keeps what the exe's constructors and `ProcessTokenStream` functions store, at the exe's precision (`float`):
+`Random(a, b)` stays a range (`MinMax`); int fields keep `(int)max` or `(int)` of both ends as the exe does; spherical angles are converted
+to radians; fields the exe draws once when a sequence is *instantiated* (`TRIGGERCOUNT/TIME`, `DRAWCOUNT`, `LANDPOS`, `BLACKHOLEPOS`,
+`LIGHTPOS`, `ADDROTATEREL`, `SPHERICAL_EMITROTATION`) stay ranges, so that loading is deterministic and the run-time draws from them with
+`randomNumber` / `MsvcRand` (the msvcrt `rand`). Particle `final` events get the time range `[0, LIFETIME.max]` using the LIFETIME written
+*before* them; XMeshPlayer `final` is a flag with time `[0, 0]`. Fading (`fade so`) is refused for `texture` / `eventtimer` / `blackholetime`
+(particle) and `aniname` / `slashtrace` / `anispeed` / `blackholetime` / `resetcrash` / `sound` / `render_type` (XMeshPlayer). Enumerations
+carry the D3D9 values (`D3DBLEND_*` 1..15, `D3DCULL_*` 1/2/3, tested against the documented numbers), the exe's own enums for `PT_*`, `BT_*`,
+`RT_*` (19 names; an XMeshPlayer `RENDERTYPE` accepts 16 of them, a particle `MESHRENDERTYPE` 4), `LT_*`, `XAP_*`. XMeshPlayer `TEXTURECHANGE` is
+classified as an event property but the factory has no class for it, so it is an error. Defaults are those of `CParticleEventSequence`
+(328F3FB0) and `XMeshTemplet` (329165A0): e.g. a particle sequence blends SRCALPHA / DESTALPHA, an XMeshPlayer templet SRCALPHA / INVSRCALPHA.
+
+**Verification** (`bun run tools/verify-effects.ts [--census]`, 3 s). There is no native oracle for these parsers (no exe to run), so the
+check is an *independent* second reader, `tools/lib/effect-oracle.ts`, that shares no code with the parsers: it relies on the corpus being
+line-oriented (one statement per line, no `=` shared between statements, no brace on a statement line; all checked) and rebuilds every
+sequence / templet from lines and regular expressions. Result: **all 37 scripts parse; 13,882 blocks (10,399 sequences, 3,483 templets),
+152,174 properties, 94,839 events, 2.07 M tokens (10.4 MB) agree with the oracle field by field**; the counts agree three ways (parser
+statistics, oracle statements, raw census of `=` signs and block keywords); the tokens after the closing brace are exactly the duplicated
+last token when the file ends in white space (none otherwise); no stray lines, no non-ASCII bytes outside `--` comments (Korean CP949
+comments in 4 files). Mutation check: breaking `from A to B` times, `final`, `NUMPARTICLES`, `DRAWCOUNT`, the xmesh `final` flag in the
+parser makes the verifier fail; changes to fields whose `Random` ends are never different in the data (XMeshPlayer `LAYER`, `to` times) or to the
+shared enum tables are *not* detected by the corpus (the unit tests cover them: 171 tests in `effectscript/particle/xmeshplayer.test.ts`,
+including every reachable error message, the tokenizer quirks, and verbatim excerpts of `GameFight`, `Flare_Nasod_Diriler_Cannon_HyperCannon02`,
+`ArmeAirBlastCenter`, `AishaLightningBolt`, `STEAL_SOUL_FX`). The first run found a quirk the oracle did not model (`0.s1`, above).
+
+**What the data exercises** (`--census`): every sequence has PARTICLETYPE, both blend modes, NUMPARTICLES and LAYER (`PresentADDProl6_1` writes it twice, the last wins) and a LIFETIME
+(except `Defence_Dugeon_Effect_02`, both in `UIMajorParticle.txt`); 36,200
+of 77,275 particle events fade; XMeshPlayer has 17,515 `Global` events, **49 `Anim` events and no `Die` event at all** (74 templets set `UseDieEvent`
+but write no `Die` event), 28 `final` events, 4,403 fading events. Handled by the exe but never used in the shipped data (covered by unit tests
+only): particle `ALPHATEST`, `SKINMESH`, `MULTITEXXET`, `ANIXET`, `ANINAME`, `SPHERICAL_EMITROTATION`, event `TEX1UV`; XMeshPlayer `DIEPLAYCOUNT`,
+`DIELIFETIME`, `LANDPOS`, `BLACKHOLEPOS`, events `TEX2UV`, `BLACKHOLETIME`, `CRASH`, `RESETCRASH`, `LIGHTFLOWPOINT`, `SOUND`.
+
+**Not done.** Only the compile side is ported. The run-time (`CreateSequence` / `CParticleEventSequence` instantiation with the load-time draws,
+`OnFrameMove` of every event class, the emitter and mesh-instance simulation, rendering, the Lua handle API) belongs to phases 3 and 5 and needs
+the renderer to check against. `catof` uses `Number()` on the digit prefix: the CRT's `_atof` goes through an 80-bit path, so a literal with
+more than 15-17 significant digits could differ in the last bit before the float rounding (the shipped scripts write at most 3-4 decimals).
+`isspace` and `_toupper` are assumed ASCII (the scripts are ASCII outside comments); `ConvertCharToWCHAR` of names is ACP-dependent for non-ASCII
+names, which do not occur.

@@ -329,7 +329,7 @@ Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM i
 
 ## C++ engine classes
 
-2879 classes / 26233 methods. Status by class: done 5, n/a 1338, partial 12, todo 1524; by method: done 36, n/a 4225, partial 97, todo 21875.
+2879 classes / 26233 methods. Status by class: done 9, n/a 1338, partial 52, todo 1480; by method: done 61, n/a 4225, partial 258, todo 21689.
 
 The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes:
 

@@ -88,7 +88,7 @@ CKTDXDeviceManager	42	2928	328ECB20	todo
 CX2BattleFieldGame	42	3350	3318FB60	todo		
 CX2Item::KItemFormatTemplet	41	904	32AACC60	partial	packages/assets/src/kim.ts	every accessor of KItemFormatTemplet / KItemFormatSetItemData (32B85150..32B85FD0) ported; the constructor and the KProxy2 writer are not
 CX2UICharInfo	41	6320	32CD7F60	todo		
-CKTDGParticleSystem::CParticleEventSequence	40	5254	328C0EF0	todo		
+CKTDGParticleSystem::CParticleEventSequence	40	5254	328C0EF0	partial	packages/assets/src/particle.ts (newParticleSequence, ParticleSequence)	constructor defaults ported; the other functions (instantiation with the load-time random draws, emitter update, rendering, the handle API for Lua) are run-time and not ported
 CKTDGXSkinAnim	40	8392	328CE380	todo		
 CX2ItemSlotManager	40	11473	3299B330	todo		
 CX2PremiumBuffManager	40	3247	32D1C170	todo		
@@ -152,7 +152,7 @@ CX2StateDungeonResult	25	6154	32F335A0	todo
 CX2TalkBoxManagerImp	25	3268	332224D0	todo		
 CX2PVPGame	25	1919	3325F1D0	todo		
 CKTDGEffectStateManager	24	785	328B2E20	todo		
-CKTDGParticleSystem	24	4671	328C17A0	todo		
+CKTDGParticleSystem	24	4671	328C17A0	partial	packages/assets/src/particle.ts (parseParticleScript, ParticleLibrary), effectscript.ts (EFFECT_SYSTEMS)	OpenScriptFile (KOM read by @els/kom), Compile, ProcessParticleSystemBlock, ProcessEventSequenceBlock and the replace-by-name registration ported; CreateSequence, OnFrameMove / OnFrameRender and the Lua thunks are not
 CKTDGUIControl::CPictureData	24	1108	328C2240	todo		
 CKTDGCamera	24	1176	328F0C50	todo		
 CX2Unit::UnitData	24	3639	32A9F110	todo		
@@ -166,7 +166,7 @@ CX2UIGuild	23	2996	32D09520	todo
 CX2WorldMissionManager	23	1226	32D19E40	todo		
 CX2UnitManager	23	5111	32DBBDC0	todo		
 CX2TFieldNpcShop	23	4946	3323D8E0	todo		
-CKTDGXMeshPlayer	22	4502	328C13C0	todo		
+CKTDGXMeshPlayer	22	4502	328C13C0	partial	packages/assets/src/xmeshplayer.ts (parseXMeshPlayerScript, XMeshLibrary), effectscript.ts (EFFECT_SYSTEMS)	OpenScriptFile, Compile, ProcessXMeshPlayerBlock, ProcessTempletBlock and the replace-by-name registration ported; instance creation, OnFrameMove / OnFrameRender, collision hooks and the Lua thunks are not
 CKTDIDevice	22	562	329625E0	todo		
 CKTDGUIUniBuffer	22	2056	329639A0	todo		
 CX2Dungeon	21	2492	32984B70	todo		
@@ -286,7 +286,7 @@ CX2Book	11	1285	3328BDD0	todo
 KSocketObject	11	1311	333BBBA0	todo		
 CBaseCamera	10	694	328A6C40	todo		
 CD3DEnumeration	10	2795	328A9270	todo		
-CKTDGXMeshPlayer::CXMeshPlayerTokenizer	10	1418	329175F0	todo		
+CKTDGXMeshPlayer::CXMeshPlayerTokenizer	10	1418	329175F0	done	packages/assets/src/effectscript.ts (tokenize), xmeshplayer.ts (classifyXMeshToken)	same code as the particle tokenizer plus ProcessBool / ProcessRenderType / ProcessString / ProcessVector3; the line numbers are kept for diagnostics only
 std::set<int>	10	571	3295F680	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDXDeviceTexture	10	1105	32967340	partial	packages/assets (decoders)	image decoding ported (D3DX semantics); the D3D device object, detail levels and GPU upload belong to phase 3
 CKTDXDeviceSound	10	495	329718B0	todo		
@@ -374,7 +374,7 @@ std::stringbuf	7	399	328AF6D0	n/a	-	C++ runtime library (STL, boost, ATL, debug 
 std::vector<unsigned char>	7	499	328B4140	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 KLuabinder	7	99	328C1A30	todo		
 boost::io::basic_altstringbuf<char,std::char_traits<char>,std::allocator<char>>	7	489	328E9490	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDGParticleSystem::CParticleEmitterTokenizer	7	1439	328F5460	todo		
+CKTDGParticleSystem::CParticleEmitterTokenizer	7	1439	328F5460	done	packages/assets/src/effectscript.ts (tokenize), particle.ts (classifyParticleToken)	Tokenize, AddToken, DetermineTokenType, NextToken and the ProcessNumber / ProcessVector / ProcessColor helpers, with the exe's quirks kept (repeated last token, `{abc` glue, `//` inside a word, quote after a word); no native oracle exists, the independent reader checks every parsed field
 std::vector<CX2GameUnit::SoundPlayData>	7	358	32913E10	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDGDynamicTexture	7	265	32963200	todo		
 std::vector<KPetInfo>	7	332	32996480	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -483,7 +483,7 @@ std::map<std::wstring,int>	5	282	328DD360	n/a	-	C++ runtime library (STL, boost,
 CKTDXCollision::CollisionData	5	120	328E5960	todo		
 CKTDXDeviceTET_Preprocessing	5	223	328E5B90	partial	packages/assets/src/xet.ts	reader (OpenFile, GetTexUV, GetString) ported
 CKTDXDeviceXET_Preprocessing::XETProxy	5	330	328E9980	n/a	-	Lua authoring API that writes .xet tables (AddAniData, AddChangeTexture, SetMultiTexStage1/2, ...); the shipped tables are already binary
-CKTDGXMeshPlayer::CXMeshEvent	5	209	3291E710	todo		
+CKTDGXMeshPlayer::CXMeshEvent	5	209	3291E710	done	packages/assets/src/effectscript.ts (expectEquals, MSG_EQUALS_*)	the five ProcessPropEqualsValue overloads
 std::vector<KBuffInfo>	5	357	32996050	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 KRoomUserInfo	5	1083	32998B40	todo		
 CX2ChatBox::AntiChatSpam	5	474	3299BE10	todo		
@@ -702,11 +702,11 @@ std::_Hash<std::_Umap_traits<std::string,unsigned int,std::_Uhash_compare<std::s
 std::deque<CKTDGCamera::CameraData>	3	204	328F0F90	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<CKTDGManager::KObjectRenderHint>	3	177	328F2BB0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDGParticleSystem::CParticle	3	424	328F5CA0	todo		
-CKTDGParticleSystem::CParticleEvent	3	147	32903290	todo		
+CKTDGParticleSystem::CParticleEvent	3	147	32903290	done	packages/assets/src/effectscript.ts (expectEquals, MSG_EQUALS_*)	the three ProcessPropEqualsValue overloads
 CKTDGLineMap::LineAnimData	3	71	32908500	todo		
 CKTDGLineMap::TRIGGER_DATA	3	302	329087A0	todo		
 std::vector<CX2UIQuestNew::QuestInfo>	3	116	32913E90	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDGXMeshPlayer::XMeshTemplet	3	371	329165A0	todo		
+CKTDGXMeshPlayer::XMeshTemplet	3	371	329165A0	partial	packages/assets/src/xmeshplayer.ts (newXMeshTemplet, XMeshTemplet)	constructor defaults ported; destructor and assignment are C++ ownership
 CKTDSManager	3	152	329620F0	todo		
 KMemoryDeserializer	3	59	329663B0	done	packages/assets/src/ksm.ts (class Mem)	AccessData / RetrieveData / RetrieveDupString: range checks, u32-length strings
 CKTDXDeviceXSkinMesh::MultiAnimMC	3	717	3296C380	partial	packages/assets/src/ksm.ts (readMeshContainer)	ReadKSM decoded (materials, vertices, indices, attributes, bones, influences); ID3DXSkinInfo and the draw lists are phase 3
@@ -900,22 +900,22 @@ boost::pool<boost::default_user_allocator_new_delete>	2	98	328F03F0	n/a	-	C++ ru
 std::vector<CKTDGParticleSystem::CParticleEmitterToken>	2	176	328F2CD0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<CKTDGParticleSystem::VERTEX_PARTICLE_RHW>	2	111	328F3400	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<kog::indexed_list<CKTDGParticleSystem::KSequenceHandleInfo>::storage_type,std::allocator<kog::indexed_list<CKTDGParticleSystem::KSequenceHandleInfo>::storage_type>>	2	106	328F3530	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDGParticleSystem::CParticleEvent_BlackHole	2	27	328FBAC0	todo		
-CKTDGParticleSystem::CParticleEvent_Color	2	102	328FBAF0	todo		
-CKTDGParticleSystem::CParticleEvent_Crash	2	44	328FBC30	todo		
-CKTDGParticleSystem::CParticleEvent_DirSpeed	2	60	328FBCC0	todo		
-CKTDGParticleSystem::CParticleEvent_EventTimer	2	50	328FBDD0	todo		
-CKTDGParticleSystem::CParticleEvent_Position	2	107	328FBE70	todo		
-CKTDGParticleSystem::CParticleEvent_ResetCrash	2	27	328FC0D0	todo		
-CKTDGParticleSystem::CParticleEvent_Rotate	2	96	328FC100	todo		
-CKTDGParticleSystem::CParticleEvent_Scale	2	88	328FC320	todo		
-CKTDGParticleSystem::CParticleEvent_Size	2	93	328FC4A0	todo		
-CKTDGParticleSystem::CParticleEvent_Stretch	2	61	328FC690	todo		
-CKTDGParticleSystem::CParticleEvent_Tex0UV	2	81	328FC790	todo		
-CKTDGParticleSystem::CParticleEvent_Tex1UV	2	81	328FC930	todo		
-CKTDGParticleSystem::CParticleEvent_Tex2UV	2	81	328FCAD0	todo		
-CKTDGParticleSystem::CParticleEvent_Texture	2	65	328FCC70	todo		
-CKTDGParticleSystem::CParticleEvent_Velocity	2	168	328FCC90	todo		
+CKTDGParticleSystem::CParticleEvent_BlackHole	2	27	328FBAC0	partial	packages/assets/src/particle.ts (parseParticleEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, which kinds may fade); OnFrameMove (the run-time interpolation) is not
+CKTDGParticleSystem::CParticleEvent_Color	2	102	328FBAF0	partial	packages/assets/src/particle.ts (parseParticleEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, which kinds may fade); OnFrameMove (the run-time interpolation) is not
+CKTDGParticleSystem::CParticleEvent_Crash	2	44	328FBC30	partial	packages/assets/src/particle.ts (parseParticleEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, which kinds may fade); OnFrameMove (the run-time interpolation) is not
+CKTDGParticleSystem::CParticleEvent_DirSpeed	2	60	328FBCC0	partial	packages/assets/src/particle.ts (parseParticleEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, which kinds may fade); OnFrameMove (the run-time interpolation) is not
+CKTDGParticleSystem::CParticleEvent_EventTimer	2	50	328FBDD0	partial	packages/assets/src/particle.ts (parseParticleEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, which kinds may fade); OnFrameMove (the run-time interpolation) is not
+CKTDGParticleSystem::CParticleEvent_Position	2	107	328FBE70	partial	packages/assets/src/particle.ts (parseParticleEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, which kinds may fade); OnFrameMove (the run-time interpolation) is not
+CKTDGParticleSystem::CParticleEvent_ResetCrash	2	27	328FC0D0	partial	packages/assets/src/particle.ts (parseParticleEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, which kinds may fade); OnFrameMove (the run-time interpolation) is not
+CKTDGParticleSystem::CParticleEvent_Rotate	2	96	328FC100	partial	packages/assets/src/particle.ts (parseParticleEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, which kinds may fade); OnFrameMove (the run-time interpolation) is not
+CKTDGParticleSystem::CParticleEvent_Scale	2	88	328FC320	partial	packages/assets/src/particle.ts (parseParticleEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, which kinds may fade); OnFrameMove (the run-time interpolation) is not
+CKTDGParticleSystem::CParticleEvent_Size	2	93	328FC4A0	partial	packages/assets/src/particle.ts (parseParticleEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, which kinds may fade); OnFrameMove (the run-time interpolation) is not
+CKTDGParticleSystem::CParticleEvent_Stretch	2	61	328FC690	partial	packages/assets/src/particle.ts (parseParticleEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, which kinds may fade); OnFrameMove (the run-time interpolation) is not
+CKTDGParticleSystem::CParticleEvent_Tex0UV	2	81	328FC790	partial	packages/assets/src/particle.ts (parseParticleEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, which kinds may fade); OnFrameMove (the run-time interpolation) is not
+CKTDGParticleSystem::CParticleEvent_Tex1UV	2	81	328FC930	partial	packages/assets/src/particle.ts (parseParticleEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, which kinds may fade); OnFrameMove (the run-time interpolation) is not
+CKTDGParticleSystem::CParticleEvent_Tex2UV	2	81	328FCAD0	partial	packages/assets/src/particle.ts (parseParticleEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, which kinds may fade); OnFrameMove (the run-time interpolation) is not
+CKTDGParticleSystem::CParticleEvent_Texture	2	65	328FCC70	partial	packages/assets/src/particle.ts (parseParticleEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, which kinds may fade); OnFrameMove (the run-time interpolation) is not
+CKTDGParticleSystem::CParticleEvent_Velocity	2	168	328FCC90	partial	packages/assets/src/particle.ts (parseParticleEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, which kinds may fade); OnFrameMove (the run-time interpolation) is not
 kog::indexed_list<CKTDGParticleSystem::KParticleHandleInfo>	2	149	329051C0	todo		
 std::vector<CKTDGLineMap::CameraData>	2	120	32905950	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<CKTDGLineMap::TRIGGER_DATA>	2	107	32905B10	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -925,26 +925,26 @@ CKTDGLineMap::TRIGGER_SEGMENT	2	32	32909190	todo
 std::vector<CKTDXDeviceXET *>	2	134	32913FD0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDGXRenderer::RenderParam	2	97	329141C0	todo		
 std::vector<CKTDGXMeshPlayer::CXMeshPlayerToken>	2	167	32914D60	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDGXMeshPlayer::CXMeshEvent_AniName	2	106	3291A1D0	todo		
-CKTDGXMeshPlayer::CXMeshEvent_AniSpeed	2	30	3291A260	todo		
-CKTDGXMeshPlayer::CXMeshEvent_BlackHoleTime	2	30	3291A290	todo		
-CKTDGXMeshPlayer::CXMeshEvent_Color	2	81	3291A2C0	todo		
-CKTDGXMeshPlayer::CXMeshEvent_Crash	2	54	3291A410	todo		
-CKTDGXMeshPlayer::CXMeshEvent_DirSpeed	2	65	3291A500	todo		
-CKTDGXMeshPlayer::CXMeshEvent_LightFlowImpact	2	66	3291A5F0	todo		
-CKTDGXMeshPlayer::CXMeshEvent_LightFlowPoint	2	98	3291A6E0	todo		
-CKTDGXMeshPlayer::CXMeshEvent_OutLineColor	2	81	3291A8E0	todo		
-CKTDGXMeshPlayer::CXMeshEvent_Position	2	111	3291AA30	todo		
-CKTDGXMeshPlayer::CXMeshEvent_RenderType	2	49	3291AC90	todo		
-CKTDGXMeshPlayer::CXMeshEvent_ResetCrash	2	30	3291ACB0	todo		
-CKTDGXMeshPlayer::CXMeshEvent_Rotate	2	98	3291ACE0	todo		
-CKTDGXMeshPlayer::CXMeshEvent_Size	2	97	3291AEE0	todo		
-CKTDGXMeshPlayer::CXMeshEvent_SlashTrace	2	49	3291B0E0	todo		
-CKTDGXMeshPlayer::CXMeshEvent_Sound	2	51	3291B100	todo		
-CKTDGXMeshPlayer::CXMeshEvent_Tex0UV	2	83	3291B170	todo		
-CKTDGXMeshPlayer::CXMeshEvent_Tex1UV	2	83	3291B2F0	todo		
-CKTDGXMeshPlayer::CXMeshEvent_Tex2UV	2	83	3291B470	todo		
-CKTDGXMeshPlayer::CXMeshEvent_Velocity	2	157	3291B5F0	todo		
+CKTDGXMeshPlayer::CXMeshEvent_AniName	2	106	3291A1D0	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_AniSpeed	2	30	3291A260	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_BlackHoleTime	2	30	3291A290	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_Color	2	81	3291A2C0	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_Crash	2	54	3291A410	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_DirSpeed	2	65	3291A500	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_LightFlowImpact	2	66	3291A5F0	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_LightFlowPoint	2	98	3291A6E0	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_OutLineColor	2	81	3291A8E0	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_Position	2	111	3291AA30	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_RenderType	2	49	3291AC90	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_ResetCrash	2	30	3291ACB0	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_Rotate	2	98	3291ACE0	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_Size	2	97	3291AEE0	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_SlashTrace	2	49	3291B0E0	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_Sound	2	51	3291B100	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_Tex0UV	2	83	3291B170	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_Tex1UV	2	83	3291B2F0	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_Tex2UV	2	83	3291B470	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
+CKTDGXMeshPlayer::CXMeshEvent_Velocity	2	157	3291B5F0	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
 CKTDGUIControl::TexChangeData	2	55	329233B0	todo		
 CKTDGUIControl::UIPointData	2	63	32923430	todo		
 std::deque<CKTDGUIDialog::DialogMoveItem>	2	165	32923550	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library

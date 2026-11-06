@@ -53,7 +53,7 @@ import type { Color4, MinMax, Range, ScriptStats, TokenType, Vec2, Vec3 } from "
 
 /** `CKTDGParticleSystem::PARTICLE_TYPE` */
 export const PARTICLE_TYPES = { PT_3D_PLANE: 0, PT_2D_PLANE: 1, PT_MESH: 2, PT_SKINMESH: 3 } as const;
-/** The `RT_*` names a particle sequence accepts for `MESHRENDERTYPE` (the enum has more, XMeshPlayer scripts accept all of them). */
+/** The `RT_*` names a particle sequence accepts for `MESHRENDERTYPE` (the enum has 19 names, XMeshPlayer scripts accept 16 of them). */
 export const PARTICLE_MESH_RENDER_TYPES = { RT_REAL_COLOR: 0, RT_CARTOON_BLACK_EDGE: 1, RT_CARTOON_COLOR_EDGE: 2, RT_CARTOON: 3 } as const;
 /** `CKTDGParticleSystem::EVENT_TYPE` (`ET_*`), by event kind. */
 export const PARTICLE_EVENT_TYPES = {
