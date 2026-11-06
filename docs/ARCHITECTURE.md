@@ -61,6 +61,8 @@ A register-based interpreter for LuaJIT 2.0.2 bytecode, following `lj_*` of the 
 | `bytecode.ts` | opcode tables (`lj_bc_mode`), `loadBytecode` (private header `1B 4B 4C 81`, flags, uleb128 constants, nested prototypes), `disassemble` (format of `jit.bc`) |
 | `vm.ts` | `LuaState`/`LuaThread`/`Frame`, the interpreter loop (`runLoop`), calls, varargs, upvalues, metamethods (`lj_meta_*`), coroutines, error context (`resolveError`, `slotName`, `callerLevels`), synthetic `pcall`/`xpcall` closures |
 | `numfmt.ts` | C-correct `%e/%f/%g` (ties-to-even) used by `tostring` and `string.format` |
+| `strscan.ts` | literal port of `lj_strscan.c` (`tonumber`, string arithmetic coercions; not always correctly rounded, so never replace it by `Number()`) |
+| `cmath.ts` | `x ^ y` / `math.pow` exactly as `vm_pow_sse` (repeated squaring for int32 exponents, special cases; `Math.pow` for the x87 path) |
 | `lib/base.ts` | base library (`loadChunk`, `BaseHost`) |
 | `lib/string.ts`, `lib/pattern.ts` | `string.*` (`lj_cf_string_format` port, Lua patterns) |
 | `lib/table.ts`, `lib/misc.ts` | `table.*`; `math` (Tausworthe PRNG as in `lj_math_random`), `bit`, `coroutine`, `os`, `io`, `debug`, `jit` stubs, `package`/`require`/`module` |
@@ -85,7 +87,7 @@ Design points that matter for faithfulness:
 | `verify-kom.ts` | full verification of every KOM entry |
 | `verify-lua-bytecode.ts` + `lua/native_dump_bc.lua` | loader/disassembler vs the native `jit.bc` listing |
 | `setup-oracle.sh` | builds the LuaJIT 2.0.2 oracle (patched for 32-bit `long`, client header) |
-| `lua-difftest.sh` + `tests/lua/*.lua` | differential tests; both VMs run the same `luajit -b -s` bytecode |
+| `lua-difftest.sh` + `tests/lua/*.lua` | differential tests (t10-t14 are fuzzers); both VMs run the same `luajit -b -s` bytecode, the oracle with `-joff`; a compile error or non-zero exit fails the test |
 | `corpus-diff.sh` + `lua/stubrun.lua` + `corpus-run.ts` | stub-environment differential run of all 4,498 game scripts (native xargs -P2 vs one in-process TS run, ~3 minutes per flavor) |
 | `lua-run.ts` + `lib/lua-host.ts` | run a `.luac` in the TS VM (`arg` like the standalone interpreter); the shared runner of the corpus tool |
 | `bindings.py` | extracts the `lua_tinker` registrations from `data/x2.exe.c` -> `docs/HOST_API.md`, `docs/host_api.tsv` (phase 5 ground truth) |
@@ -110,7 +112,7 @@ ls /home/user/work/ex | sort > /home/user/work/lualist.txt
 LUA_PATH=/home/user/work/luajit-2.0/src/?.lua /home/user/work/luajit-2.0/src/luajit tools/lua/native_dump_bc.lua \
   /home/user/work/ex /home/user/work/lualist.txt > /home/user/work/native_bc.txt
 ./node_modules/.bin/bun run tools/verify-lua-bytecode.ts /home/user/work/native_bc.txt
-./tools/lua-difftest.sh                       # 9 differential tests
+./tools/lua-difftest.sh                       # 14 differential tests (t10-t14 are fuzzers)
 ./tools/corpus-diff.sh 1 && ./tools/corpus-diff.sh 2 && ./tools/corpus-diff.sh 3    # stub-environment corpus, 3 flavors
 python3 tools/index_decomp.py data/x2.exe.c /home/user/work/analysis/functions.tsv
 ./node_modules/.bin/bun run tools/api-census.ts --md docs/SCRIPT_API_USAGE.md --json /home/user/work/analysis/api_census.json --usage /home/user/work/analysis/member_usage.json

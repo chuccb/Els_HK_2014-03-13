@@ -99,7 +99,7 @@ unless marked *(assumption)*.
 | Check | Result |
 |---|---|
 | `tools/verify-lua-bytecode.ts`: TS loader + disassembler vs `jit.bc` listing of the oracle, all scripts | 4,498 scripts / 26,565 prototypes / 8.4 M listing lines identical |
-| `tools/lua-difftest.sh`: 9 hand-written differential tests (basics, tables, strings, metatables, coroutines, errors, math, misc, library surface) | 9/9 identical |
+| `tools/lua-difftest.sh`: 14 differential tests, t01-t09 hand-written (basics, tables, strings, metatables, coroutines, errors, math, misc, library surface) and t10-t14 fuzzers (table sizing/`#`/`pairs` order, string library, number conversion and formatting, every operator x every operand type with metamethod logging, `table.sort` ties, 500 random Lua patterns, `os.date/os.time`). The oracle runs with `-joff` and a test fails on a compile error or a non-zero exit of either engine | 14/14 identical (see "Differential fuzz findings" below for what they found) |
 | `tools/corpus-diff.sh`: every game script run under a stub environment on native LuaJIT and on the TS VM; log of host calls, global table contents (order-independent hash + iteration-order hash) and results of calling every defined function must be identical | see the table at the end of this file |
 
 Not verified / known gaps (also tracked in `docs/ROADMAP.md`):
@@ -113,16 +113,60 @@ Not verified / known gaps (also tracked in `docs/ROADMAP.md`):
   `io.input/output` do not switch the default files, `io.popen` raises, `os.execute/remove/rename/tmpname/exit/setlocale` are
   stubs, no C modules. The *names* in every library table are identical to the oracle.
 * `string.dump` / `lua_dump` (bytecode writer) is not implemented.
-* `math.sin/cos/tan/asin/acos/atan/atan2/exp/log/log10/pow/sinh/cosh/tanh` and the `^` operator use V8's libm; the exe uses the
-  CRT and x87 sequences (`lj_vm_exp2_x87`, `lj_vm_pow_sse`), so results can differ in the last ulp for some inputs (x87
-  `fyl2x`/`f2xm1` are not bit-reproducible across CPUs either). Exactly rounded operations (`+ - * / sqrt floor ceil abs fmod`)
-  are identical.
+* `math.sin/cos/tan/asin/acos/atan/atan2/exp/log/log10/sinh/cosh/tanh` use V8's libm and `x ^ y` / `math.pow` with a
+  *non-integer* (or beyond-int32) exponent use `Math.pow` (the exe uses the CRT and the x87 sequence `fyl2x` + `f2xm1` +
+  `fscale` of `vm_pow_sse`), so results can differ in the last ulp for some inputs (x87 transcendental instructions are not
+  bit-reproducible across CPUs either). Exactly rounded operations (`+ - * / sqrt floor ceil abs fmod`) and `x ^ n` with an
+  int32-valued `n` (repeated squaring, `cmath.ts`) are bit-identical.
 * `pcall()` / `xpcall()` with *no arguments* report "attempt to call a nil value" instead of "bad argument #1 to '?' (value
   expected)" (pcall/xpcall are synthetic bytecode closures).
-* `strToNumber` handles only part of `lj_strscan` (signed `inf`/`infinity`/`nan` spellings are missing).
+* `string.format('%a')` is not implemented (glibc and the UCRT print it differently anyway) and `%p` / addresses can never match.
+* `os.date` follows the exe's CRT (msvcr100) where it is known and glibc is not the reference: 1970..3000 only (else `nil`),
+  `%c` is the C-locale `%m/%d/%y %H:%M:%S`; the locale the exe selects at run time (`setlocale`) is not known.
 * Printed addresses (`tostring(table)`, `%p`) can never match.
 * JIT compilation is not implemented: the VM is an interpreter, semantically equivalent by LuaJIT's contract (nothing in the
   client depends on `jit.*`).
+
+### Differential fuzz findings (t10-t14): behaviours confirmed on the oracle
+
+The fuzzers found 13 divergences that the hand-written tests and the stub-environment corpus had not exercised. All are fixed;
+the native behaviour they establish (the oracle is LuaJIT 2.0.2 at the exe's commit, run from the same stripped bytecode) is:
+
+* **Table constructors**: `{...}` allocates an array of `max(narr, 3)` slots; `TSETM` starts at `narr - 1` and, if `start + n`
+  exceeds the array size, calls `lj_tab_reasize(needed)`, i.e. `needed + 1` slots (one spare), copying nothing when `n == 0`.
+  `#t` is `lj_tab_len`: with `asize > 1` and a nil last array slot a binary search for a border, so `#{...}` with nil holes depends
+  on the argument count in a way that only this port reproduces.
+* **Library argument conversion**: integer arguments go through `(int32_t)` of the double with `cvttsd2si` semantics (NaN or out
+  of range gives `INT32_MIN`, no wrap): `("hello"):sub(2, math.huge) == ""`, `select(2^31, ...)` is "index out of range".
+  `%d %x %o %u` use `lj_lib_checkbit` instead (modular wrap, NaN gives 0). `string.rep(s, n, sep)` takes a separator
+  (the stock 2.0.2 has it); the result length limit is `0x7fffff00` ("string length overflow"). `string.format` cuts the
+  "invalid option" message at the NUL when the conversion character is NUL or missing.
+* **`lj_strscan`** (`tonumber`, string arithmetic, `for` coercion): an embedded NUL ends the string; `"-0"` is `+0` but `"-0.0"`
+  is `-0`; `inf`/`infinity`/`nan` in any case with an optional sign (the sign of `nan` is ignored); hex integers and hex floats,
+  no suffixes, surrounding white space allowed; decimal conversion is **not always correctly rounded** (`"6.1770031190000001e+19"`
+  differs from `strtod`), so `strscan.ts` is a literal port of the C code and must never be replaced by `Number()`.
+* **`tonumber(s, base)`** (base not 10) is the CRT's 32-bit `strtoul`: one optional sign (a second sign or a space after the sign
+  is "no digits"), `0x` for base 16, overflow saturates to 4294967295, a C string (stops at NUL).
+* **`x ^ y`, `math.pow`** are `vm_pow_sse`, not the C `pow`: an int32-valued exponent is applied by repeated squaring (one
+  rounding per multiplication, `1/x^|n|` for negative `n`), `x^NaN` is 1 only for `x == 1`, `(+-1)^(+-Inf)` is 1,
+  `(-1)^(2^31)` is NaN (the exponent no longer fits int32 and `fyl2x` rejects the negative base), `(-Inf)^y` is `+Inf` or 0
+  whatever the parity of `y`. JavaScript's `**` differs from all of these (`1 ** NaN` is NaN).
+* **`math.min/max`** are `minsd/maxsd` chains: the second operand wins when the values are equal (`math.max(0, -0)` is `-0`) or
+  unordered (`math.max(0, nan)` is `nan`, `math.max(nan, 0)` is `0`).
+* **Numeric `for`**: the *sign bit* of the step picks the comparison (`+0` is forward, `-0` and the x86 default NaN are backward),
+  so `for i = 1, 0, 0` runs zero times and `for i = 1, 3, 0` never ends; an unordered comparison ends the loop. (Trace-compiled
+  loops differ from the interpreter in these degenerate cases, which is why the oracle runs with `-joff`.)
+* **`__call`** must be a function: `lj_meta_call` does not follow chains, so a table whose `__call` is a table (or `false`)
+  raises "attempt to call a table value" for the original object.
+* **`table.sort`** is the 5.1 quicksort with LuaJIT's bounds checks `i >= u` / `j <= l` (PUC has `i > u` / `j < l`): an
+  inconsistent order function (`<=`, `>=`, `a.k - b.k`) raises "invalid order function for sorting" one step earlier, before
+  the comparator sees `nil`. Tie order, the median-of-three and the recursion on the smaller half are identical.
+* **`os.time(t)`** reads `sec, min, hour, day, month, year` in that order with `lua_getfield` (honours `__index`), numeric strings
+  count, values are truncated like `(int)`, a missing `day/month/year` is "field 'day' missing in date table". **`os.date`**
+  compares the format with `"*t"` exactly and casts the time with `(time_t)` (truncation).
+* Not behaviours but test pitfalls: native `unpack(t, math.huge)` crashes (signed overflow in `e - i + 1`), `math.min()` after
+  another call can return a stale stack slot, and the oracle's `os.date` accepts glibc extensions (`%e`, `%5`) that the exe's CRT
+  rejects: such cases are left out of the tests.
 
 ## 5. Platform findings (to be extended per phase)
 

@@ -22,7 +22,7 @@
 ^lj_lib_register$	n/a	-	-	library registration = makeLib
 ^lj_lib_	done	packages/lua/src/lib/util.ts	t06	argument checkers with the exact messages
 ^(bcread_|lj_bcread$)	done	packages/lua/src/bytecode.ts loadBytecode	tools/verify-lua-bytecode.ts: 4,498 scripts / 26,565 prototypes identical to `jit.bc`	
-^(lj_strscan|strscan_)	partial	packages/lua/src/vm.ts strToNumber	t01, t07	signed inf/nan spellings are missing
+^(lj_strscan|strscan_)	done	packages/lua/src/strscan.ts scanNumber (vm.ts strToNumber)	t12 (700 random doubles x 24 formats, tonumber/coercion fuzz, special spellings)	literal port, including the cases that are not correctly rounded
 ^lj_math_random_step$	done	packages/lua/src/lib/misc.ts Prng	t07	same xorshift stream as LuaJIT 2.0
 ^lj_cont_	n/a	-	-	continuations are replaced by JS recursion (yield across metamethods unsupported)
 ^lj_dispatch_	n/a	-	-	hooks / JIT dispatch table
@@ -47,12 +47,13 @@
 ^lj_ff_string_	done	packages/lua/src/lib/string.ts	t03	
 ^lj_cf_string_dump$	todo	-	-	needs a bytecode writer
 ^lj_cf_string_	done	packages/lua/src/lib/string.ts, lib/pattern.ts	t03; corpus-diff (found the %q bug)	format follows lj_cf_string_format/addquoted
-^(lj_ff_table_getn|lj_cf_table_)	done	packages/lua/src/lib/table.ts	t02	
+^(lj_ff_table_getn|lj_cf_table_)	done	packages/lua/src/lib/table.ts	t02, t10 (sizing), t14 (sort ties and order-function errors)	
 ^(lj_ff_math_(abs|floor|ceil|sqrt|modf|frexp|ldexp|rad|min|max)|lj_cf_math_random|lj_cf_math_randomseed)$	done	packages/lua/src/lib/misc.ts	t07	exactly rounded operations
+^lj_vm_(pow|powi)$	partial	packages/lua/src/cmath.ts luaPow	t13 (every operand pair), t12	int32 exponents bit-exact (vm_powi_sse), special cases of vm_pow_sse exact; the x87 fyl2x/f2xm1 path is approximated by Math.pow
 ^(lj_ff_math_|lj_cf_math_|lj_vm_(floor|ceil|trunc|mod|modi|log2|exp|pow|powi|foldfpm|foldarith|sinh|cosh|tanh))	partial	packages/lua/src/lib/misc.ts, vm.ts arith	t07	transcendental functions use V8's libm instead of x87/CRT: last-ulp differences are possible (x87 fyl2x/f2xm1 are not reproducible bit-exactly anyway)
 ^(lj_ff_bit_|lj_cf_bit_)	done	packages/lua/src/lib/misc.ts	t07	
 ^lj_cf_coroutine_	partial	packages/lua/src/lib/misc.ts	t05	no yield across metamethods / native iterators
-^lj_cf_os_	partial	packages/lua/src/lib/misc.ts	t08	time/date/clock/getenv; execute/remove/rename/tmpname/exit/setlocale are stubs
+^lj_cf_os_	partial	packages/lua/src/lib/misc.ts	t08, t14 (os.date/os.time on fixed instants)	time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs
 ^(lj_cf_io_|io_|luaopen_io)	partial	packages/lua/src/lib/misc.ts	t08, t09	read-only files from the host, in-memory writes; popen unsupported
 ^lj_cf_debug_	partial	packages/lua/src/lib/misc.ts	t09	names only for locals/upvalues (scripts are stripped); traceback approximate
 ^lj_cf_package_	partial	packages/lua/src/lib/misc.ts	t08, t09	require/module/seeall/loaders/searchpath; no C modules

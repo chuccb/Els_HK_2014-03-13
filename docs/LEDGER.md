@@ -8,8 +8,8 @@ The export contains **33294** functions: **1172** belong to the embedded LuaJIT 
 
 | status | functions |
 |---|---|
-| done | 147 |
-| partial | 122 |
+| done | 152 |
+| partial | 117 |
 | stub | 17 |
 | n/a | 872 |
 | todo | 14 |
@@ -54,7 +54,7 @@ Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM i
 | 328758A1 | `lj_ff_math_max` (L219963) | done | packages/lua/src/lib/misc.ts | t07 | exactly rounded operations |
 | 328758D7 | `lj_ff_string_len` (L220002) | done | packages/lua/src/lib/string.ts | t03 |  |
 | 328758F4 | `lj_ff_string_byte` (L220026) | done | packages/lua/src/lib/string.ts | t03 |  |
-| 32875C03 | `lj_ff_table_getn` (L220079) | done | packages/lua/src/lib/table.ts | t02 |  |
+| 32875C03 | `lj_ff_table_getn` (L220079) | done | packages/lua/src/lib/table.ts | t02, t10 (sizing), t14 (sort ties and order-function errors) |  |
 | 32875C2C | `lj_ff_bit_tobit` (L220105) | done | packages/lua/src/lib/misc.ts | t07 |  |
 | 32875C58 | `lj_ff_bit_band` (L220133) | done | packages/lua/src/lib/misc.ts | t07 |  |
 | 32875CAA | `lj_ff_bit_bor` (L220177) | done | packages/lua/src/lib/misc.ts | t07 |  |
@@ -77,7 +77,7 @@ Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM i
 | 32876355 | `lj_vm_exp_x87` (L220947) | partial | packages/lua/src/lib/misc.ts, vm.ts arith | t07 | transcendental functions use V8's libm instead of x87/CRT: last-ulp differences are possible (x87 fyl2x/f2xm1 are not reproducible bit-exactly anyway) |
 | 32876359 | `lj_vm_exp2_x87` (L220953) | partial | packages/lua/src/lib/misc.ts, vm.ts arith | t07 | transcendental functions use V8's libm instead of x87/CRT: last-ulp differences are possible (x87 fyl2x/f2xm1 are not reproducible bit-exactly anyway) |
 | 32876371 | `lj_vm_exp2raw` (L220975) | partial | packages/lua/src/lib/misc.ts, vm.ts arith | t07 | transcendental functions use V8's libm instead of x87/CRT: last-ulp differences are possible (x87 fyl2x/f2xm1 are not reproducible bit-exactly anyway) |
-| 32876389 | `lj_vm_pow` (L220984) | partial | packages/lua/src/lib/misc.ts, vm.ts arith | t07 | transcendental functions use V8's libm instead of x87/CRT: last-ulp differences are possible (x87 fyl2x/f2xm1 are not reproducible bit-exactly anyway) |
+| 32876389 | `lj_vm_pow` (L220984) | partial | packages/lua/src/cmath.ts luaPow | t13 (every operand pair), t12 | int32 exponents bit-exact (vm_powi_sse), special cases of vm_pow_sse exact; the x87 fyl2x/f2xm1 path is approximated by Math.pow |
 | 3287645A | `lj_vm_pow_sse` (L221128) | partial | packages/lua/src/lib/misc.ts, vm.ts arith | t07 | transcendental functions use V8's libm instead of x87/CRT: last-ulp differences are possible (x87 fyl2x/f2xm1 are not reproducible bit-exactly anyway) |
 | 32876472 | `lj_vm_powi_sse` (L221188) | partial | packages/lua/src/lib/misc.ts, vm.ts arith | t07 | transcendental functions use V8's libm instead of x87/CRT: last-ulp differences are possible (x87 fyl2x/f2xm1 are not reproducible bit-exactly anyway) |
 | 328765AB | `lj_vm_foldfpm` (L221248) | partial | packages/lua/src/lib/misc.ts, vm.ts arith | t07 | transcendental functions use V8's libm instead of x87/CRT: last-ulp differences are possible (x87 fyl2x/f2xm1 are not reproducible bit-exactly anyway) |
@@ -140,11 +140,11 @@ Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM i
 | 33371AD0 | `lj_meta_comp` (L2482024) | done | packages/lua/src/vm.ts metaComp | t04; corpus-diff flavors 1-3 | LuaJIT operand and metamethod order (not Lua 5.1's); ISGE/ISGT are "not ISLT/ISLE" (true for NaN) |
 | 33371C50 | `lj_meta_call` (L2482107) | done | packages/lua/src/vm.ts (index, setIndex, arith, concat, len, equals, call, forPrep) | t01, t04; corpus-diff |  |
 | 33371CA0 | `lj_meta_for` (L2482129) | done | packages/lua/src/vm.ts (index, setIndex, arith, concat, len, equals, call, forPrep) | t01, t04; corpus-diff |  |
-| 33373460 | `lj_strscan_scan` (L2483225) | partial | packages/lua/src/vm.ts strToNumber | t01, t07 | signed inf/nan spellings are missing |
-| 33373A70 | `lj_strscan_num` (L2483653) | partial | packages/lua/src/vm.ts strToNumber | t01, t07 | signed inf/nan spellings are missing |
-| 33373A90 | `strscan_dec` (L2483659) | partial | packages/lua/src/vm.ts strToNumber | t01, t07 | signed inf/nan spellings are missing |
-| 33374190 | `strscan_double` (L2484144) | partial | packages/lua/src/vm.ts strToNumber | t01, t07 | signed inf/nan spellings are missing |
-| 333742E0 | `strscan_hex` (L2484219) | partial | packages/lua/src/vm.ts strToNumber | t01, t07 | signed inf/nan spellings are missing |
+| 33373460 | `lj_strscan_scan` (L2483225) | done | packages/lua/src/strscan.ts scanNumber (vm.ts strToNumber) | t12 (700 random doubles x 24 formats, tonumber/coercion fuzz, special spellings) | literal port, including the cases that are not correctly rounded |
+| 33373A70 | `lj_strscan_num` (L2483653) | done | packages/lua/src/strscan.ts scanNumber (vm.ts strToNumber) | t12 (700 random doubles x 24 formats, tonumber/coercion fuzz, special spellings) | literal port, including the cases that are not correctly rounded |
+| 33373A90 | `strscan_dec` (L2483659) | done | packages/lua/src/strscan.ts scanNumber (vm.ts strToNumber) | t12 (700 random doubles x 24 formats, tonumber/coercion fuzz, special spellings) | literal port, including the cases that are not correctly rounded |
+| 33374190 | `strscan_double` (L2484144) | done | packages/lua/src/strscan.ts scanNumber (vm.ts strToNumber) | t12 (700 random doubles x 24 formats, tonumber/coercion fuzz, special spellings) | literal port, including the cases that are not correctly rounded |
+| 333742E0 | `strscan_hex` (L2484219) | done | packages/lua/src/strscan.ts scanNumber (vm.ts strToNumber) | t12 (700 random doubles x 24 formats, tonumber/coercion fuzz, special spellings) | literal port, including the cases that are not correctly rounded |
 | 33376640 | `lj_lex_setup` (L2486458) | todo | - | - | source compiler: ROADMAP phase 1b (needed for GameOption.txt, TutorSystem.lua, loadstring) |
 | 333768A0 | `lj_lex_cleanup` (L2486660) | todo | - | - | source compiler: ROADMAP phase 1b (needed for GameOption.txt, TutorSystem.lua, loadstring) |
 | 33376900 | `lj_lex_token2str` (L2486688) | todo | - | - | source compiler: ROADMAP phase 1b (needed for GameOption.txt, TutorSystem.lua, loadstring) |
@@ -213,13 +213,13 @@ Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM i
 | 333905E0 | `lj_cf_string_gsub` (L2511489) | done | packages/lua/src/lib/string.ts, lib/pattern.ts | t03; corpus-diff (found the %q bug) | format follows lj_cf_string_format/addquoted |
 | 333907A0 | `lj_cf_string_format` (L2511566) | done | packages/lua/src/lib/string.ts, lib/pattern.ts | t03; corpus-diff (found the %q bug) | format follows lj_cf_string_format/addquoted |
 | 33391C50 | `luaopen_table` (L2512845) | done | packages/lua/src/lib/*.ts | t09 (library surface identical to the oracle) | includes the exe's LUA_COMPAT_GFIND (string.gfind) and LUA_COMPAT_MOD (math.mod) |
-| 33391C80 | `lj_cf_table_foreachi` (L2512852) | done | packages/lua/src/lib/table.ts | t02 |  |
-| 33391D40 | `lj_cf_table_foreach` (L2512904) | done | packages/lua/src/lib/table.ts | t02 |  |
-| 33391E10 | `lj_cf_table_maxn` (L2512956) | done | packages/lua/src/lib/table.ts | t02 |  |
-| 33391E90 | `lj_cf_table_insert` (L2512994) | done | packages/lua/src/lib/table.ts | t02 |  |
-| 33391FC0 | `lj_cf_table_remove` (L2513097) | done | packages/lua/src/lib/table.ts | t02 |  |
-| 333920E0 | `lj_cf_table_concat` (L2513172) | done | packages/lua/src/lib/table.ts | t02 |  |
-| 33392210 | `lj_cf_table_sort` (L2513222) | done | packages/lua/src/lib/table.ts | t02 |  |
+| 33391C80 | `lj_cf_table_foreachi` (L2512852) | done | packages/lua/src/lib/table.ts | t02, t10 (sizing), t14 (sort ties and order-function errors) |  |
+| 33391D40 | `lj_cf_table_foreach` (L2512904) | done | packages/lua/src/lib/table.ts | t02, t10 (sizing), t14 (sort ties and order-function errors) |  |
+| 33391E10 | `lj_cf_table_maxn` (L2512956) | done | packages/lua/src/lib/table.ts | t02, t10 (sizing), t14 (sort ties and order-function errors) |  |
+| 33391E90 | `lj_cf_table_insert` (L2512994) | done | packages/lua/src/lib/table.ts | t02, t10 (sizing), t14 (sort ties and order-function errors) |  |
+| 33391FC0 | `lj_cf_table_remove` (L2513097) | done | packages/lua/src/lib/table.ts | t02, t10 (sizing), t14 (sort ties and order-function errors) |  |
+| 333920E0 | `lj_cf_table_concat` (L2513172) | done | packages/lua/src/lib/table.ts | t02, t10 (sizing), t14 (sort ties and order-function errors) |  |
+| 33392210 | `lj_cf_table_sort` (L2513222) | done | packages/lua/src/lib/table.ts | t02, t10 (sizing), t14 (sort ties and order-function errors) |  |
 | 33392660 | `luaopen_io` (L2513427) | partial | packages/lua/src/lib/misc.ts | t08, t09 | read-only files from the host, in-memory writes; popen unsupported |
 | 33392780 | `io_file_iter` (L2513488) | partial | packages/lua/src/lib/misc.ts | t08, t09 | read-only files from the host, in-memory writes; popen unsupported |
 | 33392830 | `lj_cf_io_method_close` (L2513523) | partial | packages/lua/src/lib/misc.ts | t08, t09 | read-only files from the host, in-memory writes; popen unsupported |
@@ -250,17 +250,17 @@ Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM i
 | 333935F0 | `io_std_getset` (L2514263) | partial | packages/lua/src/lib/misc.ts | t08, t09 | read-only files from the host, in-memory writes; popen unsupported |
 | 33393670 | `io_tofile` (L2514297) | partial | packages/lua/src/lib/misc.ts | t08, t09 | read-only files from the host, in-memory writes; popen unsupported |
 | 333936B0 | `luaopen_os` (L2514311) | done | packages/lua/src/lib/*.ts | t09 (library surface identical to the oracle) | includes the exe's LUA_COMPAT_GFIND (string.gfind) and LUA_COMPAT_MOD (math.mod) |
-| 333936E0 | `lj_cf_os_execute` (L2514318) | partial | packages/lua/src/lib/misc.ts | t08 | time/date/clock/getenv; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 33393720 | `lj_cf_os_remove` (L2514335) | partial | packages/lua/src/lib/misc.ts | t08 | time/date/clock/getenv; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 33393750 | `lj_cf_os_rename` (L2514346) | partial | packages/lua/src/lib/misc.ts | t08 | time/date/clock/getenv; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 33393790 | `lj_cf_os_tmpname` (L2514359) | partial | packages/lua/src/lib/misc.ts | t08 | time/date/clock/getenv; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 33393800 | `lj_cf_os_getenv` (L2514370) | partial | packages/lua/src/lib/misc.ts | t08 | time/date/clock/getenv; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 33393830 | `lj_cf_os_exit` (L2514382) | partial | packages/lua/src/lib/misc.ts | t08 | time/date/clock/getenv; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 33393890 | `lj_cf_os_clock` (L2514401) | partial | packages/lua/src/lib/misc.ts | t08 | time/date/clock/getenv; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 333938C0 | `lj_cf_os_date` (L2514409) | partial | packages/lua/src/lib/misc.ts | t08 | time/date/clock/getenv; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 33393B40 | `lj_cf_os_time` (L2514505) | partial | packages/lua/src/lib/misc.ts | t08 | time/date/clock/getenv; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 33393DA0 | `lj_cf_os_difftime` (L2514581) | partial | packages/lua/src/lib/misc.ts | t08 | time/date/clock/getenv; execute/remove/rename/tmpname/exit/setlocale are stubs |
-| 33393E10 | `lj_cf_os_setlocale` (L2514595) | partial | packages/lua/src/lib/misc.ts | t08 | time/date/clock/getenv; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 333936E0 | `lj_cf_os_execute` (L2514318) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 33393720 | `lj_cf_os_remove` (L2514335) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 33393750 | `lj_cf_os_rename` (L2514346) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 33393790 | `lj_cf_os_tmpname` (L2514359) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 33393800 | `lj_cf_os_getenv` (L2514370) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 33393830 | `lj_cf_os_exit` (L2514382) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 33393890 | `lj_cf_os_clock` (L2514401) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 333938C0 | `lj_cf_os_date` (L2514409) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 33393B40 | `lj_cf_os_time` (L2514505) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 33393DA0 | `lj_cf_os_difftime` (L2514581) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
+| 33393E10 | `lj_cf_os_setlocale` (L2514595) | partial | packages/lua/src/lib/misc.ts | t08, t14 (os.date/os.time on fixed instants) | time/date/clock/getenv; msvcr100 range 1970..3000 and C-locale %c are assumptions; execute/remove/rename/tmpname/exit/setlocale are stubs |
 | 33393EA0 | `luaopen_package` (L2514640) | done | packages/lua/src/lib/*.ts | t09 (library surface identical to the oracle) | includes the exe's LUA_COMPAT_GFIND (string.gfind) and LUA_COMPAT_MOD (math.mod) |
 | 333940B0 | `lj_cf_package_loadlib` (L2514711) | partial | packages/lua/src/lib/misc.ts | t08, t09 | require/module/seeall/loaders/searchpath; no C modules |
 | 33394120 | `lj_cf_package_unloadlib` (L2514733) | partial | packages/lua/src/lib/misc.ts | t08, t09 | require/module/seeall/loaders/searchpath; no C modules |
