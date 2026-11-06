@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.cache/
+*.log
+__pycache__/
+*.pyc
+# generated analysis / extraction output (never commit the 2.6M-line decompile derivatives or extracted assets)
+/work/
+/.work/
+package-lock.json

@@ -1,0 +1,28 @@
+{
+  "name": "els-hk-web",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Elsword HK client (2014-03-13) restored on the Web: TypeScript + Bun + WebGPU. Behaviour follows data/x2.exe (IDA export data/x2.exe.c).",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "bun test",
+    "verify:kom": "bun run tools/verify-kom.ts",
+    "verify:lua": "bun run tools/verify-lua.ts"
+  },
+  "devDependencies": {
+    "@els/kom": "workspace:*",
+    "@els/lua": "workspace:*",
+    "@types/bun": "1.4.4",
+    "@webgpu/types": "0.1.74",
+    "bun": "1.4.4",
+    "typescript": "7.1.0-beta"
+  },
+  "engines": {
+    "bun": "1.4.4"
+  }
+}
