@@ -17,7 +17,7 @@
  * and `UpdateRects` (vtable slot 42, which is where `SetDropHeight` and the setters go).
  */
 import type { CKTDGUIComboBox_Methods } from "@els/host";
-import { CKTDGUIControl, UCT, UIM, UIPointData, readStringData } from "./control.ts";
+import { CKTDGUIControl, UCT, UIM, UIPointData, readStringData, wcharText } from "./control.ts";
 import type { UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
 import { idiv, newRect, newVertices, offsetRect, setRect, copyRect } from "./rect.ts";
@@ -38,11 +38,7 @@ export interface ComboBoxItem {
   pControl: CKTDGUIControl | null;
 }
 
-/** the text a `wchar_t[256]` keeps: the characters up to a NUL, at most 255 */
-const itemText = (text: string): string => {
-  const nul = text.indexOf("\0");
-  return (nul < 0 ? text : text.slice(0, nul)).slice(0, 255);
-};
+const itemText = (text: string): string => wcharText(text);
 
 export class CKTDGUIComboBox extends CKTDGUIControl implements Partial<CKTDGUIComboBox_Methods> {
   m_iSelected = -1;

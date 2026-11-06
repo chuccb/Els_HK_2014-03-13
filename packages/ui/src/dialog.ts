@@ -22,10 +22,11 @@ import { CKTDGUIRadioButton } from "./radiobutton.ts";
 import { CKTDGUISlot } from "./slot.ts";
 import { CKTDGUIIMEEditBox } from "./imeeditbox.ts";
 import { CKTDGUIComboBox } from "./combobox.ts";
+import { CKTDGUIListBox } from "./listbox.ts";
 import type { RadioButtonGroupInfo } from "./radiobutton.ts";
 import { WStringMap } from "./stdmap.ts";
 import type { UIContext } from "./control.ts";
-import { CKTDGUIStatic } from "./static.ts";
+import { CKTDGUIItem, CKTDGUIStatic } from "./static.ts";
 
 /** `wchar_t buff[256]` of `StringCchPrintfW(buff, 0x100, L"%s%d", name, n)` and the copy in ReNameControl: at most 255 characters */
 const clip255 = (s: string): string => (s.length > 255 ? s.slice(0, 255) : s);
@@ -199,6 +200,16 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
   /** `CreateSlot()` (328C1940) */
   CreateSlot(): CKTDGUISlot {
     return new CKTDGUISlot(this.ctx);
+  }
+
+  /** `CreateListBox()` (328C1570) */
+  CreateListBox(): CKTDGUIListBox {
+    return new CKTDGUIListBox(this.ctx);
+  }
+
+  /** `CreateItem()` (328C1500) */
+  CreateItem(): CKTDGUIItem {
+    return new CKTDGUIItem(this.ctx);
   }
 
   /** `CreateComboBox()` (328C1200) */

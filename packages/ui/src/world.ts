@@ -12,11 +12,12 @@ import { CKTDGUICheckBox } from "./checkbox.ts";
 import { CKTDGUIRadioButton } from "./radiobutton.ts";
 import { CKTDGUIDialog } from "./dialog.ts";
 import { DeviceManager } from "./device.ts";
-import { CKTDGUIStatic } from "./static.ts";
+import { CKTDGUIItem, CKTDGUIStatic } from "./static.ts";
 import { CKTDGUISlot, CX2CouponBox, CX2PostBox, CX2Slot, CX2SlotManager } from "./slot.ts";
 import { CKTDGUIIMEEditBox, ImeSystem } from "./imeeditbox.ts";
 import { CKTDGFontManager } from "./fontmanager.ts";
 import { CKTDGUIComboBox } from "./combobox.ts";
+import { CKTDGUIListBox } from "./listbox.ts";
 import { CKTDGUIScrollBar } from "./scrollbar.ts";
 import { UIFonts } from "./font.ts";
 
@@ -42,6 +43,8 @@ const IMPLEMENTATIONS: [string, object][] = [
   ["CKTDGUIIMEEditBox", CKTDGUIIMEEditBox],
   ["CKTDGFontManager", CKTDGFontManager],
   ["CKTDGUIComboBox", CKTDGUIComboBox],
+  ["CKTDGUIListBox", CKTDGUIListBox],
+  ["CKTDGUIItem", CKTDGUIItem],
   ["CKTDGUIScrollBar", CKTDGUIScrollBar],
   ["CX2SlotManager", CX2SlotManager],
   ["CX2PostBox", CX2PostBox],

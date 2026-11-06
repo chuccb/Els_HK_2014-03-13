@@ -285,6 +285,15 @@ export function readPointData(ctx: UIContext): UIPointData {
   return p;
 }
 
+/**
+ * What a `wchar_t[capacity]` keeps of a string the exe copies into it with the loop of `AddItem` (up to a NUL, at most `capacity - 1`
+ * characters, the last one the terminator)
+ */
+export function wcharText(text: string, capacity = 256): string {
+  const nul = text.indexOf("\0");
+  return (nul < 0 ? text : text.slice(0, nul)).slice(0, capacity - 1);
+}
+
 /** `CKTDGUIControl::SetStringData_()` (329269C0): the string of the table on top of the stack */
 export function readStringData(ctx: UIContext): UIStringData {
   const m = new KLuaManager(ctx.world.rt, 1);
@@ -440,6 +449,49 @@ export class CPictureData implements Partial<CKTDGUIControl__CPictureData_Method
     this.size.set(f(p.rightTopPoint.x - p.leftTopPoint.x), f(p.rightBottomPoint.y - p.leftTopPoint.y));
     this.originalPos.set(this.pos.x, this.pos.y);
     this.originalSize.set(this.size.x, this.size.y);
+  }
+
+  /**
+   * The `SetPoint()` without an argument (32925F30), which C++ code calls on a picture that has a texture and no point yet: a default point
+   * (`UIPointData()`) that draws the texture, sized from it, at the origin; the picture is as big as the texture.
+   */
+  setDefaultPoint(): void {
+    if (this.pPoint || !this.pTexture) return;
+    const p = new UIPointData();
+    this.pPoint = p;
+    p.pUITextureData = this.pTexture;
+    p.applyTextureSize();
+    this.pos.set(p.leftTopPoint.x, p.leftTopPoint.y);
+    this.originalPos.set(this.pos.x, this.pos.y);
+    this.size.set(this.pTexture.texSize.x, this.pTexture.texSize.y);
+    this.originalSize.set(this.size.x, this.size.y);
+  }
+
+  /**
+   * `SetSize(D3DXVECTOR2)` (32926600): the picture gets the size and its point the corners that follow from it, from the left-top corner.  A
+   * picture with a texture and no point is given the default point first (the original size is then the new size); without a texture
+   * either it is error log 0x159.
+   */
+  setSize(size: Vec2): void {
+    this.size.set(size.x, size.y);
+    if (!this.pPoint) {
+      if (!this.pTexture) {
+        this.ctx.devices.massFiles.log.push(0x159);
+        return;
+      }
+      const q = new UIPointData();
+      this.pPoint = q;
+      q.pUITextureData = this.pTexture;
+      q.applyTextureSize();
+      this.pos.set(q.leftTopPoint.x, q.leftTopPoint.y);
+      this.originalPos.set(this.pos.x, this.pos.y);
+      this.originalSize.set(this.size.x, this.size.y);
+    }
+    const p = this.pPoint;
+    const w = this.size.x, h = this.size.y;
+    p.rightTopPoint.set(f(p.leftTopPoint.x + w), p.leftTopPoint.y);
+    p.leftBottomPoint.set(p.leftTopPoint.x, f(p.leftTopPoint.y + h));
+    p.rightBottomPoint.set(f(p.leftTopPoint.x + w), f(p.leftTopPoint.y + h));
   }
 
   /**

@@ -42,6 +42,14 @@ export function offsetRect(rc: Rect, dx: number, dy: number): void {
   rc.bottom = (rc.bottom + dy) | 0;
 }
 
+/** `InflateRect(rc, dx, dy)`: every side moves outwards (a negative amount shrinks the rectangle) */
+export function inflateRect(rc: Rect, dx: number, dy: number): void {
+  rc.left = (rc.left - dx) | 0;
+  rc.right = (rc.right + dx) | 0;
+  rc.top = (rc.top - dy) | 0;
+  rc.bottom = (rc.bottom + dy) | 0;
+}
+
 /** C++ struct assignment `dst = src` */
 export function copyRect(dst: Rect, src: Rect): void {
   dst.left = src.left;

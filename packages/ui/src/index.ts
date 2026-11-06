@@ -8,6 +8,7 @@ export * from "./slot.ts";
 export * from "./rect.ts";
 export * from "./font.ts";
 export * from "./fontmanager.ts";
+export * from "./listbox.ts";
 export * from "./unibuffer.ts";
 export * from "./imeeditbox.ts";
 export * from "./scrollbar.ts";

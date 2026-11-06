@@ -6,7 +6,7 @@
 import { CKTDGUIControl, UCT, readStringData } from "./control.ts";
 import type { CPictureData, UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceTexture } from "./device.ts";
-import type { CKTDGUIStatic_Methods } from "@els/host";
+import type { CKTDGUIItem_Methods, CKTDGUIStatic_Methods } from "@els/host";
 
 export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStatic_Methods> {
   readonly m_PictureDataList: CPictureData[] = [];
@@ -68,4 +68,13 @@ export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStat
   SetCustomMsgMouseUp(msg: number): void {
     this.m_CustomMsgMouseUp = msg;
   }
+}
+
+/**
+ * `CKTDGUIItem` (the Lua class `CKTDGUIItem`, a `CKTDGUIStatic`; `CKTDGUIDialog::CreateItem` 328C1500): a static that is a row of a list.  The constructor
+ * (3293B600) is the static's with a width and a height of 0; the class registers no method of its own and overrides no virtual function.
+ */
+export class CKTDGUIItem extends CKTDGUIStatic implements Partial<CKTDGUIItem_Methods> {
+  m_Width = 0;
+  m_Height = 0;
 }
