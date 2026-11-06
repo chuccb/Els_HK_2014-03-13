@@ -78,10 +78,10 @@ describe("UIFonts (the dialog manager's font lookup)", () => {
     const f3 = fonts.addUKFont(3);
     fonts.mapUIFontToUKFont(1, 3);
     fonts.mapUIFontToUKFont(2, 99); // no such UK font: not mapped
-    expect(fonts.getUKFont(1)).toBe(f3);
-    expect(fonts.getUKFont(2)).toBeNull();
+    expect(fonts.getMappedUKFont(1)).toBe(f3);
+    expect(fonts.getMappedUKFont(2)).toBeNull();
     expect(fonts.m_mapFontToUKFont.has(2)).toBe(false);
-    expect(fonts.getUKFont(7)).toBeNull();
+    expect(fonts.getMappedUKFont(7)).toBeNull();
   });
 
   test("a mapped id whose font is gone reads as null and operator[] leaves an entry for it", () => {
@@ -89,9 +89,18 @@ describe("UIFonts (the dialog manager's font lookup)", () => {
     fonts.addUKFont(5);
     fonts.mapUIFontToUKFont(1, 5);
     fonts.m_mapUKFontList.delete(5);
-    expect(fonts.getUKFont(1)).toBeNull();
+    expect(fonts.getMappedUKFont(1)).toBeNull();
     expect(fonts.m_mapUKFontList.has(5)).toBe(true);
     expect(fonts.m_mapUKFontList.get(5)).toBeNull();
+  });
+
+  test("GetUKFont is m_mapUKFontList[id] with no mapping in between (and operator[] leaves a null entry)", () => {
+    const fonts = new UIFonts();
+    const f4 = fonts.addUKFont(4);
+    fonts.mapUIFontToUKFont(9, 4);
+    expect(fonts.getUKFont(4)).toBe(f4);
+    expect(fonts.getUKFont(9)).toBeNull(); // 9 is a font index, not a UK font id
+    expect(fonts.m_mapUKFontList.has(9)).toBe(true);
   });
 });
 

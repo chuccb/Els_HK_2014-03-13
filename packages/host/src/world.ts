@@ -6,7 +6,7 @@
  * `readScript(NAME)` hands over the (decrypted) bytecode of a script by its upper-cased base name: the VM is synchronous, so the caller
  * prefetches what it needs (the exe reads through its mass-file manager; names are matched without the directory part).
  */
-import { call, createLuaState, loadChunk, LuaError } from "@els/lua";
+import { call, createLuaState, loadChunk, LuaError, LuaUserdata } from "@els/lua";
 import type { LuaState } from "@els/lua";
 import { HOST_OBJECTS } from "./api.generated.ts";
 import { KGCMassFileManager } from "./classes/massfile.ts";
@@ -70,6 +70,7 @@ export class HostWorld {
       const cls = o.cls || o.registeredIn.replace(/@.*$/, "").replace(/::[^:]+$/, "");
       if (!this.rt.byCpp.has(cls)) continue;
       if (done.has(o.name) && o.inferred) continue; // the first non-inferred registration wins
+      if (!done.has(o.name) && this.G.globals.getStr(o.name) instanceof LuaUserdata) continue; // an object (a ported one) is already published
       done.add(o.name);
       this.rt.setObject(o.name, new HostStub(cls), cls);
     }

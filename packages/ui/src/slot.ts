@@ -15,7 +15,7 @@
  * SetAllPointDatabyNormalPoint 329534D0, ChangeState 32950FB0, SetEnable 329535C0, SetShow 329544F0.
  */
 import { Color, KLuaManager, Vec2 } from "@els/host";
-import type { CKTDGUISlot_Methods, CX2SlotManager_Methods, CX2SlotManager__CX2Slot_Methods } from "@els/host";
+import type { CKTDGUISlot_Methods, CX2CouponBox_Methods, CX2PostBox_Methods, CX2SlotManager_Methods, CX2SlotManager__CX2Slot_Methods } from "@els/host";
 import { CKTDGUIControl, UCT, UIM, UIPointData, readStringData, setTexureData, wholeTextureData } from "./control.ts";
 import type { CPictureData, UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceSound, DeviceTexture } from "./device.ts";
@@ -463,5 +463,26 @@ export class CX2SlotManager implements Partial<CX2SlotManager_Methods> {
   /** `GetPos()` (32B7DDF0) */
   getPos(): Vec2 {
     return this.m_Pos;
+  }
+}
+
+/**
+ * `CX2PostBox` (the Lua class `CX2PostBox`, a `CX2ItemSlotManager`, so a `CX2SlotManager`): the post box, which builds the dialogs
+ * `DLG_Mail_Shop_Popup_Send.lua` and `DLG_POST_LETTER_WINDOW.LUA` ... for itself.  Its `RegisterLuaBind` (32CA5F80) publishes it as the global
+ * `g_pPostBoxInventory`, not as `g_pCX2SlotManager`.  It registers no Lua method of its own; the rest of the post box is not ported.
+ */
+export class CX2PostBox extends CX2SlotManager implements Partial<CX2PostBox_Methods> {
+  override registerLuaBind(): void {
+    this.ctx.world.rt.setObject("g_pPostBoxInventory", this, "CX2PostBox");
+  }
+}
+
+/**
+ * `CX2CouponBox` (the Lua class `CX2CouponBox`, a `CX2SlotManager`): the coupon box (`DLG_GIFT_BOX.LUA` ...).  Its `RegisterLuaBind`
+ * (32EB5900) publishes it as the global `g_pCouponBox`.  It registers no Lua method of its own; the rest of the coupon box is not ported.
+ */
+export class CX2CouponBox extends CX2SlotManager implements Partial<CX2CouponBox_Methods> {
+  override registerLuaBind(): void {
+    this.ctx.world.rt.setObject("g_pCouponBox", this, "CX2CouponBox");
   }
 }

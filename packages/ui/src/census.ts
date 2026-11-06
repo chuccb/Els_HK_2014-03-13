@@ -49,8 +49,8 @@ export function checkTextures(list: UITextureData[]): TextureCheck {
 
 export function makeUICensusWorld(opts: Omit<UIWorldOptions, "notPorted">) {
   const ui = new UIWorld({ ...opts, notPorted: "record" });
-  ui.world.publishStubObjects();
-  ui.loadEnums();
+  ui.boot();
+  ui.createOwners();
   const { rt } = ui.world;
   const run = (name: string): DialogRun => {
     const before = new Map(rt.notPortedCalls);
@@ -122,7 +122,8 @@ export interface StrictRun {
  */
 export function runStrict(opts: Omit<UIWorldOptions, "notPorted">, names: string[]): StrictRun[] {
   const ui = new UIWorld({ ...opts, notPorted: "throw" });
-  ui.loadEnums();
+  ui.boot();
+  ui.createOwners();
   const one = (name: string): StrictRun => {
     let dialog: CKTDGUIDialog | undefined;
     let error: string | undefined;

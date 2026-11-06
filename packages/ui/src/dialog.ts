@@ -21,6 +21,7 @@ import { CKTDGUICheckBox } from "./checkbox.ts";
 import { CKTDGUIRadioButton } from "./radiobutton.ts";
 import { CKTDGUISlot } from "./slot.ts";
 import { CKTDGUIIMEEditBox } from "./imeeditbox.ts";
+import { CKTDGUIComboBox } from "./combobox.ts";
 import type { RadioButtonGroupInfo } from "./radiobutton.ts";
 import { WStringMap } from "./stdmap.ts";
 import type { UIContext } from "./control.ts";
@@ -198,6 +199,11 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
   /** `CreateSlot()` (328C1940) */
   CreateSlot(): CKTDGUISlot {
     return new CKTDGUISlot(this.ctx);
+  }
+
+  /** `CreateComboBox()` (328C1200) */
+  CreateComboBox(): CKTDGUIComboBox {
+    return new CKTDGUIComboBox(this.ctx);
   }
 
   /** `CreateIMEEditBox()` (328C1350) */

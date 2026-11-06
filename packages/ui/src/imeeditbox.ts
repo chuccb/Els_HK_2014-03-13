@@ -17,28 +17,12 @@ import { CKTDGUIControl, UCT } from "./control.ts";
 import type { UIContext, UIPointData, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
 import type { UKFont } from "./font.ts";
+import { newRect, newVertices } from "./rect.ts";
+import type { Rect, VertexUI } from "./rect.ts";
 import { CKTDGUIUniBuffer } from "./unibuffer.ts";
 import type { UniBufferLog } from "./unibuffer.ts";
 
 const f = Math.fround;
-
-export interface Rect {
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-}
-
-/** `CKTDGUIControl::VERTEX_UI` */
-export interface VertexUI {
-  x: number;
-  y: number;
-  z: number;
-  rhw: number;
-  color: number;
-  u: number;
-  v: number;
-}
 
 /**
  * The statics of `CKTDGUIIMEEditBox` that every box shares: `s_bCreateDeviceCheck`, `s_hImcDef`, `s_bHideCaret`, `s_bEnableImeSystem`
@@ -118,9 +102,9 @@ export class CKTDGUIIMEEditBox extends CKTDGUIControl implements Partial<CKTDGUI
   m_CompTargetNonColor = 0xffffff00;
   m_CompTargetNonBkColor = 0xff969696;
   m_nIndicatorWidth = 0;
-  readonly m_rcIndicator: Rect = { left: 0, top: 0, right: 0, bottom: 0 };
+  readonly m_rcIndicator: Rect = newRect();
   readonly m_Buffer: CKTDGUIUniBuffer;
-  readonly m_rcText: Rect = { left: 0, top: 0, right: 0, bottom: 0 };
+  readonly m_rcText: Rect = newRect();
   /** seconds between the blinks of the caret: the system's caret blink time times 0.0005 (half of it, in seconds) */
   m_dfBlink: number;
   m_dfLastBlink: number;
@@ -136,7 +120,7 @@ export class CKTDGUIIMEEditBox extends CKTDGUIControl implements Partial<CKTDGUI
   m_DefTextAlign = 0xffffffff;
   readonly m_ptTextAlignOffset = { x: 0, y: 0 };
   m_bMouseDrag = false;
-  readonly m_Vertex: VertexUI[] = Array.from({ length: 4 }, () => ({ x: 0, y: 0, z: 0, rhw: 0, color: 0, u: 0, v: 0 }));
+  readonly m_Vertex: VertexUI[] = newVertices();
   m_pSndKeyDown: DeviceSound | undefined;
   m_GroupID = -1;
   m_GroupSequence = -1;
@@ -215,7 +199,7 @@ export class CKTDGUIIMEEditBox extends CKTDGUIControl implements Partial<CKTDGUI
 
   /** `SetFont_LUA(fontIndex)` (32934D40): the UK font the dialog manager maps the index to (none for an index it does not know) */
   SetFont(nFontIndex: number): void {
-    this.m_pFont = this.ctx.fonts.getUKFont(nFontIndex);
+    this.m_pFont = this.ctx.fonts.getMappedUKFont(nFontIndex);
   }
 
   /** `SetText_LUA(text)` (3293AE40): `SetText(text, false)` */
