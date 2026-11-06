@@ -31,6 +31,8 @@ static unsigned long els_strtoul32(const char *p, char **ep, int base)
   unsigned long long v;
   while (*q == ' ' || (*q >= 9 && *q <= 13)) q++;
   if (*q == '-') { neg = 1; q++; } else if (*q == '+') q++;
+  /* glibc's strtoull would accept a second sign or white space here; the CRT does not (no digits => no conversion) */
+  if (*q == '-' || *q == '+' || *q == ' ' || (*q >= 9 && *q <= 13)) { *ep = (char *)p; return 0; }
   v = strtoull(q, ep, base);
   if (*ep == q) { *ep = (char *)p; return 0; }
   if (v > 0xffffffffULL) return 0xffffffffUL;

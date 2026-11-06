@@ -87,6 +87,8 @@ const isSpaceCode = (c: number): boolean => c === 32 || (c >= 9 && c <= 13);
 
 /** strtoul with a 32-bit unsigned long (the Win32 client) as used by tonumber(s, base); undefined = not a number. */
 export function strtoul32(s: string, base: number): number | undefined {
+  const z = s.indexOf("\0"); // a C string: an embedded NUL ends it
+  if (z >= 0) s = s.slice(0, z);
   const n = s.length;
   let i = 0;
   while (i < n && isSpaceCode(s.charCodeAt(i))) i++;
