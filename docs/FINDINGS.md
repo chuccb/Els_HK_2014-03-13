@@ -913,7 +913,8 @@ A Bandi-like movie player for `CMovieData`: `Open` / `GetVideoInfo` / `Play` / `
 
 `@els/kom`: `MassFileManager` (`addMassFile` / `addArchive` / `lock` / `find` / `has` / `loadDataFile` / `names`, the duplicate and lock rules above, upper-case lookup),
 `CLIENT_KOM_NAMES` (the 173 names in the exe's order) and `mountClientArchives(manager, open, { names, concurrency, onMissing, onProgress })`
-(`packages/kom/src/massfile.ts`, `packages/kom/test/massfile.test.ts`, 6 tests). The web client opens the archives through `httpSource("/data/<name>")`; the server (`apps/server`)
+(`packages/kom/src/massfile.ts`, `packages/kom/test/massfile.test.ts`, 6 tests). The web client opens the archives through `httpSource("/data/<name>")` (size from the HEAD
+response, or from `Content-Range` / `Content-Length` of a one-byte range request when a proxy drops it; `httpsource.test.ts`, 4 tests against a real server); the server (`apps/server`)
 answers `Range` and `HEAD` and serves only the asset types the client can use (not `x2.exe`, the decompile or the DLLs).
 
 ## 15. The web client, the browser test harness and the first engine lists
@@ -967,12 +968,22 @@ Ported as `setupFrameList`, `setupDrawFrameList`, `collisionFrames` in `packages
 What the data looks like: the body parts of the playable characters are X files with the 68-bone skeleton and one skinned mesh and **no animation sets** (`Mesh_ElSword_JP_Upbody09_Sorted.X`); their motions live in KAC files
 (`Motion_Elsword.x`, not X). Pets, NPCs and effect models (`Motion_PET_*_STEB_*.X`, 25 animation sets, 2-4 skinned meshes) are complete X files and animate in the viewer.
 
-### 15.4 Verification (`bun run tools/browser-test.ts [--shots dir]`, 18 checks, about 17 s)
+### 15.4 Verification (`bun run tools/browser-test.ts [--shots dir] [--smoke N]`, 18 checks, about 17 s)
 
 It starts the server in the process, loads the page in headless Chromium and checks: 173 archives / 97,891 members mounted over Range requests with none missing; the TGA `dlg_first_loading0_hk.tga` pixel-identical to the
 Bun decode; picture 13 of `movie_create_aisha_base.avi` pixel-identical to the Bun decode; the wooden sword draws one container and lights pixels; `Motion_PET_SONOGONG_STEB_1.X` (56 frames, 7 drawn containers, 2 skinned, 25 sets, 3 textures) draws,
 changes with the animation time and switches animation sets; the Lua listing, `general.ess`, an XET and a TET, an `.ogg` (browser-decoded, 109.7 s) and the KSM fallback; **the sword and the animated pet are pixel-identical with an RGBA and a BGRA back buffer**;
 no console error, exception, failed request or HTTP status >= 400. These show that the browser stack is consistent with the Bun stack, not that the pictures equal the original client's (there is no reference screenshot).
+
+`--smoke N` adds a 19th check: N X / Y files picked by a fixed LCG (seed 12345) are opened in the page one after the other; each must open without an error and, when it has a drawn mesh container, light at least one pixel
+(an animated one may be blank at t = 0 and is retried at 0.25 / 0.5 / 1 / 2 s). With N = 1,500 (5.7 % of the 26,453 files, 3.7 minutes): **1,445 drawn (407 skinned, 299 animated), 55 KSM / KME files (not X: hex fallback), 10 files with nothing
+to draw, 0 errors, 0 blank pictures of a file that has a drawn container.** The 10 are dummies and helper-only files by design: `Darkcloud_AttackBox01.X` has only `ATTACK_SPHERE*` meshes, `Mesh_Common_Cash_AC_Lowbody_249270_Sorted.X` is a 452-byte file with two empty frames.
+The sample found four things in the viewer (they are inspector choices; the exe sets cull and blend per object through its XMeshPlayer scripts and `CKTDGXRenderer`, the X files carry neither):
+
+1. Single-sided planes (stage backdrops, avatar face cards) vanished under `D3DCULL_CCW`: in a first sample of 400 files, 11 files with a drawn container gave a blank picture. The viewer is **two-sided by default** (checkbox "two-sided"; off = `D3DCULL_CCW`, D3D's default); 2 files were still blank.
+2. A fog plane (`El_Forest_Extra_Cave_Stage4_Fog1.Y`, texture alpha 0 or < 0x40 everywhere) vanished under an alpha test of 0x40: now `SRCALPHA` / `INVSRCALPHA` blending with an alpha test of 8.
+3. The camera was fitted to the first pose only. Effect weapons start tiny (`EG_SP3a_QueensThrone_JumpAttackZ_02.X`: bounding radius 0.11 at t = 0, 114 over the motion): the bounds are now the union of 9 poses of the first animation set. After 2 and 3 the sample of 400 had no blank picture left that has a drawn container.
+4. Effect meshes may start at scale 0 (`RWT_GIGA_PROMINENCE_pillar_fire01.X`: 0 lit pixels at t = 0, 73,813 at 0.2 s): the check retries at later times instead of failing.
 
 ### 15.5 Not done
 

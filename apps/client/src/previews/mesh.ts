@@ -7,7 +7,7 @@
  */
 import { collisionFrames, setupDrawFrameList, setupFrameList } from "@els/engine";
 import {
-  D3DCLEAR, D3DCMP, D3DCULL, D3DFMT, D3DLIGHT, D3DPOOL, D3DRS, D3DSAMP, D3DTEXF, D3DTS, D3DTS_WORLD, D3DX_FILTER, D3DXCreateTextureFromFileInMemoryEx,
+  D3DBLEND, D3DCLEAR, D3DCMP, D3DCULL, D3DFMT, D3DLIGHT, D3DPOOL, D3DRS, D3DSAMP, D3DTEXF, D3DTS, D3DTS_WORLD, D3DX_FILTER, D3DXCreateTextureFromFileInMemoryEx,
   D3DXFrameFind, D3DXLoadMeshHierarchyFromXInMemory, D3DXMESH, matIdentity, matLookAtLH, matMultiply, matPerspectiveFovLH,
 } from "@els/d3d9";
 import type { D3DXAnimationController, D3DXFrame, D3DXMesh, D3DXMeshContainer, D3DXMaterial, D3DXSkinInfo, Direct3DTexture9, ID3DXAllocateHierarchy } from "@els/d3d9";
@@ -148,12 +148,20 @@ export async function meshPreview(env: PreviewEnv, name: string, bytes: Uint8Arr
     }
   };
   growBounds();
+  if (controller && sets.length) {
+    // the camera must see the whole motion: an effect weapon can start at scale 0.002 and grow to full size (EG_SP3a_QueensThrone_JumpAttackZ_02.X)
+    for (let k = 1; k <= 8; k++) { controller.SetTrackPosition(0, (sets[0]!.period * k) / 8); pose(0); growBounds(); }
+    selectSet(0);
+    pose(0);
+  }
   const hasGeometry = containers.length > 0 && Number.isFinite(lo[0]!);
   const center = hasGeometry ? [(lo[0]! + hi[0]!) / 2, (lo[1]! + hi[1]!) / 2, (lo[2]! + hi[2]!) / 2] : [0, 0, 0];
   const radius = hasGeometry ? Math.max(1e-3, Math.hypot(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!) / 2) : 1;
 
   // ---- camera + draw
   let yaw = 0.6, pitch = 0.25, distance = radius * 2.6, autoRotate = true, raf = 0, last = performance.now(), frameCounter = 0;
+  /** Planes of stages / avatar cards are single-sided in the files; the exe decides the cull mode per object (XMeshPlayer, CKTDGXRenderer), the files carry none. The viewer is an inspector: two-sided by default, D3D's CCW on request. */
+  let twoSided = true;
   const draw = (): void => {
     dev.Clear(null, D3DCLEAR.TARGET | D3DCLEAR.ZBUFFER, 0xff1c2230, 1, 0);
     dev.BeginScene();
@@ -162,10 +170,13 @@ export async function meshPreview(env: PreviewEnv, name: string, bytes: Uint8Arr
     dev.SetRenderState(D3DRS.LIGHTING, 1);
     dev.SetRenderState(D3DRS.AMBIENT, 0xff707070);
     dev.SetRenderState(D3DRS.NORMALIZENORMALS, 1);
-    dev.SetRenderState(D3DRS.CULLMODE, D3DCULL.CCW);
-    dev.SetRenderState(D3DRS.ALPHABLENDENABLE, 0);
+    dev.SetRenderState(D3DRS.CULLMODE, twoSided ? D3DCULL.NONE : D3DCULL.CCW);
+    // an inspector's choice (the exe sets blending per object): texture alpha blends, nearly transparent texels are dropped so they do not hide what is behind
+    dev.SetRenderState(D3DRS.ALPHABLENDENABLE, 1);
+    dev.SetRenderState(D3DRS.SRCBLEND, D3DBLEND.SRCALPHA);
+    dev.SetRenderState(D3DRS.DESTBLEND, D3DBLEND.INVSRCALPHA);
     dev.SetRenderState(D3DRS.ALPHATESTENABLE, 1);
-    dev.SetRenderState(D3DRS.ALPHAREF, 0x40);
+    dev.SetRenderState(D3DRS.ALPHAREF, 0x08);
     dev.SetRenderState(D3DRS.ALPHAFUNC, D3DCMP.GREATEREQUAL);
     dev.SetSamplerState(0, D3DSAMP.MINFILTER, D3DTEXF.LINEAR);
     dev.SetSamplerState(0, D3DSAMP.MAGFILTER, D3DTEXF.LINEAR);
@@ -210,10 +221,11 @@ export async function meshPreview(env: PreviewEnv, name: string, bytes: Uint8Arr
   const speedInput = el("input", { type: "range", min: "0", max: "3", step: "0.05", value: "1", oninput: () => { speed = Number(speedInput.value); } });
   const pauseBtn = el("button", { text: "pause", onclick: () => { paused = !paused; pauseBtn.textContent = paused ? "play" : "pause"; } });
   const rotate = el("input", { type: "checkbox", checked: true, onchange: () => { autoRotate = rotate.checked; } });
+  const sided = el("input", { type: "checkbox", checked: true, onchange: () => { twoSided = sided.checked; } });
   const bar = el("div", { class: "bar" },
     sets.length ? el("label", {}, "animation ", select) : el("span", { text: "no animation" }),
     sets.length ? el("label", {}, "speed ", speedInput) : null, sets.length ? pauseBtn : null,
-    el("label", {}, rotate, " turntable"), el("span", { class: "dim", text: "drag: orbit, wheel: zoom" }));
+    el("label", {}, rotate, " turntable"), el("label", { title: "off = D3DCULL_CCW, the D3D default" }, sided, " two-sided"), el("span", { class: "dim", text: "drag: orbit, wheel: zoom" }));
   const pane = el("div", { class: "pane" }, bar, el("div", { class: "glwrap" }, canvas));
   raf = requestAnimationFrame(tick);
   const refused = frameList.hr < 0 ? " - the exe would refuse this mesh (more than 255 frames)" : "";
@@ -229,6 +241,7 @@ export async function meshPreview(env: PreviewEnv, name: string, bytes: Uint8Arr
     control(o) {
       if (typeof o.autoRotate === "boolean") { autoRotate = o.autoRotate; rotate.checked = autoRotate; }
       if (typeof o.paused === "boolean") { paused = o.paused; pauseBtn.textContent = paused ? "play" : "pause"; }
+      if (typeof o.twoSided === "boolean") { twoSided = o.twoSided; sided.checked = twoSided; }
       if (typeof o.yaw === "number") yaw = o.yaw;
       if (typeof o.pitch === "number") pitch = o.pitch;
       if (typeof o.distance === "number") distance = o.distance * radius; // in bounding radii
@@ -236,6 +249,6 @@ export async function meshPreview(env: PreviewEnv, name: string, bytes: Uint8Arr
       if (typeof o.time === "number") pose(o.time); // from the start of the set
       draw();
     },
-    state() { return { frames: frameCounter, time, setIndex, sets: sets.map((s) => s.name), containers: containers.length, skinned, vertices: numVertices, radius, paused }; },
+    state() { return { frames: frameCounter, time, setIndex, sets: sets.map((s) => s.name), containers: containers.length, skinned, vertices: numVertices, radius, paused, twoSided, center, yaw }; },
   };
 }

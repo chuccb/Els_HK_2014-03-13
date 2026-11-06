@@ -26,7 +26,7 @@
 | 5 | `lua_tinker` 等價的 host API | 已完成**地面實況分析**（`docs/HOST_API.md`），尚未實作 |
 | 6 | 開機／登入／角色選擇 + `apps/server` | 未開始 |
 
-![資產檢視器：Sonogong 寵物（`Motion_PET_SONOGONG_STEB_1.X`，蒙皮動畫「Wait」）由原版 KOM 資產經 D3D9 層畫在 WebGPU canvas（無頭 Chromium + SwiftShader 截圖）](docs/img/web-viewer-pet.png)
+![資產檢視器：Sonogong 寵物（`Motion_PET_SONOGONG_STEB_1.X`，蒙皮動畫「Walk」）由原版 KOM 資產經 D3D9 層畫在 WebGPU canvas（無頭 Chromium + SwiftShader 截圖）](docs/img/web-viewer-pet.png)
 
 ### Lua VM 的驗證結果（誠實版）
 
@@ -78,8 +78,8 @@ npm install --no-audit --no-fund --prefix /home/user/work/boot bun@1.4.4   # npm
 ./tools/setup-oracle.sh                 # 建置 LuaJIT 2.0.2 oracle 到 /home/user/work/luajit-2.0
 python3 tools/kom_extract.py /home/user/work/ex lua,LUA  # 取出 4,498 個腳本
 ./tools/lua-difftest.sh                 # 15 個差異測試（t10–t14 為模糊測試、t15 為載入器）
-./node_modules/.bin/bun test packages   # 不需要 GPU 的單元測試（364 個；d3d9／engine 的 GPU 測試會自行略過）
-./tools/gpu.sh ./node_modules/.bin/bun test packages   # 全部 491 個測試（含 153 個 d3d9 測試，在 Dawn + SwiftShader 上執行）
+./node_modules/.bin/bun test packages   # 不需要 GPU 的單元測試（368 個；d3d9／engine 的 GPU 測試會自行略過）
+./tools/gpu.sh ./node_modules/.bin/bun test packages   # 全部 495 個測試（含 153 個 d3d9 測試，在 Dawn + SwiftShader 上執行）
 ./node_modules/.bin/bun run tools/verify-ksm.ts   # KME/KSM/KAC 全部資產驗證（約 45 秒）；其餘見 package.json 的 verify:*
 pip install --target /home/user/work/pyav av numpy   # PyAV 內含 FFmpeg：MPEG-1 影片的 oracle
 PYTHONPATH=/home/user/work/pyav python3 tools/oracle-mpeg1.py --out /tmp/oracle.json data/movie/*.avi && ./node_modules/.bin/bun run tools/verify-mpeg1.ts --hashes /tmp/oracle.json   # 30 部影片、18,514 張畫面（約 22 秒）

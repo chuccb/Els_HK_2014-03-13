@@ -159,7 +159,7 @@ Design points that matter for faithfulness:
 | `census-skin.ts` | the D3DX hierarchy loader, `ConvertToIndexedBlendedMesh` (with the engine's palette) and the controller over every skinned X file (needs the GPU wrapper) |
 | `render-demo.ts` | the D3D9 visual milestone: loading screen + starter sword -> PNG (`docs/img/d3d9-demo.png` with `--docs`) |
 | `setup-browser.sh`, `browser.mjs` (+ `browser.d.mts`) | installs `puppeteer-core` and a headless Chromium (`@sparticuz/chromium`, WebGPU on SwiftShader) under `/home/user/work/browser` and `/tmp/chromium`; `node tools/browser.mjs URL [--shot f.png] [--wait EXPR] [--eval EXPR]... [--size WxH] [--settle ms]` opens a page, prints the console, evaluates, screenshots, exits 1 on a page error / failed request / timeout; `withPage` for scripts (FINDINGS 15.1) |
-| `browser-test.ts` | 18 browser checks of the web client against the same decoders run in Bun (archives over Range, TGA and AVI pictures pixel-identical, static and skinned meshes through the WebGPU canvas, RGBA vs BGRA back buffer identical, Lua / XET / TET / audio previews, no console error); `--shots DIR` keeps screenshots |
+| `browser-test.ts` | 18 browser checks of the web client (`--smoke N` opens N pseudo-random X / Y files as well; N = 1,500: 1,445 drawn, 0 errors) against the same decoders run in Bun (archives over Range, TGA and AVI pictures pixel-identical, static and skinned meshes through the WebGPU canvas, RGBA vs BGRA back buffer identical, Lua / XET / TET / audio previews, no console error); `--shots DIR` keeps screenshots |
 | `ledger.py` | coverage ledger keyed by IDA address -> `docs/LEDGER.md` (rules in `docs/ledger.tsv`, `docs/ledger-classes.tsv`) |
 | `index_decomp.py`, `komlib.py`, `kom_extract.py`, `luadecrypt.py`, `census.ts` | reverse-engineering helpers (function index, extraction, census) |
 
@@ -185,7 +185,7 @@ python3 tools/index_decomp.py data/x2.exe.c /home/user/work/analysis/functions.t
 python3 tools/bindings.py && python3 tools/ledger.py                                # docs/HOST_API.md, docs/LEDGER.md
 ./node_modules/.bin/bun test packages                                                 # unit tests that need no GPU: asset decoders, Lua loader, KLuaManagerProxy (the d3d9 GPU tests skip)
 ./tools/setup-gpu.sh                                                                   # software Vulkan for Dawn -> /home/user/work/swsh (about 2 s)
-./tools/gpu.sh ./node_modules/.bin/bun test packages                                   # everything: 491 tests, incl. the 153 d3d9 tests on Dawn + SwiftShader
+./tools/gpu.sh ./node_modules/.bin/bun test packages                                   # everything: 495 tests, incl. the 153 d3d9 tests on Dawn + SwiftShader
 ./node_modules/.bin/bun run tools/gen-d3d9-enums.ts --check                            # enums.generated.ts is current
 ./node_modules/.bin/bun run tools/census-xscene.ts                                     # integrity of all 25,313 X / Y scenes
 ./tools/gpu.sh ./node_modules/.bin/bun run tools/census-skin.ts                        # hierarchy loader + skin conversion + animation over all 7,395 skinned files, ~3 min

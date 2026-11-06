@@ -2,7 +2,7 @@
  * Browser tests of the web client (apps/client + apps/server) in headless Chromium with WebGPU (SwiftShader):
  *
  *   ./tools/setup-browser.sh            (once; tools/browser.mjs runs it when the browser is missing)
- *   bun run tools/browser-test.ts [--shots dir] [--url http://host:port/]
+ *   bun run tools/browser-test.ts [--shots dir] [--url http://host:port/] [--smoke N]
  *
  * Starts the server in this process (or uses --url), loads the page and checks, against the same decoders run in Bun on the same files:
  *   - the 173 archives mount over HTTP Range requests (97,891 members)
@@ -19,6 +19,7 @@ import { indexAllKoms } from "./komindex.ts";
 const argv = process.argv.slice(2);
 const opt = (name: string): string | undefined => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
 const shotsDir = opt("--shots");
+const smoke = Number(opt("--smoke") ?? 0); // --smoke N: also open N pseudo-random X / Y files and report what fails
 if (shotsDir) mkdirSync(shotsDir, { recursive: true });
 
 let failures = 0;
@@ -155,6 +156,38 @@ try {
       const info = await page.evaluate<string>("document.querySelector('.info').textContent");
       check("fallback: Mesh_Elsword_Base_SD.x (KSM, not X) opens as a binary dump with a note", /not shown as a mesh/.test(info), info);
     }
+    // ---- --smoke N: a deterministic pseudo-random sample of the X / Y files through the whole browser stack
+    if (smoke > 0) {
+      await page.goto(base, { waitUntil: "load" });
+      await page.waitForFunction("window.__els && (window.__els.ready || window.__els.error)", { timeout: 60000, polling: 50 });
+      const names = await page.evaluate<string[]>(`(() => { const rows = __els.vfs.rows.filter((r) => r.ext === 'x' || r.ext === 'y'); let seed = 12345; const out = [];
+        for (let i = 0; i < ${smoke}; i++) { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; out.push(rows[seed % rows.length].name); } return out; })()`);
+      const tally = { drawn: 0, skinned: 0, animated: 0, notX: 0, failed: [] as string[], slow: [] as string[], blank: [] as string[], blankDrawn: [] as string[] };
+      for (const name of names) {
+        const t = Date.now();
+        try {
+          await page.evaluate(`(async () => { await window.__els.open(${JSON.stringify(name)}); })()`);
+          await page.waitForFunction(`document.querySelector('.name').textContent.toLowerCase() === ${JSON.stringify(name.toLowerCase())} && (window.__els.viewer.preview !== null || document.querySelector('.err'))`, { timeout: 30000, polling: 25 });
+          // an effect mesh can start with scale 0 (RWT_GIGA_PROMINENCE_pillar_fire01.X): a blank first picture is retried at later animation times
+          const r = await page.evaluate<{ err: string | null; info: string; lit: number; state: { containers?: number; skinned?: number; sets?: string[]; vertices?: number } | null }>(
+            `(async () => { const p = __els.viewer.preview; let lit = 0;
+              const count = async () => { await new Promise((x) => requestAnimationFrame(() => requestAnimationFrame(x))); const px = (await p.snapshot()).rgba; let n = 0;
+                for (let i = 0; i < px.length; i += 4) if (!(px[i] === 0x1c && px[i+1] === 0x22 && px[i+2] === 0x30)) n++; return n; };
+              if (p?.snapshot) { lit = await count();
+                if (lit === 0 && p.control && (p.state().sets?.length ?? 0) > 0) { p.control({ paused: true, autoRotate: false });
+                  for (const t of [0.25, 0.5, 1, 2]) { p.control({ set: 0 }); p.control({ time: t }); lit = await count(); if (lit > 0) break; } } }
+              return { err: document.querySelector('.err')?.textContent ?? null, info: document.querySelector('.info').textContent, lit, state: p?.state?.() ?? null }; })()`);
+          if (r.err) tally.failed.push(`${name}: ${r.err}`);
+          else if (/not shown as a mesh/.test(r.info)) tally.notX++;
+          else if (r.state && (r.state.containers ?? 0) >= 0) { tally.drawn++; if ((r.state.skinned ?? 0) > 0) tally.skinned++; if ((r.state.sets?.length ?? 0) > 0) tally.animated++; if (r.lit === 0) (r.state.containers ? tally.blankDrawn : tally.blank).push(`${name} (containers ${r.state.containers}, vertices ${r.state.vertices})`); }
+        } catch (e) { tally.failed.push(`${name}: ${e instanceof Error ? e.message : e}`); }
+        if (Date.now() - t > 8000) tally.slow.push(`${name} ${Date.now() - t} ms`);
+      }
+      // a file with a drawn mesh container must show something; files without one (dummies, ATTACK_* / COLLISION* helper meshes only) are blank by design
+      check(`smoke: ${smoke} random X / Y files open without an error and show something (${tally.drawn} drawn, ${tally.skinned} skinned, ${tally.animated} animated, ${tally.notX} are KSM / KME, ${tally.blank.length} have nothing to draw)`,
+        tally.failed.length === 0 && tally.slow.length === 0 && tally.blankDrawn.length === 0, [...tally.failed, ...tally.slow, ...tally.blankDrawn.map((b) => `blank: ${b}`)].slice(0, 6).join(" | "));
+    }
+
     // ---- the same fixed views with the canvas / back buffer in either format: the layer must not depend on the swizzle (the preferred
     //      format differs between platforms: rgba8unorm in this headless browser, usually bgra8unorm on a desktop GPU)
     const fixed = async (format: string): Promise<{ format: string; hashes: string[] }> => {

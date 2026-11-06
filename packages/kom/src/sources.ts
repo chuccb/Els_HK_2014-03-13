@@ -15,7 +15,16 @@ export function fileSource(path: string): ByteSource {
 export async function httpSource(url: string): Promise<ByteSource> {
   const head = await fetch(url, { method: "HEAD" });
   if (!head.ok) throw new Error(`HEAD ${url}: ${head.status}`);
-  const size = Number(head.headers.get("content-length"));
+  let size = Number(head.headers.get("content-length"));
+  if (!(size > 0)) {
+    // some proxies drop the length of a HEAD response: ask for the first byte and read the total from Content-Range
+    const probe = await fetch(url, { headers: { Range: "bytes=0-0" } });
+    const total = /\/(\d+)\s*$/.exec(probe.headers.get("content-range") ?? "");
+    await probe.body?.cancel();
+    if (total) size = Number(total[1]);
+    else if (probe.status === 200 && Number(probe.headers.get("content-length")) > 0) size = Number(probe.headers.get("content-length"));
+    else throw new Error(`${url}: cannot determine the size (no Content-Length on HEAD, no Content-Range on a range request)`);
+  }
   return {
     size,
     async read(offset, length) {
