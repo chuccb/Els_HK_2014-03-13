@@ -88,13 +88,19 @@ Ground truth, extracted from the decompile by `tools/bindings.py` (`docs/HOST_AP
   exe; the exe itself registers only `NF_*` (nation flags: `NF_HK` = 769) and a few more constants.
 * Scripts call methods the exe does **not** register (`AddSpawnMonsterGroup` x522, `AddRandomSocketGroupInfo`, `AddWeddingHallItem`,
   ...). Those scripts belong to other builds and are not reachable from this exe's loader (checked on the load graph); the port must
-  not invent the missing methods: the original fails with `attempt to call method 'X' (a nil value)`.
+  not invent the missing methods: the original fails with `can't find 'X' class variable. (forgot registering class variable ?)`.
 * Method names of the exe and of the scripts must match exactly, including typos (`AddSocektGroupDataForCashAvatar_LUA`).
 * Argument types come from the `lua_tinker::functor/mem_functor` templates (`float`, `D3DXVECTOR3`, `char const *`, enums, ...);
   `D3DXVECTOR2/3/COLOR` are userdata with `x/y/z` fields registered through `class_mem`.
 
 Plan: generate typed TS stubs from `docs/host_api.tsv`, then implement the managers in the order the boot and the slice need them
 (see phase 6); the ledger (`docs/LEDGER.md`) tracks the C++ classes.
+
+**Status.** Done: the binder (`packages/host`: `lua_tinker` semantics read off the decompile, 34 tests with the script tests), the
+generated typed API (`tools/gen-host-api.ts`), `KLuaManager` (the getters the `_LUA` functions use), the typed-stub record mode and the
+census (`docs/HOST_CENSUS.md`): 4,422 of the 4,498 scripts run to the end on the registered API in one shared state (the 76 others need
+23 names that are not strings of `x2.exe`); the first real host class, `KGCMassFileManager` (`AddMappingList` / `AddMappingTime`). Next: the classes themselves, in the order the census gives (dialogs and controls first: 261 of the
+442 methods the scripts call belong to the UI classes: `CKTDGUI*`, the slot manager, the mass-file manager), each ported from its decompile and checked by running the real scripts.
 
 ## Phase 6 - Boot, login, character select (the slice)
 

@@ -105,6 +105,27 @@ The engine classes (`CKTDX*` / `CKTDG*`) over the D3D9 layer, ported function by
 Tests (`./tools/gpu.sh ./node_modules/.bin/bun test packages/engine`, 42): `skinmesh-frames.test.ts` (10), `ksm-load.test.ts` (14: the real `Motion_Elsword.x`, pose at time 0, Wait3 upright, the Walk set), `xmesh.test.ts` (7),
 `kac-keys.test.ts` (11, no GPU: hand cases from the oracle + the recorded fixture `test/fixtures/optimizekeys.bin`; `test/keys-fixture.ts` is its codec, shared with `tools/verify-optimizekeys.ts`).
 
+### `@els/host` (`packages/host`)
+The `lua_tinker` layer: what a script sees of the C++ client. The binder is data driven (one implementation instead of one C++ template
+instance per signature), fed by `src/api.generated.ts`, which `tools/gen-host-api.ts` generates from `docs/host_api.tsv` (`--check` fails
+when it is stale): 128 classes (119 with methods or fields; the rest are named only as a base or as the class of a global object), 1,418
+methods, 34 fields, 59 global object names (66 name / class pairs from the 93 registration sites), 5 global functions, 19 constants, each method with the exe's address and its C++ parameter / return types, and a typed `<Class>_Methods` interface per class.
+
+| File | Content |
+|---|---|
+| `src/tinker.ts` | `HostRuntime`: `class_add` / `class_inh` / `class_mem` / `class_con` (a global table named like the class is the metatable of its objects; `__index` = `meta_get`, `__newindex` = `meta_set`, `__parent` chain, fields as accessor userdata, `__call` constructors for D3DXVECTOR2 / 3 / COLOR), `read<T>` / `push<T>` (`(int)lua_tonumber` truncation with the x86 `cvttsd2si` results, bool rules, `char const *` from strings and numbers, a struct by value is a copy, a pointer is a NEW userdata per push), the exact error texts (`can't find 'X' class variable. (forgot registering class variable ?)`, `no class at first argument. (forgot ':' expression ?)`), `registerImpl` / `registerFunction` / `setObject` / `status`, and **not-ported handling**: strict mode throws `HostNotPortedError("Class.method @addr")`, record mode counts the call and returns a typed stub value (0, false, "", a zero vector, a stub object of the declared class) |
+| `src/kluamanager.ts` | `KLuaManager` (the table reader of every `*_LUA` function): `BeginTable` / `EndTable` / `GetValue` overloads / `GetUserDefinedTypeValue<D3DXVECTOR2/3/COLOR>` / `GetNumIndexedValues`; `(L, 1)` reads the table on top of the stack of the native call being served |
+| `src/values.ts` | `Vec2` / `Vec3` / `Color` (Float32Array backed, C++ `float` semantics), `HostHandle` (`KHandleType<int, ...>`) |
+| `src/world.ts` | `HostWorld`: one Lua state with the host layer, `IncludeLua` (base name, case ignored, `false` for a missing script), `loadEnums` (what `CX2Main::LoadLuaEnum` runs: `Enum.lua`, `DungeonEnum.lua`, `MassFileMappingList_HK.lua`, `StringID_def.lua`) and `publishStubObjects` (the registered globals as typed stubs) |
+| `src/classes/massfile.ts` | the first real host class: `KGCMassFileManager.AddMappingList` / `AddMappingTime` (`std::map::emplace` semantics, `CTime` date parsing as in 328D43E0); the file lookup that applies the mapping is not ported yet |
+| `src/census.ts` | `makeCensusWorld`, `runCensus`: every script on typed stubs (the core of `tools/host-census.ts`) |
+
+A host class is a plain TS class whose methods are named exactly like the Lua names and declare `implements Partial<Class_Methods>`; calls are
+dispatched on the receiver by name, so one TS class can implement a base class and its derived classes. Nothing is invented: a name the exe
+does not register is not visible to scripts. `docs/HOST_CENSUS.md` (`tools/host-census.ts`) runs all 4,498 scripts on the binder with record
+mode and lists what they need: 4,422 run to the end; the other 76 need 23 names that are not even strings of `x2.exe`.
+Tests: `bun test packages/host` (34, no GPU; the 9 script tests need `data/`, the whole-corpus ones take ~6 s each).
+
 ### `@els/lua` (`packages/lua`)
 A register-based interpreter for LuaJIT 2.0.2 bytecode, following `lj_*` of the exe:
 
@@ -155,6 +176,8 @@ Design points that matter for faithfulness:
 | `corpus-diff.sh` + `lua/stubrun.lua` + `corpus-run.ts` | stub-environment differential run of all 4,498 game scripts (native xargs -P2 vs one in-process TS run, ~3 minutes per flavor) |
 | `lua-run.ts` + `lib/lua-host.ts` | run a `.luac` in the TS VM (`arg` like the standalone interpreter); the shared runner of the corpus tool |
 | `bindings.py` | extracts the `lua_tinker` registrations from `data/x2.exe.c` -> `docs/HOST_API.md`, `docs/host_api.tsv` (phase 5 ground truth) |
+| `gen-host-api.ts` | `docs/host_api.tsv` -> `packages/host/src/api.generated.ts` (`--check` fails when stale) |
+| `host-census.ts` | runs every script of the KOMs on the host layer with typed stubs (`--md docs/HOST_CENSUS.md`, `--show SCRIPT`, `--match RE`, `--isolated`) |
 | `api-census.ts`, `script-graph.ts` | what the scripts use of the host API (`docs/SCRIPT_API_USAGE.md`) and which scripts the exe loads (`docs/SCRIPT_GRAPH.md`) |
 | `census-images.ts`, `decode-images.ts`, `verify-images.py`, `verify-xet-tet.ts` | image format census, decode of all 55,377 TGA/DDS entries, cross-check against Pillow (needs a venv with `pillow`), XET/TET structure check |
 | `verify-xfiles.ts` | container census of the 26,453 `.x` / `.y` entries; decompresses all 25,204 MSZIP entries (`--crosscheck` against fflate, `--dump DIR --every N` writes samples) |

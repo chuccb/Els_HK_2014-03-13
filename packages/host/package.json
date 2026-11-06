@@ -1,0 +1,8 @@
+{
+  "name": "@els/host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "@els/lua": "workspace:*" }
+}

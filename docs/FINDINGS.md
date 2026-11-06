@@ -236,7 +236,9 @@ at load time. Coverage of function bodies is shallow (most calls with stub argum
   dungeons, NPCs, dialogs by id) or are dead data; `docs/SCRIPT_GRAPH.md` is therefore a lower bound.
 * Scripts call methods that the exe does not register (`AddSpawnMonsterGroup` x522 in 27 scripts, `AddRandomSocketGroupInfo`,
   `AddWeddingHallItem`, `AddSetItemDataTrans_LUA`, ...): none of those scripts is reachable from the exe's loader except
-  `GameEditCommandList.lua` (one GM command, `OccurLag_LUA`). The original would raise `attempt to call method ... (a nil value)`.
+  `GameEditCommandList.lua` (one GM command, `OccurLag_LUA`). The original raises `can't find 'AddSpawnMonsterGroup' class variable.
+  (forgot registering class variable ?)` from `lua_tinker::meta_get` (33369720; not `attempt to call method`): `packages/host` reproduces the
+  message, and `docs/HOST_CENSUS.md` lists all 76 scripts that fail on such names (none of the 23 names is a string of x2.exe).
 
 ## 8. Image and table formats (Phase 2 so far)
 

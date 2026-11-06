@@ -1568,3 +1568,39 @@ method	CX2PVPResultTable	CX2PVPResultTable	SetDeathMatchKill_LUA	CX2PVPResultTab
 method	CX2PVPResultTable	CX2PVPResultTable	SetDeathMatchDeath_LUA	CX2PVPResultTable::SetDeathMatchDeath_LUA	3325E860	void (__thiscall CX2PVPResultTable::*)(int,int,int) => CX2PVPResultTable::SetDeathMatchDeath_LUA	CX2PVPResultTable::RegisterLuaBind@3325EAA0
 method	CX2PVPResultTable	CX2PVPResultTable	SetGameOutPenalty_LUA	CX2PVPResultTable::SetGameOutPenalty_LUA	3325E880	void (__thiscall CX2PVPResultTable::*)(int,int,int) => CX2PVPResultTable::SetGameOutPenalty_LUA	CX2PVPResultTable::RegisterLuaBind@3325EAA0
 method	CX2PVPResultTable	CX2PVPResultTable	SetTimeBonus_LUA	CX2PVPResultTable::SetTimeBonus_LUA	3325E8A0	void (__thiscall CX2PVPResultTable::*)(int,int,int) => CX2PVPResultTable::SetTimeBonus_LUA	CX2PVPResultTable::RegisterLuaBind@3325EAA0
+ctor	D3DXVECTOR2	D3DXVECTOR2				float,float,void,void,void	
+ctor	D3DXVECTOR3	D3DXVECTOR3				float,float,float,void,void	
+ctor	D3DXCOLOR	D3DXCOLOR				float,float,float,float,void	
+base	CKTDGSkyDome	CKTDGSkyDome	CKTDGObject	CKTDGObject			
+base	CKTDGLensFlare	CKTDGLensFlare	CKTDGObject	CKTDGObject			
+base	CKTDGUIButton	CKTDGUIButton	CKTDGUIControl	CKTDGUIControl			
+base	CKTDGUIStatic	CKTDGUIStatic	CKTDGUIControl	CKTDGUIControl			
+base	CKTDGUICheckBox	CKTDGUICheckBox	CKTDGUIControl	CKTDGUIControl			
+base	CKTDGUIEditBox	CKTDGUIEditBox	CKTDGUIControl	CKTDGUIControl			
+base	CKTDGUIIMEEditBox	CKTDGUIIMEEditBox	CKTDGUIControl	CKTDGUIControl			
+base	CKTDGUIRadioButton	CKTDGUIRadioButton	CKTDGUIControl	CKTDGUIControl			
+base	CKTDGUIComboBox	CKTDGUIComboBox	CKTDGUIControl	CKTDGUIControl			
+base	CKTDGUIListBox	CKTDGUIListBox	CKTDGUIControl	CKTDGUIControl			
+base	CKTDGUIScrollBar	CKTDGUIScrollBar	CKTDGUIControl	CKTDGUIControl			
+base	CKTDGUISlider	CKTDGUISlider	CKTDGUIControl	CKTDGUIControl			
+base	CKTDGUINavigation	CKTDGUINavigation	CKTDGUIControl	CKTDGUIControl			
+base	CKTDGUIContolList	CKTDGUIContolList	CKTDGUIControl	CKTDGUIControl			
+base	CKTDGUISlot	CKTDGUISlot	CKTDGUIControl	CKTDGUIControl			
+base	CKTDGUIItem	CKTDGUIItem	CKTDGUIStatic	CKTDGUIStatic			
+base	CParticleEventSequence	CKTDGParticleSystem::CParticleEventSequence	CKTDGObject	CKTDGObject			
+base	CX2PVPRoom	CX2PVPRoom	CX2Room	CX2Room			
+base	CX2DungeonRoom	CX2DungeonRoom	CX2Room	CX2Room			
+base	CX2State	CX2State	CKTDXStage	CKTDXStage			
+base	CX2StatePVPRoom	CX2StatePVPRoom	CX2StateMenu	CX2StateMenu			
+base	CX2WorldObject	CX2WorldObject	CKTDGObject	CKTDGObject			
+base	CX2WorldLayer	CX2WorldLayer	CX2WorldObject	CX2WorldObject			
+base	CX2WorldObjectMesh	CX2WorldObjectMesh	CX2WorldObject	CX2WorldObject			
+base	CX2WorldObjectSkinMesh	CX2WorldObjectSkinMesh	CX2WorldObject	CX2WorldObject			
+base	CX2WorldObjectLightFlow	CX2WorldObjectLightFlow	CX2WorldObject	CX2WorldObject			
+base	CX2WorldObjectParticle	CX2WorldObjectParticle	CX2WorldObject	CX2WorldObject			
+base	CX2DungeonGame	CX2DungeonGame	CX2Game	CX2Game			
+base	CX2GUNPC	CX2GUNPC	CX2GameUnit	CX2GameUnit			
+base	CX2GUUser	CX2GUUser	CX2GameUnit	CX2GameUnit			
+base	CX2CouponBox	CX2CouponBox	CX2SlotManager	CX2SlotManager			
+base	CX2PostBox	CX2PostBox	CX2SlotManager	CX2SlotManager			
+base	CX2SlotItem	CX2SlotItem	CX2Slot	CX2SlotManager::CX2Slot			

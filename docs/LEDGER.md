@@ -322,7 +322,7 @@ Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM i
 
 ## C++ engine classes
 
-2879 classes / 26233 methods. Status by class: done 13, n/a 1338, partial 58, todo 1470; by method: done 47, n/a 4225, partial 349, todo 21612.
+2879 classes / 26233 methods. Status by class: done 332, n/a 1338, partial 61, todo 1148; by method: done 468, n/a 4225, partial 831, todo 20709.
 
 The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes:
 
@@ -340,7 +340,7 @@ The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes
 | `CX2GUAra` | 533 | 33122A90 | todo |   |
 | `CX2GUArme_VioletMage` | 500 | 32B76FC0 | todo |   |
 | `CX2GUNPC` | 441 | 32A26E1A | todo |   |
-| `lua_tinker` | 428 | 328B8970 | todo | - phase 5 host API |
+| `lua_tinker` | 428 | 328B8970 | partial | packages/host/src/tinker.ts (HostRuntime) class_add / class_inh / class_mem / class_con, meta_get / meta_set / invoke_parent, read<T> / push<T> (ptr2user / val2user), mem_var, functor / mem_functor / creator: ONE data-driven binder fed by docs/host_api.tsv replaces the C++ template instance of every signature; lua_tinker::table, dostring / dofile and calls from C++ into Lua are not ported |
 | `CX2GUEL` | 370 | 330855B0 | todo |   |
 | `CX2GUNPCFunc` | 365 | 331AA280 | todo |   |
 | `CX2GUAdd` | 362 | 3316C640 | todo |   |

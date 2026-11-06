@@ -378,6 +378,13 @@ for i in reg_funcs:
 
 # --- reports ------------------------------------------------------------------------------------------------------------
 lua_of = {t: (c["lua"] or t) for t, c in classes.items()}
+# class structure rows (kind `base` = class_inh, `ctor` = class_con) so that docs/host_api.tsv alone is enough to generate the
+# TypeScript API table (tools/gen-host-api.ts); `lua_name` of a base row is the base's Lua class name, `cpp_function` its C++ type.
+for t, c in classes.items():
+    for b in c["bases"]:
+        emit("base", t, lua_of.get(b, b), cpp=b)
+    for a in c["ctors"]:
+        emit("ctor", t, "", sig=a)
 for r in rows:
     if r["class"]:
         r["lua_class"] = lua_of.get(r["class"], r["class"])
@@ -462,7 +469,8 @@ for e in sorted(census.values(), key=lambda e: -e["uses"]):
 missing = [n for n in sorted(census) if not n in reg_names and not census[n]["fields"] and not census[n]["calls"]]
 md.append("\nExternal names read by scripts without any member access, call or registration found (typos that evaluate to nil in the exe, "
           "or globals registered under names the decompiler hides): " + ", ".join(f"`{n}`" for n in missing) + "\n")
-md.append("A script that calls a method the exe does not register fails with `attempt to call method 'X' (a nil value)` in the original; "
+md.append("A script that calls a method the exe does not register fails with `can't find 'X' class variable. (forgot registering class variable ?)` in the original "
+          "(`lua_tinker::meta_get`, 33369720: the miss raises instead of returning nil); "
           "the port must not add such methods (faithful behaviour). Most frequent cases:\n")
 md.append(", ".join(f"`{g}:{m}` x{c}" for (g, m), c in unregistered_total.most_common(25)) + "\n")
 md.append("\n## Classes\n")

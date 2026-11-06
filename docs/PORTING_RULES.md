@@ -39,7 +39,7 @@ the Hex-Rays export `data/x2.exe.c` / `data/x2.exe.h`, and verify it - not "make
   the decompile or from the data. State what was *not* verified in the commit message / docs.
 * **The host API is exactly what the exe registers.** `docs/host_api.tsv` (generated from the decompile) lists every class, method,
   field, global function, constant and object that scripts can see. Do not add anything that is not in it, even when a script
-  calls it: the original raises `attempt to call method 'X' (a nil value)` (see `docs/HOST_API.md`, "members the exe does not register").
+  calls it: the original raises `can't find 'X' class variable. (forgot registering class variable ?)` (`lua_tinker::meta_get`; `packages/host` does the same, see `docs/HOST_API.md`, "members the exe does not register").
 * **Be explicit about gaps.** A known deviation goes into `docs/FINDINGS.md` ("Known gaps") the moment it is discovered.
 * TypeScript is strict (`strict`, `isolatedModules`, `verbatimModuleSyntax`). Binary data is `Uint8Array`/`DataView`; Lua
   strings are JS *byte strings* (one UTF-16 code unit per byte, 0-255). No `any` in package APIs.
