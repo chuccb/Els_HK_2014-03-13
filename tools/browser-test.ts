@@ -150,11 +150,28 @@ try {
       check("table: dlg_first_loading0_hk.tet parses as a TET table", /TET table/.test(t) && !/not parsed/.test(t), t);
     }
 
-    // ---- a KSM file is not an X file: the viewer falls back to the hex view with a note
+    // ---- a KSM file (KOG's own skinned-mesh container, whatever its extension says): Elsword's body, standing, and the animation sets move it
     {
+      await open(page, "Motion_Elsword.x");
+      await page.waitForFunction("__els.viewer.preview.state().frames >= 3", { timeout: 60000, polling: 50 });
+      const freeze = (ctl: object): string => `(async () => { const p = __els.viewer.preview; p.control({ autoRotate: false, paused: true, ...${JSON.stringify(ctl)} });
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); const s = await p.snapshot(); const px = s.rgba;
+        let x0 = s.width, x1 = -1, y0 = s.height, y1 = -1, lit = 0;
+        for (let i = 0; i < px.length; i += 4) { if (px[i] === 0x1c && px[i+1] === 0x22 && px[i+2] === 0x30) continue; lit++; const x = (i / 4) % s.width, y = Math.floor(i / 4 / s.width); if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+        return { lit, w: x1 - x0 + 1, h: y1 - y0 + 1, hash: (${PAGE_FNV})(px), info: document.querySelector('.info').textContent, state: p.state() }; })()`;
+      type Look = { lit: number; w: number; h: number; hash: string; info: string; state: { containers: number; skinned: number; sets: string[]; setIndex: number; time: number } };
+      const a = await page.evaluate<Look>(freeze({ set: 0, time: 0, yaw: 0.5, pitch: 0.1 }));
+      check("ksm: Motion_Elsword.x is read as a KSM: 68 frames, 6 skinned containers, 90 animation sets, 6 textures", /^data033.kom.* - KSM 68 frames/.test(a.info) && a.state.containers === 6 && a.state.skinned === 6 && a.state.sets.length === 90 && /6 textures/.test(a.info), a.info);
+      check("ksm: set 0 (Wait3) at time 0 is a standing character (the lit picture is taller than wide), not a heap of limbs", a.lit > 20000 && a.h > a.w * 1.3, `lit ${a.lit}, ${a.w} x ${a.h}`);
+      const walk = a.state.sets.indexOf("Walk");
+      const b = await page.evaluate<Look>(freeze({ set: walk, time: 0.2 }));
+      check("ksm: selecting the Walk set at 0.2 s changes the pose (and the character is still upright)", walk > 0 && b.state.setIndex === walk && b.hash !== a.hash && b.lit > 20000 && b.h > b.w, `set ${b.state.setIndex}, ${b.w} x ${b.h}, ${a.hash} -> ${b.hash}`);
+      await shot(page, "05b-ksm");
+      // a KSM with one static mesh (no skin) and the KOG container check of the old X-only viewer
       await open(page, "Mesh_Elsword_Base_SD.x");
-      const info = await page.evaluate<string>("document.querySelector('.info').textContent");
-      check("fallback: Mesh_Elsword_Base_SD.x (KSM, not X) opens as a binary dump with a note", /not shown as a mesh/.test(info), info);
+      await page.waitForFunction("__els.viewer.preview.state().frames >= 1", { timeout: 60000, polling: 50 });
+      const c = await page.evaluate<Look>(freeze({ set: 0, time: 0 }));
+      check("ksm: Mesh_Elsword_Base_SD.x (KSM, 2 frames, one static container of 711 vertices) is drawn", /KSM 2 frames/.test(c.info) && c.state.containers === 1 && c.state.skinned === 0 && c.lit > 3000, `${c.info}; lit ${c.lit}`);
     }
     // ---- --smoke N: a deterministic pseudo-random sample of the X / Y files through the whole browser stack
     if (smoke > 0) {
@@ -194,7 +211,7 @@ try {
       await page.goto(`${base}?format=${format}`, { waitUntil: "load" });
       await page.waitForFunction("window.__els && (window.__els.ready || window.__els.error)", { timeout: 60000, polling: 50 });
       const hashes: string[] = [];
-      for (const [name, ctl] of [["MESH_ELSWORD_BASIC_WEAPON.X", { yaw: 0.6, pitch: 0.25, distance: 2.6, set: 0, time: 0 }], ["Motion_PET_SONOGONG_STEB_1.X", { yaw: -0.5, pitch: 0.1, distance: 2.4, set: 2, time: 0.37 }]] as const) {
+      for (const [name, ctl] of [["MESH_ELSWORD_BASIC_WEAPON.X", { yaw: 0.6, pitch: 0.25, distance: 2.6, set: 0, time: 0 }], ["Motion_PET_SONOGONG_STEB_1.X", { yaw: -0.5, pitch: 0.1, distance: 2.4, set: 2, time: 0.37 }], ["Motion_Elsword.x", { yaw: 0.5, pitch: 0.1, distance: 2.2, set: 7, time: 0.21 }]] as const) {
         await open(page, name);
         await page.waitForFunction("__els.viewer.preview.state().frames >= 2", { timeout: 60000, polling: 50 });
         const h = await page.evaluate<string>(`(async () => { const p = __els.viewer.preview; p.control({ autoRotate: false, paused: true, ...${JSON.stringify(ctl)} });
@@ -208,7 +225,7 @@ try {
     const rgba = await fixed("rgba8unorm");
     const bgra = await fixed("bgra8unorm");
     check("formats: the canvas really used rgba8unorm and bgra8unorm", rgba.format === "rgba8unorm" && bgra.format === "bgra8unorm", `${rgba.format} / ${bgra.format}`);
-    check("formats: the weapon and the animated pet are pixel-identical with an RGBA and a BGRA back buffer", rgba.hashes.every((h, i) => h === bgra.hashes[i]) && new Set(rgba.hashes).size === 2, `${rgba.hashes.join(",")} / ${bgra.hashes.join(",")}`);
+    check("formats: the weapon, the animated pet and the KSM character are pixel-identical with an RGBA and a BGRA back buffer", rgba.hashes.every((h, i) => h === bgra.hashes[i]) && new Set(rgba.hashes).size === 3, `${rgba.hashes.join(",")} / ${bgra.hashes.join(",")}`);
     return log;
   }, { size: [1280, 800] });
   check("the page logged no error (console.error, exception, failed request, HTTP >= 400)", log.errors === 0, log.filter((l) => /^\[(error|pageerror|requestfailed|http)/.test(l)).slice(0, 5).join(" | "));

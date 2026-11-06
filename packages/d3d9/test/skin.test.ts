@@ -98,6 +98,20 @@ describe("D3DX animation controller", () => {
     expect(ac.AdvanceTime(-1)).toBeLessThan(0);
   });
 
+  test("rotation keys are in the X-file convention: the matrix is built from their conjugate, the rotation output is the key itself", () => {
+    const theta = 0.8, key = qk(0, 0, Math.sin(theta / 2), 0, Math.cos(theta / 2));
+    const s = D3DXCreateKeyframedAnimationSet("R", 4800, D3DXPLAY.LOOP, 1).set!;
+    s.RegisterAnimationSRTKeys("a", [], [key, qk(4800, 0, Math.sin(theta / 2), 0, Math.cos(theta / 2))], []);
+    const ac = D3DXCreateAnimationController(1, 1, 1, 1).controller!;
+    const mat = new Float32Array(16), rot = { x: 0, y: 0, z: 0, w: 1 };
+    ac.RegisterAnimationOutput("a", mat, null, rot, null);
+    ac.RegisterAnimationSet(s); ac.SetTrackAnimationSet(0, s); ac.SetTrackEnable(0, true);
+    ac.AdvanceTime(0.25);
+    const want = matRotationY(-theta); // D3DXMatrixRotationQuaternion(key) would be matRotationY(+theta)
+    for (let i = 0; i < 16; i++) close(mat[i]!, want[i]!, 1e-6);
+    close(rot.y, Math.sin(theta / 2), 1e-6); close(rot.w, Math.cos(theta / 2), 1e-6);
+  });
+
   test("KeyTrackSpeed: the position is the integral of a linear / smoothstep ramp; the state ends at the target; small steps agree with one big step", () => {
     for (const [transition, expectedHalf] of [[D3DXTRANSITION.LINEAR, 0.125], [D3DXTRANSITION.EASEINEASEOUT, 0.09375]] as const) {
       const { ac } = controllerWithOutput();
@@ -248,7 +262,7 @@ describe("D3DX animation controller", () => {
     expect(scale).toEqual({ x: 2, y: 2, z: 2 });
     close(rot.y, Math.SQRT1_2); close(rot.w, Math.SQRT1_2);
     expect(tr).toEqual({ x: 1, y: 2, z: 3 });
-    const expected = composeSRT(scale, rot, tr);
+    const expected = composeSRT(scale, { x: -rot.x, y: -rot.y, z: -rot.z, w: rot.w }, tr); // the matrix is built from the conjugate of the key; the rotation output is the key
     expect(Array.from(mat).map((x) => +x.toFixed(5))).toEqual(Array.from(expected).map((x) => +x.toFixed(5)));
     // S * R * T for row vectors: the translation is the last row and is not scaled / rotated
     expect([mat[12], mat[13], mat[14]]).toEqual([1, 2, 3]);

@@ -4,5 +4,5 @@
   "private": true,
   "type": "module",
   "exports": { ".": "./src/index.ts" },
-  "dependencies": { "@els/d3d9": "workspace:*" }
+  "dependencies": { "@els/assets": "workspace:*", "@els/d3d9": "workspace:*" }
 }

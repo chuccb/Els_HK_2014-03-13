@@ -54,6 +54,7 @@
       "name": "@els/engine",
       "version": "0.0.0",
       "dependencies": {
+        "@els/assets": "workspace:*",
         "@els/d3d9": "workspace:*",
       },
     },

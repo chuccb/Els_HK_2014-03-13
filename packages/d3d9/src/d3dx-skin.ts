@@ -11,8 +11,8 @@
  *
  * Checked against Wine's d3dx9 tests (which also pass on native Windows, FINDINGS 12.3): `D3DXFrameFind` is breadth first (it matters for the two files that repeat a bone name); an unnamed `Frame` /
  * `Mesh` is passed to the allocator as `""`, the frame D3DX makes around a top-level Mesh and the extra root over several top-level frames have a NULL name; no frame is `E_FAIL`; no `AnimationSet`
- * means no controller; `UpdateSkinnedMesh` ignores the stored offset matrices.  Choices without an oracle (FINDINGS 12.5): X rotation keys (w, x, y, z) become D3DXQUATERNION (-x, -y, -z, w) (decided on the data: for 323 informative frames the first key equals the rest
- * pose only in this form, 0 as stored); matrix keys are decomposed into scale / rotation / translation (as `ID3DXKeyframedAnimationSet` only holds SRT keys); the
+ * means no controller; `UpdateSkinnedMesh` ignores the stored offset matrices.  Choices without an oracle (FINDINGS 12.5): X rotation keys (w, x, y, z) become D3DXQUATERNION (x, y, z, w) as stored and the controller builds the matrix from their conjugate (decided on the data: for 323 informative frames the first key equals the rest
+ * pose only in this form, 0 as stored; the 1,031 KSM files say the same); matrix keys are decomposed into scale / rotation / translation (as `ID3DXKeyframedAnimationSet` only holds SRT keys); the
  * animation sets are LOOP sets with `AnimTicksPerSecond` (default 4800).  `ConvertToIndexedBlendedMesh` produces a valid palette partition (faces of one material
  * packed greedily into combinations whose bone set fits the palette, vertices duplicated per combination, weights normalised, slots in ascending bone order); D3DX's own
  * packing order is not reproduced, so combination and vertex order can differ while every triangle gets the same bones and weights.
@@ -25,7 +25,7 @@ import { D3DXAnimationController, D3DXCreateAnimationController, D3DXCreateKeyfr
 import type { D3DXKeyQuaternion, D3DXKeyVector3 } from "./d3dx-animation.ts";
 import { D3DXBuildMesh, D3DXCreateMeshFVF, D3DXMESH } from "./d3dx-mesh.ts";
 import type { D3DXMaterial, D3DXMesh } from "./d3dx-mesh.ts";
-import { matDecompose, matIdentity, matMultiply, vec3TransformCoord } from "./d3dx-math.ts";
+import { matDecompose, matIdentity, matMultiply, quatConjugate, vec3TransformCoord } from "./d3dx-math.ts";
 import type { Mat4, Vec3 } from "./d3dx-math.ts";
 import { fvfToElements, fvfVertexSize } from "./vertex.ts";
 import type { VertexElement } from "./vertex.ts";
@@ -376,8 +376,11 @@ export function skinInfoFor(data: XMeshData, mesh: D3DXMesh, origin: Uint32Array
   return si;
 }
 
-/** Rotation key of the file (w, x, y, z) -> D3DXQUATERNION: the stored value is the conjugate (see the header). */
-const quatFromX = (q: readonly [number, number, number, number]) => ({ x: Math.fround(-q[1]), y: Math.fround(-q[2]), z: Math.fround(-q[3]), w: Math.fround(q[0]) });
+/**
+ * Rotation key of the file (w, x, y, z) -> D3DXQUATERNION (x, y, z, w), the components as stored.  D3DX's keys are in the X-file convention (the controller builds its
+ * matrices from the conjugate, d3dx-animation.ts), which is also what the KAC files of KSM meshes hold.
+ */
+const quatFromX = (q: readonly [number, number, number, number]) => ({ x: Math.fround(q[1]), y: Math.fround(q[2]), z: Math.fround(q[3]), w: Math.fround(q[0]) });
 
 /** The animation sets of an X scene as D3DX keyframed sets. */
 export function buildAnimationSets(scene: XScene): ReturnType<typeof D3DXCreateKeyframedAnimationSet>["set"][] {
@@ -394,7 +397,7 @@ export function buildAnimationSets(scene: XScene): ReturnType<typeof D3DXCreateK
         for (const k of a.matrix) {
           const d = matDecompose(k.m);
           if (!d) continue;
-          scale.push({ Time: k.time, Value: d.scale }); rotation.push({ Time: k.time, Value: d.rotation }); translation.push({ Time: k.time, Value: d.translation });
+          scale.push({ Time: k.time, Value: d.scale }); rotation.push({ Time: k.time, Value: quatConjugate(d.rotation) }); translation.push({ Time: k.time, Value: d.translation }); // the key is the conjugate of the matrix's rotation (the controller conjugates again)
         }
       }
       r.set.RegisterAnimationSRTKeys(a.frame, scale, rotation, translation);

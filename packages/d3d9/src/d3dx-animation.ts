@@ -15,9 +15,13 @@
  *  - Pose = for each registered output, the weighted sum of the SRT of the enabled tracks that animate it (scale and translation summed with the weights, rotations
  *    summed after aligning their hemispheres and normalised), computed separately for the LOW and the HIGH priority group; both groups present -> lerp by the priority blend.
  *    Weights are not normalised.  The result is written as `S * R * T` (row vectors) into the output matrix, and into the separate scale / rotation / translation outputs.
+ *  - **The rotation keys are in the X-file convention**: the matrix is built from the *conjugate* of the interpolated key (`D3DXMatrixRotationQuaternion(conj(q))`), the
+ *    separate rotation output and `GetSRT` hand out the key itself.  Decided on data twice: the exe registers the KAC keys as stored (L450508 `RegisterAnimationSRTKeys`, no
+ *    conjugation), and for 30,009 of 31,533 informative first-key / rest-matrix pairs of the 1,031 KSM files `R(conj(key0))` is the frame's rest rotation (0 times `R(key0)`);
+ *    the X files agree (FINDINGS 12.4).  The separate rotation output being the unconjugated key is a guess (the exe registers matrices only).
  *  - `ResetTime` rebases the events (their start times shift by the old time) and sets the time to 0.
  */
-import { matIdentity, matMultiply, matRotationQuaternion, matScaling, matTranslation, quatSlerp } from "./d3dx-math.ts";
+import { matIdentity, matMultiply, matRotationQuaternion, matScaling, matTranslation, quatConjugate, quatSlerp } from "./d3dx-math.ts";
 import type { Mat4, Quat, Vec3 } from "./d3dx-math.ts";
 import { D3DERR_INVALIDCALL, D3D_OK } from "./hresult.ts";
 
@@ -400,7 +404,7 @@ export class D3DXAnimationController {
       if (out.scale) { out.scale.x = f(r.s.x); out.scale.y = f(r.s.y); out.scale.z = f(r.s.z); }
       if (out.rotation) { out.rotation.x = f(r.q.x); out.rotation.y = f(r.q.y); out.rotation.z = f(r.q.z); out.rotation.w = f(r.q.w); }
       if (out.translation) { out.translation.x = f(r.t.x); out.translation.y = f(r.t.y); out.translation.z = f(r.t.z); }
-      if (out.matrix) out.matrix.set(composeSRT(r.s, r.q, r.t));
+      if (out.matrix) out.matrix.set(composeSRT(r.s, quatConjugate(r.q), r.t)); // the rotation keys are in the X-file convention: the matrix is built from their conjugate (see the header)
     }
   }
 

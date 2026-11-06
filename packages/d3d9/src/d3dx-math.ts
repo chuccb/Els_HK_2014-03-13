@@ -272,6 +272,10 @@ export function quatMultiply(a: Quat, b: Quat): Quat {
     w: f(b.w * a.w - b.x * a.x - b.y * a.y - b.z * a.z),
   };
 }
+/** `D3DXQuaternionConjugate` */
+export function quatConjugate(q: Quat): Quat {
+  return { x: -q.x, y: -q.y, z: -q.z, w: q.w };
+}
 export function quatNormalize(q: Quat): Quat {
   const len = Math.sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
   return len ? { x: f(q.x / len), y: f(q.y / len), z: f(q.z / len), w: f(q.w / len) } : { x: 0, y: 0, z: 0, w: 0 };

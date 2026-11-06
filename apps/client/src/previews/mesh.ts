@@ -1,72 +1,47 @@
 /**
- * X / Y meshes through the D3D9 layer: the file goes through `D3DXLoadMeshHierarchyFromXInMemory` with an allocator like the DirectX SDK's
- * (the exe's `CMultiAnimAllocateHierarchy` is a variant of it), the frame lists are the exe's (`SetupFrameList` / `SetupDrawFrameList`: the
- * COLLISION* / ATTACK* / Bip01_Footsteps* helper frames are not drawn), textures come out of the archives, the animation controller poses the
- * frame hierarchy, skinned meshes are skinned on the CPU (`ID3DXSkinInfo::UpdateSkinnedMesh`) and drawn with the fixed-function pipeline.
- * The game itself skins on the GPU with XRenderer.fx; this is the tool for looking at the data.
+ * X / Y meshes and KSM skinned meshes through the D3D9 layer.  The file goes through the engine's `loadSkinnedMesh` (CKTDXDeviceXSkinMesh::_Load):
+ * "KSM " data is KOG's own container (LoadKSkinnedMesh: frames, ID3DXMesh + ID3DXSkinInfo per mesh container, keyframed animation sets), anything else is
+ * an X file for `D3DXLoadMeshHierarchyFromXInMemory` with the exe's allocator (`CMultiAnimAllocateHierarchy`).  The frame lists are the exe's
+ * (`SetupFrameList` / `SetupDrawFrameList`: the COLLISION* / ATTACK* / Bip01_Footsteps* helper frames are not drawn), textures come out of the
+ * archives, the animation controller poses the frame hierarchy, skinned meshes are skinned on the CPU (`ID3DXSkinInfo::UpdateSkinnedMesh`) and drawn
+ * with the fixed-function pipeline.  The game itself skins on the GPU with XRenderer.fx; this is the tool for looking at the data.
  */
-import { collisionFrames, setupDrawFrameList, setupFrameList } from "@els/engine";
+import { collisionFrames, loadSkinnedMesh, setupDrawFrameList } from "@els/engine";
+import type { MultiAnimFrame, MultiAnimMC } from "@els/engine";
 import {
   D3DBLEND, D3DCLEAR, D3DCMP, D3DCULL, D3DFMT, D3DLIGHT, D3DPOOL, D3DRS, D3DSAMP, D3DTEXF, D3DTS, D3DTS_WORLD, D3DX_FILTER, D3DXCreateTextureFromFileInMemoryEx,
-  D3DXFrameFind, D3DXLoadMeshHierarchyFromXInMemory, D3DXMESH, matIdentity, matLookAtLH, matMultiply, matPerspectiveFovLH,
+  D3DXMESH, matIdentity, matLookAtLH, matMultiply, matPerspectiveFovLH,
 } from "@els/d3d9";
-import type { D3DXAnimationController, D3DXFrame, D3DXMesh, D3DXMeshContainer, D3DXMaterial, D3DXSkinInfo, Direct3DTexture9, ID3DXAllocateHierarchy } from "@els/d3d9";
+import type { D3DXAnimationController, D3DXFrame, D3DXMesh, Direct3DTexture9 } from "@els/d3d9";
 import type { Preview, PreviewEnv } from "../preview.ts";
 import { el } from "../ui.ts";
 
-class VFrame implements D3DXFrame {
-  TransformationMatrix: Float32Array = matIdentity();
-  pMeshContainer: D3DXMeshContainer | null = null;
-  pFrameSibling: D3DXFrame | null = null;
-  pFrameFirstChild: D3DXFrame | null = null;
-  combined: Float32Array = matIdentity();
-  constructor(public Name: string | null) {}
-}
-
-class VContainer implements D3DXMeshContainer {
-  pEffects: null = null;
-  pNextMeshContainer: D3DXMeshContainer | null = null;
-  readonly MeshData: { Type: number; pMesh: D3DXMesh | null };
-  /** the mesh that is drawn: the loaded one, or a clone whose vertices are rewritten every frame when there is a skin */
-  drawMesh: D3DXMesh;
-  textures: (Direct3DTexture9 | null)[] = [];
-  boneFrames: (VFrame | null)[] = [];
-  offsets: Float32Array[] = [];
-  constructor(
-    public Name: string | null, meshData: { Type: number; pMesh: D3DXMesh }, public pMaterials: D3DXMaterial[], public NumMaterials: number,
-    public pAdjacency: Uint32Array | null, public pSkinInfo: D3DXSkinInfo | null,
-  ) {
-    this.MeshData = meshData;
-    this.drawMesh = meshData.pMesh;
-  }
-}
-
-const allocator: ID3DXAllocateHierarchy = {
-  CreateFrame: (name) => ({ hr: 0, frame: new VFrame(name) }),
-  CreateMeshContainer: (name, meshData, materials, _fx, numMaterials, adjacency, skinInfo) => ({ hr: 0, container: new VContainer(name, meshData, materials, numMaterials, adjacency, skinInfo) }),
-  DestroyFrame: () => 0,
-  DestroyMeshContainer: () => 0,
-};
-
 function updateCombined(root: D3DXFrame | null, parent: Float32Array): void {
-  for (let f = root as VFrame | null; f; f = f.pFrameSibling as VFrame | null) {
-    f.combined = matMultiply(f.TransformationMatrix, parent);
-    updateCombined(f.pFrameFirstChild, f.combined);
+  for (let f = root as MultiAnimFrame | null; f; f = f.pFrameSibling as MultiAnimFrame | null) {
+    f.combineMatrix = matMultiply(f.TransformationMatrix, parent);
+    updateCombined(f.pFrameFirstChild, f.combineMatrix);
   }
 }
+
+/** one drawn mesh container: its frame, and the mesh that is drawn (the loaded one, or a clone whose vertices are rewritten every frame when it is skinned) */
+interface Drawn { frame: MultiAnimFrame; c: MultiAnimMC; mesh: D3DXMesh; skinned: boolean }
 
 export async function meshPreview(env: PreviewEnv, name: string, bytes: Uint8Array): Promise<Preview> {
   const d3d = await env.d3d();
   const { dev } = d3d;
-  const loaded = D3DXLoadMeshHierarchyFromXInMemory(bytes, D3DXMESH.MANAGED, dev, allocator); // fails for the KME / KSM / KAC files
-  if (loaded.hr < 0 || !loaded.frameRoot) throw new Error(`D3DXLoadMeshHierarchyFromXInMemory failed: 0x${(loaded.hr >>> 0).toString(16)}`);
-  const root = loaded.frameRoot as VFrame;
-  const controller: D3DXAnimationController | null = loaded.animController;
+  const loaded = loadSkinnedMesh(bytes, dev);
+  // an X file with more than 255 frames is refused by the exe; the inspector still shows what D3DX made of it
+  const kept = loaded.hr >= 0 ? { root: loaded.frameRoot, controller: loaded.animController } : loaded.discarded ? { root: loaded.discarded.frameRoot, controller: loaded.discarded.animController } : null;
+  if (!kept?.root) throw new Error(`${loaded.format} load failed: 0x${(loaded.hr >>> 0).toString(16)}`);
+  const root = kept.root as MultiAnimFrame;
+  const controller: D3DXAnimationController | null = kept.controller;
+  const frameList = loaded.hr >= 0 ? loaded.frameList : loaded.frames!.frames;
+  const drawFrames = (loaded.hr >= 0 ? loaded.drawFrameList : setupDrawFrameList(root)) as MultiAnimFrame[];
 
-  // ---- textures (shared by name), bone frames, skinned clones
+  // ---- textures (shared by name), skinned clones
   const textures = new Map<string, Direct3DTexture9 | null>();
-  const containers: { frame: VFrame; c: VContainer }[] = [];
-  let numFrames: number, numVertices = 0, numFaces = 0, skinned = 0, missingTextures = 0;
+  const containers: Drawn[] = [];
+  let numVertices = 0, numFaces = 0, skinned = 0, missingTextures = 0;
   const loadTexture = async (file: string): Promise<Direct3DTexture9 | null> => {
     const key = file.toUpperCase();
     if (textures.has(key)) return textures.get(key)!;
@@ -80,25 +55,22 @@ export async function meshPreview(env: PreviewEnv, name: string, bytes: Uint8Arr
     textures.set(key, tex);
     return tex;
   };
-  const frameList = setupFrameList(root); // the exe refuses meshes with more than 255 frames
-  const drawFrames = setupDrawFrameList(root) as VFrame[];
-  const helperFrames = collisionFrames(frameList.frames).length;
-  numFrames = frameList.frames.length;
+  const helperFrames = collisionFrames(frameList).length;
+  const numFrames = frameList.length;
   for (const f of drawFrames) {
-    for (let c = f.pMeshContainer as VContainer | null; c; c = c.pNextMeshContainer as VContainer | null) {
+    for (let c = f.pMeshContainer as MultiAnimMC | null; c; c = c.pNextMeshContainer as MultiAnimMC | null) {
       const mesh = c.MeshData.pMesh!;
       numVertices += mesh.GetNumVertices(); numFaces += mesh.GetNumFaces();
-      for (const m of c.pMaterials) c.textures.push(m.pTextureFilename ? await loadTexture(m.pTextureFilename) : null);
-      if (c.pSkinInfo && c.pSkinInfo.GetNumBones() > 0) {
-        skinned++;
-        const clone = mesh.CloneMeshFVF(D3DXMESH.MANAGED, mesh.GetFVF(), dev);
-        if (clone.hr >= 0 && clone.mesh) c.drawMesh = clone.mesh;
-        for (let i = 0; i < c.pSkinInfo.GetNumBones(); i++) {
-          c.boneFrames.push(D3DXFrameFind(root, c.pSkinInfo.GetBoneName(i)) as VFrame | null);
-          c.offsets.push(c.pSkinInfo.GetBoneOffsetMatrix(i) ?? matIdentity());
-        }
+      for (let i = 0; i < c.pMaterials.length; i++) {
+        const file = c.pMaterials[i]!.pTextureFilename;
+        c.m_apTextures[i] = file ? await loadTexture(file) : null;
       }
-      containers.push({ frame: f, c });
+      const d: Drawn = { frame: f, c, mesh, skinned: false };
+      if (c.pSkinInfo && c.pSkinInfo.GetNumBones() > 0 && c.m_ppBoneFrames && c.m_amxBoneOffsets) {
+        const clone = mesh.CloneMeshFVF(D3DXMESH.MANAGED, mesh.GetFVF(), dev);
+        if (clone.hr >= 0 && clone.mesh) { d.mesh = clone.mesh; d.skinned = true; skinned++; }
+      }
+      containers.push(d);
     }
   }
 
@@ -122,11 +94,12 @@ export async function meshPreview(env: PreviewEnv, name: string, bytes: Uint8Arr
   const pose = (dt: number): void => {
     if (controller && sets.length) { controller.AdvanceTime(dt * speed, null); time += dt * speed; }
     updateCombined(root, matIdentity());
-    for (const { c } of containers) {
-      if (!c.pSkinInfo || c.drawMesh === c.MeshData.pMesh) continue;
-      const mats = c.boneFrames.map((bf, i) => (bf ? matMultiply(c.offsets[i]!, bf.combined) : matIdentity()));
-      c.pSkinInfo.UpdateSkinnedMesh(mats, null, c.MeshData.pMesh!.vb.cpu, c.drawMesh.vb.cpu);
-      c.drawMesh.vb.markDirty(0, c.drawMesh.vb.length);
+    for (const d of containers) {
+      if (!d.skinned) continue;
+      const bones = d.c.m_ppBoneFrames as (MultiAnimFrame | null)[];
+      const mats = d.c.m_amxBoneOffsets!.map((offset, i) => (bones[i] ? matMultiply(offset, bones[i]!.combineMatrix) : matIdentity()));
+      d.c.pSkinInfo!.UpdateSkinnedMesh(mats, null, d.c.MeshData.pMesh!.vb.cpu, d.mesh.vb.cpu);
+      d.mesh.vb.markDirty(0, d.mesh.vb.length);
     }
   };
   pose(0);
@@ -134,10 +107,10 @@ export async function meshPreview(env: PreviewEnv, name: string, bytes: Uint8Arr
   // ---- bounds of the bind / first pose
   const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
   const growBounds = (): void => {
-    for (const { frame, c } of containers) {
-      const mesh = c.drawMesh, stride = mesh.GetNumBytesPerVertex(), cpu = mesh.vb.cpu;
+    for (const d of containers) {
+      const mesh = d.mesh, stride = mesh.GetNumBytesPerVertex(), cpu = mesh.vb.cpu;
       const dv = new DataView(cpu.buffer, cpu.byteOffset, cpu.byteLength);
-      const m = c === undefined || c.drawMesh !== c.MeshData.pMesh ? null : frame.combined;
+      const m = d.skinned ? null : d.frame.combineMatrix;
       for (let v = 0; v < mesh.GetNumVertices(); v++) {
         let x = dv.getFloat32(v * stride, true), y = dv.getFloat32(v * stride + 4, true), z = dv.getFloat32(v * stride + 8, true);
         if (m) { const nx = x * m[0]! + y * m[4]! + z * m[8]! + m[12]!, ny = x * m[1]! + y * m[5]! + z * m[9]! + m[13]!, nz = x * m[2]! + y * m[6]! + z * m[10]! + m[14]!; x = nx; y = ny; z = nz; }
@@ -188,12 +161,12 @@ export async function meshPreview(env: PreviewEnv, name: string, bytes: Uint8Arr
       position: { x: 0, y: 0, z: 0 }, direction: { x: -0.4, y: -0.6, z: 0.7 }, range: 1000, falloff: 0, attenuation0: 1, attenuation1: 0, attenuation2: 0, theta: 0, phi: 0,
     });
     dev.LightEnable(0, true);
-    for (const { frame, c } of containers) {
-      dev.SetTransform(D3DTS_WORLD, c.drawMesh !== c.MeshData.pMesh ? matIdentity() : frame.combined);
-      for (let i = 0; i < c.NumMaterials; i++) {
-        dev.SetMaterial(c.pMaterials[i]!.MatD3D);
-        dev.SetTexture(0, c.textures[i] ?? null);
-        c.drawMesh.DrawSubset(i);
+    for (const d of containers) {
+      dev.SetTransform(D3DTS_WORLD, d.skinned ? matIdentity() : d.frame.combineMatrix);
+      for (let i = 0; i < d.c.NumMaterials; i++) {
+        dev.SetMaterial(d.c.pMaterials[i]!.MatD3D);
+        dev.SetTexture(0, d.c.m_apTextures[i] ?? null);
+        d.mesh.DrawSubset(i);
       }
     }
     dev.EndScene();
@@ -228,8 +201,8 @@ export async function meshPreview(env: PreviewEnv, name: string, bytes: Uint8Arr
     el("label", {}, rotate, " turntable"), el("label", { title: "off = D3DCULL_CCW, the D3D default" }, sided, " two-sided"), el("span", { class: "dim", text: "drag: orbit, wheel: zoom" }));
   const pane = el("div", { class: "pane" }, bar, el("div", { class: "glwrap" }, canvas));
   raf = requestAnimationFrame(tick);
-  const refused = frameList.hr < 0 ? " - the exe would refuse this mesh (more than 255 frames)" : "";
-  const info = `${numFrames} frames (${helperFrames} collision), ${containers.length} drawn mesh containers (${skinned} skinned), ${numVertices} vertices, ${numFaces} faces, ${textures.size} textures${missingTextures ? ` (${missingTextures} missing)` : ""}, ${sets.length} animation sets${refused}`;
+  const refused = loaded.hr < 0 ? " - the exe would refuse this mesh (more than 255 frames)" : "";
+  const info = `${loaded.format} ${numFrames} frames (${helperFrames} collision), ${containers.length} drawn mesh containers (${skinned} skinned), ${numVertices} vertices, ${numFaces} faces, ${textures.size} textures${missingTextures ? ` (${missingTextures} missing)` : ""}, ${sets.length} animation sets${refused}`;
   return {
     el: pane,
     info,
