@@ -1,0 +1,319 @@
+/**
+ * `CKTDGUIRadioButton` (the Lua class `CKTDGUIRadioButton`, a `CKTDGUIControl`): a button that stays pressed.  Radio buttons of a dialog
+ * that share a group id (`SetGroupID`) form a group; the dialog keeps one `RadioButtonGroupInfo` per group id
+ * (`m_mapRadioButtonGroupInfo`), which remembers in which order the group's buttons were checked and unchecks the oldest ones when more
+ * than `m_iMaxCheckCount` (default 1) would be checked.
+ *
+ * `CKTDGUIRadioButton::CKTDGUIRadioButton` (329486F0) sets the defaults below, opens `UIEdge.tga` for the checked edge and, like the
+ * button, runs `UI_Control_Sound.lua` and opens the sounds of its globals `RadioButton_Check` and `RadioButton_MouseOver`.  The Lua
+ * setters: SetNormalTex_LUA 3294C2F0, SetOverTex_LUA 3294C480, SetDisableTex_LUA 3294BEE0, SetCheckedTex_LUA 3294BBF0, SetBGPoint_LUA
+ * 3294B810, SetBGMouseOverPoint_LUA 3294B770, SetCheckPoint_LUA 3294B8B0, SetRBPoint_LUA 3294C610, SetDisabledPoint_LUA 3294C070,
+ * SetGroupID_LUA 3294C110, SetGroupMaxCheckCount 3294C270, SetChecked_LUA 328CD020 (-> SetCheckedInternal 3294BA90 ->
+ * RadioButtonGroupInfo::SetChecked 3294B950), SetCheckedEdge 3294BA60, SetString_LUA 328CE110, GetCheckedControl 3294A4C0; the
+ * one-line field setters are 328CD1B0 .. 328CD4C0.
+ *
+ * What the exe does not guard and this port reports instead of reading garbage: `SetChecked` of a radio button that is in no dialog
+ * dereferences the null dialog handle, and `ChangeState` of one without a `SetRBPoint` point dereferences a null point.
+ */
+import { Color } from "@els/host";
+import type { CKTDGUIRadioButton_Methods } from "@els/host";
+import { CKTDGUIControl, UCT, UIM, UIPointData, readStringData } from "./control.ts";
+import type { UIContext, UIStringData, UITextureData } from "./control.ts";
+import type { DeviceSound, DeviceTexture } from "./device.ts";
+
+/** `CKTDGUIRadioButton::RADIOBUTTON_CONTROL_STATE` */
+export const RBCS = { NORMAL: 0, MOUSEOVER: 1, DISABLE: 2 } as const;
+
+/** `CKTDGUIRadioButton::RadioButtonGroupInfo` (0x14 bytes: group id, maximum of checked buttons, the checked buttons in order) */
+export class RadioButtonGroupInfo {
+  m_iMaxCheckCount = 1;
+  /** `m_vecpCheckedOrder`: the checked buttons, the oldest first */
+  readonly m_vecpCheckedOrder: CKTDGUIRadioButton[] = [];
+
+  constructor(readonly m_iGroupID: number) {}
+
+  /**
+   * `SetChecked(pRadio, bChecked)` (3294B950): the button leaves the list (every occurrence); a checked one then makes room (the oldest
+   * buttons are unchecked, `SetCheckedInternal(false, false, false)`, until fewer than the maximum are left) and joins at the end.
+   */
+  setChecked(pRadio: CKTDGUIRadioButton, bChecked: boolean): void {
+    const order = this.m_vecpCheckedOrder;
+    for (let i = 0; i < order.length; i++) {
+      if (order[i] === pRadio) {
+        order.splice(i, 1);
+        i--;
+      }
+    }
+    if (!bChecked) return;
+    if (order.length >= this.m_iMaxCheckCount) {
+      do {
+        if (order.length === 0) break;
+        const oldest = order.shift()!;
+        oldest.setCheckedInternal(false, false, false);
+      } while (order.length >= this.m_iMaxCheckCount);
+    }
+    order.push(pRadio);
+  }
+}
+
+export class CKTDGUIRadioButton extends CKTDGUIControl implements Partial<CKTDGUIRadioButton_Methods> {
+  m_bChecked = false;
+  m_bPressed = false;
+  m_bRButtonDown = false;
+  m_bEnableDoubleClick = false;
+  m_bEnableCheckToggle = false;
+  m_RadioButtonState: number = RBCS.MOUSEOVER;
+  m_pNormalTex: UITextureData | null = null;
+  m_pMouseOverTex: UITextureData | null = null;
+  m_pDisableTex: UITextureData | null = null;
+  m_pCheckedTex: UITextureData | null = null;
+  m_pBGPoint: UIPointData | null = null;
+  m_pBGMouseOverPoint: UIPointData | null = null;
+  m_pCheckedPoint: UIPointData | null = null;
+  m_pRadioButtonPoint: UIPointData | null = null;
+  m_pDisabledPoint: UIPointData | null = null;
+  m_CustomMsgMouseOut = -1;
+  m_CustomMsgMouseOver = -1;
+  m_CustomMsgChecked = -1;
+  m_CustomMsgUnChecked = -1;
+  m_CustomMsgDoubleClicked = -1;
+  m_CustomMsgRButtonUp = -1;
+  m_pStringData: UIStringData | null = null;
+  m_GroupID = -1;
+  readonly m_MyNowPoint = new UIPointData();
+  readonly m_MyEndPoint = new UIPointData();
+  m_bShowOffBGByCheck = false;
+  m_bFixOverByCheck = false;
+  m_pSndCheck: DeviceSound | undefined;
+  m_pSndMouseOver: DeviceSound | undefined;
+  readonly m_CheckedEdgeColor = new Color(1, 1, 1, 1);
+  m_CheckedEdgeWidth = 0;
+  /** `UIEdge.tga` */
+  readonly m_pCheckedEdgeTexture: DeviceTexture | undefined;
+  m_bDrawCheckedEdgeOut = true;
+
+  constructor(ctx: UIContext) {
+    super(ctx);
+    this.m_ControlType = UCT.RADIOBUTTON;
+    this.m_pCheckedEdgeTexture = ctx.devices.openTexture("UIEdge.tga");
+    [this.m_pSndCheck, this.m_pSndMouseOver] = this.openControlSounds(["RadioButton_Check", "RadioButton_MouseOver"]);
+  }
+
+  override textureData(out: UITextureData[]): void {
+    for (const t of [this.m_pNormalTex, this.m_pMouseOverTex, this.m_pDisableTex, this.m_pCheckedTex]) if (t) out.push(t);
+  }
+
+  /** `SetCustomMouseOverSound(wstring)` (3294BD80): opens the sound (the old one is not closed) */
+  override setCustomMouseOverSound(soundFileName: string): void {
+    this.m_pSndMouseOver = this.ctx.devices.openSound(soundFileName);
+  }
+
+  /** `SetCustomMouseUpSound(wstring)` (3294BE30): the sound of checking */
+  override setCustomMouseUpSound(soundFileName: string): void {
+    this.m_pSndCheck = this.ctx.devices.openSound(soundFileName);
+  }
+
+  // ---- state -----------------------------------------------------------------------------------------------------------------
+
+  /**
+   * `ChangeState(state)` (32949630): an unchecked button that changes state takes the radio button point as the (current and end) point of
+   * the control and the point of the state as the end point of its own drawing: the mouse over point (or the background point) for
+   * normal and over, the disabled point for disabled (which also takes the focus away from the button).  A transition time of 0 makes
+   * the current point the end point at once.
+   */
+  ChangeState(state: number): void {
+    if (this.m_RadioButtonState === state || this.m_bChecked) return;
+    const rb = this.m_pRadioButtonPoint;
+    if (!rb) throw new Error("CKTDGUIRadioButton::ChangeState: the button has no radio button point (SetRBPoint); the exe dereferences null");
+    this.m_RadioButtonState = state;
+    this.m_EndPoint.assign(rb);
+    this.m_NowPoint.assign(this.m_EndPoint);
+    if (state === RBCS.DISABLE) {
+      if (this.m_pDisabledPoint) this.m_MyEndPoint.assign(this.m_pDisabledPoint);
+      this.m_MyNowPoint.fChangeTime = 0;
+      if (this.m_bHasFocus && this.m_pDialog) this.m_pDialog.clearFocus();
+    } else {
+      const point = state === RBCS.MOUSEOVER && this.m_pBGMouseOverPoint ? this.m_pBGMouseOverPoint : this.m_pBGPoint;
+      if (point) this.m_MyEndPoint.assign(point);
+      this.m_MyNowPoint.fChangeTime = 0;
+    }
+    if (this.m_MyEndPoint.fChangeTime === 0) this.m_MyNowPoint.assign(this.m_MyEndPoint);
+  }
+
+  /**
+   * `SetCheckedInternal(bChecked, bClickedDouble, bFromInput)` (3294BA90): the button is checked or not; a checked one is entered in the
+   * checked order of its group (which may uncheck others), an unchecked one goes back to the normal state.  Input also sends the stage a
+   * message: double click 0x466 with 2 (or 0x467 with the custom id), checked 0x466 / 0 (or the custom id), unchecked 0x466 / 1.
+   */
+  setCheckedInternal(bChecked: boolean, bClickedDouble: boolean, bFromInput: boolean): void {
+    this.m_bChecked = bChecked;
+    const dialog = this.m_pDialog;
+    if (!dialog) throw new Error("CKTDGUIRadioButton::SetCheckedInternal: the button is in no dialog; the exe dereferences a null dialog handle");
+    const info = dialog.m_mapRadioButtonGroupInfo.get(this.m_GroupID);
+    if (info && bChecked) info.setChecked(this, true);
+    if (!this.m_bChecked) this.ChangeState(RBCS.NORMAL);
+    if (!bFromInput) return;
+    if (this.m_bChecked) {
+      const custom = bClickedDouble ? this.m_CustomMsgDoubleClicked : this.m_CustomMsgChecked;
+      if (custom === -1) this.sendInternelEvent(UIM.CONTROL_EVENT, bClickedDouble ? 2 : 0);
+      else this.sendInternelEvent(UIM.CUSTOM_MSG, custom);
+    } else if (this.m_CustomMsgUnChecked === -1) {
+      this.sendInternelEvent(UIM.CONTROL_EVENT, 1);
+    } else {
+      this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgUnChecked);
+    }
+  }
+
+  // ---- textures and points ---------------------------------------------------------------------------------------------------
+
+  /** `SetNormalTex_LUA(file, key)` (3294C2F0): the background point shows it (the radio button point does not follow) */
+  SetNormalTex(fileName: string, key: string): void {
+    this.m_pNormalTex = this.replaceTexture(this.m_pNormalTex, fileName, key);
+    if (this.m_pBGPoint) this.m_pBGPoint.pUITextureData = this.m_pNormalTex;
+  }
+
+  /** `SetOverTex_LUA(file, key)` (3294C480) */
+  SetOverTex(fileName: string, key: string): void {
+    this.m_pMouseOverTex = this.replaceTexture(this.m_pMouseOverTex, fileName, key);
+    if (this.m_pBGMouseOverPoint) this.m_pBGMouseOverPoint.pUITextureData = this.m_pMouseOverTex;
+  }
+
+  /** `SetDisableTex_LUA(file, key)` (3294BEE0) */
+  SetDisableTex(fileName: string, key: string): void {
+    this.m_pDisableTex = this.replaceTexture(this.m_pDisableTex, fileName, key);
+    if (this.m_pDisabledPoint) this.m_pDisabledPoint.pUITextureData = this.m_pDisableTex;
+  }
+
+  /** `SetCheckedTex_LUA(file, key)` (3294BBF0) */
+  SetCheckedTex(fileName: string, key: string): void {
+    this.m_pCheckedTex = this.replaceTexture(this.m_pCheckedTex, fileName, key);
+    if (this.m_pCheckedPoint) this.m_pCheckedPoint.pUITextureData = this.m_pCheckedTex;
+  }
+
+  /** `SetBGPoint_LUA()` (3294B810): the point of the background, showing the normal texture */
+  SetBGPoint(): void {
+    this.m_pBGPoint = this.makePoint(this.m_pNormalTex);
+  }
+
+  /** `SetBGMouseOverPoint_LUA()` (3294B770): the background while the mouse is over the button, showing the mouse over texture */
+  SetBGMouseOverPoint(): void {
+    this.m_pBGMouseOverPoint = this.makePoint(this.m_pMouseOverTex);
+  }
+
+  /** `SetCheckPoint_LUA()` (3294B8B0): the point of the mark of a checked button, showing the checked texture */
+  SetCheckPoint(): void {
+    this.m_pCheckedPoint = this.makePoint(this.m_pCheckedTex);
+  }
+
+  /** `SetRBPoint_LUA()` (3294C610): the point of the radio button itself, showing the normal texture */
+  SetRBPoint(): void {
+    this.m_pRadioButtonPoint = this.makePoint(this.m_pNormalTex);
+  }
+
+  /** `SetDisabledPoint_LUA()` (3294C070): the point of the disabled button, showing the disable texture */
+  SetDisabledPoint(): void {
+    this.m_pDisabledPoint = this.makePoint(this.m_pDisableTex);
+  }
+
+  /** `SetString_LUA()` (328CE110): the button's text, from the table on top of the stack */
+  SetString(): void {
+    this.m_pStringData = readStringData(this.ctx);
+  }
+
+  // ---- groups ----------------------------------------------------------------------------------------------------------------
+
+  /**
+   * `SetGroupID_LUA(int)` (3294C110): in a dialog the group gets its `RadioButtonGroupInfo` when it has none yet (before the button is
+   * added to a dialog only the id is kept).
+   */
+  SetGroupID(groupID: number): void {
+    this.m_GroupID = groupID | 0;
+    const dialog = this.m_pDialog;
+    if (!dialog) return;
+    const map = dialog.m_mapRadioButtonGroupInfo;
+    if (!map.get(this.m_GroupID)) map.set(this.m_GroupID, new RadioButtonGroupInfo(this.m_GroupID));
+  }
+
+  /** `SetGroupMaxCheckCount(int)` (3294C270): how many buttons of the group may be checked at once */
+  SetGroupMaxCheckCount(maxCheckCount: number): void {
+    const info = this.m_pDialog?.m_mapRadioButtonGroupInfo.get(this.m_GroupID);
+    if (info) info.m_iMaxCheckCount = maxCheckCount | 0;
+  }
+
+  /** `SetChecked_LUA(bool)` (328CD020): `SetCheckedInternal(checked, false, false)` */
+  SetChecked(bChecked: boolean): void {
+    this.setCheckedInternal(bChecked, false, false);
+  }
+
+  /** `GetCheckedControl()` (3294A4C0): the first button of the group, in the order of the dialog, that is checked */
+  GetCheckedControl(): CKTDGUIRadioButton | undefined {
+    const list = this.m_pDialog?.m_ControlsList;
+    if (!list) return undefined;
+    for (const c of list) {
+      if (c.m_ControlType === UCT.RADIOBUTTON) {
+        const r = c as CKTDGUIRadioButton;
+        if (r.m_GroupID === this.m_GroupID && r.m_bChecked) return r;
+      }
+    }
+    return undefined;
+  }
+
+  // ---- messages and options --------------------------------------------------------------------------------------------------
+
+  /** `SetCustomMsgMouseOut(int)` (328CD1D0) */
+  SetCustomMsgMouseOut(msg: number): void {
+    this.m_CustomMsgMouseOut = msg | 0;
+  }
+
+  /** `SetCustomMsgMouseOver(int)` (328CD200) */
+  SetCustomMsgMouseOver(msg: number): void {
+    this.m_CustomMsgMouseOver = msg | 0;
+  }
+
+  /** `SetCustomMsgChecked(int)` (328CD100) */
+  SetCustomMsgChecked(msg: number): void {
+    this.m_CustomMsgChecked = msg | 0;
+  }
+
+  /** `SetCustomMsgUnChecked(int)` (328CD2D0) */
+  SetCustomMsgUnChecked(msg: number): void {
+    this.m_CustomMsgUnChecked = msg | 0;
+  }
+
+  /** `SetCustomMsgDoubleClicked(int)` (328CD120, shared with `CKTDGUINavigation::SetCustomMsgLButtonDown`) */
+  SetCustomMsgDoubleClicked(msg: number): void {
+    this.m_CustomMsgDoubleClicked = msg | 0;
+  }
+
+  /** `SetCustomMsgRButtonUp(int)` (328CD1B0) */
+  SetCustomMsgRButtonUp(msg: number): void {
+    this.m_CustomMsgRButtonUp = msg | 0;
+  }
+
+  /** `SetEnableDoubleClick(bool)` (328CD430) */
+  SetEnableDoubleClick(enable: boolean): void {
+    this.m_bEnableDoubleClick = enable;
+  }
+
+  /** `SetEnableCheckToggle(bool)` (328CD410): a click on a checked button unchecks it */
+  SetEnableCheckToggle(enable: boolean): void {
+    this.m_bEnableCheckToggle = enable;
+  }
+
+  /** `SetShowOffBGByCheck(bool)` (328CD4B0) */
+  SetShowOffBGByCheck(show: boolean): void {
+    this.m_bShowOffBGByCheck = show;
+  }
+
+  /** `SetFixOverByCheck(bool)` (328CD4C0) */
+  SetFixOverByCheck(fix: boolean): void {
+    this.m_bFixOverByCheck = fix;
+  }
+
+  /** `SetCheckedEdge(bool, int, D3DXCOLOR)` (3294BA60) */
+  SetCheckedEdge(drawOut: boolean, width: number, color: Color): void {
+    this.m_bDrawCheckedEdgeOut = drawOut;
+    this.m_CheckedEdgeWidth = width | 0;
+    this.m_CheckedEdgeColor.set(color.r, color.g, color.b, color.a);
+  }
+}

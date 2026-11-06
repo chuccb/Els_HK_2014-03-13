@@ -8,6 +8,8 @@ import type { StringTable } from "@els/assets";
 import { CKTDGUIControl, CPictureData } from "./control.ts";
 import type { UIContext } from "./control.ts";
 import { CKTDGUIButton } from "./button.ts";
+import { CKTDGUICheckBox } from "./checkbox.ts";
+import { CKTDGUIRadioButton } from "./radiobutton.ts";
 import { CKTDGUIDialog } from "./dialog.ts";
 import { DeviceManager } from "./device.ts";
 import { CKTDGUIStatic } from "./static.ts";
@@ -28,6 +30,8 @@ const IMPLEMENTATIONS: [string, object][] = [
   ["CKTDGUIControl", CKTDGUIControl],
   ["CKTDGUIStatic", CKTDGUIStatic],
   ["CKTDGUIButton", CKTDGUIButton],
+  ["CKTDGUIRadioButton", CKTDGUIRadioButton],
+  ["CKTDGUICheckBox", CKTDGUICheckBox],
   ["CKTDGUIControl::CPictureData", CPictureData],
 ];
 

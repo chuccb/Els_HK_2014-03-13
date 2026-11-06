@@ -17,7 +17,8 @@
 import { KLuaManager, Color, Vec2, Vec3, towupperAscii } from "@els/host";
 import type { CKTDGUIControl__CPictureData_Methods, CKTDGUIControl_Methods, HostWorld } from "@els/host";
 import type { StringTable } from "@els/assets";
-import type { DeviceManager, DeviceTexture } from "./device.ts";
+import { LuaError } from "@els/lua";
+import type { DeviceManager, DeviceSound, DeviceTexture } from "./device.ts";
 import type { CKTDGUIDialog } from "./dialog.ts";
 
 /** `CKTDGUIControl::UI_CONTROL_TYPE` */
@@ -426,6 +427,24 @@ export class CPictureData implements Partial<CKTDGUIControl__CPictureData_Method
     this.originalSize.set(this.size.x, this.size.y);
   }
 
+  /**
+   * `SetPos(D3DXVECTOR2)` (329263B0): the picture moves, its point (the quad of the picture) with it; without a point (`SetPoint` was not
+   * called yet) it is error log 0x15B
+   */
+  SetPos(pos: Vec2): void {
+    this.pos.set(pos.x, pos.y);
+    const p = this.pPoint;
+    if (!p) {
+      this.ctx.devices.massFiles.log.push(0x15b);
+      return;
+    }
+    const x = this.pos.x, y = this.pos.y, w = this.size.x, h = this.size.y;
+    p.leftTopPoint.set(x, y);
+    p.rightTopPoint.set(w + x, y);
+    p.leftBottomPoint.set(x, h + y);
+    p.rightBottomPoint.set(w + x, h + y);
+  }
+
   /** `SetShow(bool)` (328CDFB0) */
   SetShow(show: boolean): void {
     this.bShow = show;
@@ -779,5 +798,50 @@ export class CKTDGUIControl implements Partial<CKTDGUIControl_Methods> {
       point.pUITextureData = data.m_pTexData;
       point.applyTextureSize();
     }
+  }
+
+  // ---- what the constructors and setters of the interactive controls share ---------------------------------------------------
+
+  /**
+   * The start of the constructors of buttons, check boxes, radio buttons, combo boxes ...: `UI_Control_Sound.lua` runs in the Lua state
+   * (a missing script is error log 0x48, a failing one 0x49; the sounds stay null), then the sounds that the globals `names` hold are
+   * opened (`OpenSound(name, 10, true, -1.0)`; a global that is not there reads as "", the sound system that is not initialised answers
+   * null).
+   */
+  protected openControlSounds(names: readonly string[]): (DeviceSound | undefined)[] {
+    const world = this.ctx.world;
+    const log = this.ctx.devices.massFiles.log;
+    const script = "UI_Control_Sound.lua";
+    try {
+      if (!world.execScript(script)) {
+        log.push(0x48, script);
+        return names.map(() => undefined);
+      }
+    } catch (e) {
+      if (!(e instanceof LuaError)) throw e;
+      log.push(0x49, script);
+      return names.map(() => undefined);
+    }
+    const m = new KLuaManager(world.rt, 0);
+    return names.map((n) => this.ctx.devices.openSound(m.getString(n) ?? ""));
+  }
+
+  /** `PlaySoundW(pSound)` (329251E0): a control that has its sound on plays the sound once, without 3D */
+  playSound(pSound: DeviceSound | undefined): void {
+    if (this.m_bSound && pSound) pSound.play(false, false);
+  }
+
+  /** the `Set*Tex_LUA(file, key)` setters: the old UITextureData is destroyed, the new one (null when the file does not open) replaces it */
+  protected replaceTexture(old: UITextureData | null, fileName: string, key: string): UITextureData | null {
+    old?.release(this.ctx.devices);
+    return setTexureData(this.ctx, fileName, key);
+  }
+
+  /** the `Set*Point_LUA()` setters: the table on top of the Lua stack is the point; it draws `tex`, sized from it when it asks to be */
+  protected makePoint(tex: UITextureData | null): UIPointData {
+    const p = readPointData(this.ctx);
+    p.pUITextureData = tex;
+    p.applyTextureSize();
+    return p;
   }
 }

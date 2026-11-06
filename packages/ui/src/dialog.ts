@@ -17,6 +17,9 @@ import { Color, KLuaManager, Vec2, Vec3 } from "@els/host";
 import type { CKTDGUIDialog_Methods } from "@els/host";
 import { CKTDGUIControl, CPictureData } from "./control.ts";
 import { CKTDGUIButton } from "./button.ts";
+import { CKTDGUICheckBox } from "./checkbox.ts";
+import { CKTDGUIRadioButton } from "./radiobutton.ts";
+import type { RadioButtonGroupInfo } from "./radiobutton.ts";
 import { WStringMap } from "./stdmap.ts";
 import type { UIContext } from "./control.ts";
 import { CKTDGUIStatic } from "./static.ts";
@@ -94,6 +97,8 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
   readonly m_ControlsMap = new WStringMap<CKTDGUIControl>();
   /** `std::vector<CKTDGUIControl*>`: the controls in the order they were added (the order they are drawn in) */
   readonly m_ControlsList: CKTDGUIControl[] = [];
+  /** `m_mapRadioButtonGroupInfo` (`std::map<int, RadioButtonGroupInfo*>`): the radio button groups by group id */
+  readonly m_mapRadioButtonGroupInfo = new Map<number, RadioButtonGroupInfo>();
   /** `std::queue<DialogMoveItem>` */
   readonly m_queMoveItems: DialogMoveItem[] = [];
   readonly m_DummyPosList: Vec3[] = [];
@@ -176,6 +181,16 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
   /** `CreateButton()` (328C1120) */
   CreateButton(): CKTDGUIButton {
     return new CKTDGUIButton(this.ctx);
+  }
+
+  /** `CreateRadioButton()` (328C1730) */
+  CreateRadioButton(): CKTDGUIRadioButton {
+    return new CKTDGUIRadioButton(this.ctx);
+  }
+
+  /** `CreateCheckBox()` (328C1190) */
+  CreateCheckBox(): CKTDGUICheckBox {
+    return new CKTDGUICheckBox(this.ctx);
   }
 
   /**

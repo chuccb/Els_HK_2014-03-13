@@ -11,8 +11,7 @@
  * 3292FB30, Set{Normal,Over,Down,Disable}Static_LUA 32930180 / 329305F0 / 3292FCC0 / 3292F940, SetString_LUA 329308E0, ChangeState 3292D020,
  * ReNameStatics 3292F280, SetOffsetPos 329303E0, SetShow 32930880, SetName 3292FFE0.
  */
-import { LuaError } from "@els/lua";
-import { Color, KLuaManager, Vec2 } from "@els/host";
+import { Color, Vec2 } from "@els/host";
 import type { CKTDGUIButton_Methods } from "@els/host";
 import { CKTDGUIControl, TexChangeData, UCT, UIM, UIPointData, readPointData, readStringData, readTexChangeData, setTexureData } from "./control.ts";
 import type { UIContext, UIStringData, UITextureData } from "./control.ts";
@@ -72,32 +71,7 @@ export class CKTDGUIButton extends CKTDGUIControl implements Partial<CKTDGUIButt
     super(ctx);
     this.m_ControlType = UCT.BUTTON;
     this.m_pEdgeTexture = ctx.devices.openTexture("UIEdge.tga");
-    this.loadControlSounds();
-  }
-
-  /**
-   * The part of the constructor that reads `UI_Control_Sound.lua`: the script runs in the one Lua state and the two sounds are opened
-   * (`OpenSound(name, 10, true, -1.0)`; null while the sound system is not initialised).
-   */
-  private loadControlSounds(): void {
-    const world = this.ctx.world;
-    const log = this.ctx.devices.massFiles.log;
-    const script = "UI_Control_Sound.lua";
-    try {
-      if (!world.execScript(script)) {
-        log.push(0x48, script);
-        return;
-      }
-    } catch (e) {
-      if (!(e instanceof LuaError)) throw e;
-      log.push(0x49, script);
-      return;
-    }
-    const m = new KLuaManager(world.rt, 0);
-    const over = m.getString("Button_Mouse_Over") ?? "";
-    const up = m.getString("Button_Mouse_Up") ?? "";
-    this.m_pSndMouseOver = this.ctx.devices.openSound(over);
-    this.m_pSndMouseUp = this.ctx.devices.openSound(up);
+    [this.m_pSndMouseOver, this.m_pSndMouseUp] = this.openControlSounds(["Button_Mouse_Over", "Button_Mouse_Up"]);
   }
 
   override textureData(out: UITextureData[]): void {

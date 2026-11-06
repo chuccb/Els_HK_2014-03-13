@@ -53,10 +53,19 @@ export class DeviceSound {
   readonly b3DSound: boolean;
   /** `m_fMaxDistance` (-1: unset) */
   fMaxDistance = -1;
+  /** how often `play` was called (nothing is played yet: FMOD becomes WebAudio with the sound layer) */
+  plays = 0;
 
   constructor(deviceID: string, bUse3D: boolean) {
     this.deviceID = deviceID;
     this.b3DSound = bUse3D;
+  }
+
+  /** `CKTDXDeviceSound::Play(bLoop, b3DSound)` */
+  play(bLoop: boolean, b3DSound: boolean): void {
+    void bLoop;
+    void b3DSound;
+    this.plays++;
   }
 }
 
