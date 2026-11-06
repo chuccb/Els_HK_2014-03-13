@@ -9,6 +9,8 @@ export { decodeBmp } from "./bmp.ts";
 export { decodePng, encodePng } from "./png.ts";
 export { decompressXFile, isCompressedXFile, MszipError } from "./mszip.ts";
 export { parseXFile, XFileError } from "./xfile.ts";
+export { loadXScene, walkFrames } from "./xscene.ts";
+export type { XScene, XFrameData, XMeshData, XMaterial, XSkinBone, XAnimation, XAnimationSet } from "./xscene.ts";
 export { parseKme, parseKsm, parseKac, fvfVertexSize, KFormatError } from "./ksm.ts";
 export { parseEss, parseEssWithDiagnostics, StringTable, formatDefaultDouble, formatFixed } from "./ess.ts";
 export type { ReplaceArg, EssDiagnostics } from "./ess.ts";

@@ -15,3 +15,4 @@ export { generateWgsl, programKey } from "./ffp.ts";
 export type { ProgramDesc, StageDesc } from "./ffp.ts";
 export * from "./caps.ts";
 export * from "./d3dx-texture.ts";
+export * from "./d3dx-mesh.ts";
