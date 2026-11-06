@@ -19,6 +19,7 @@ import {
   LuaClosure, LuaNative, LuaUserdata, LuaError, Upval, typeName, newObjectId, opError, vmError, callerError,
 } from "./value.ts";
 import type { LuaValue, NativeImpl } from "./value.ts";
+import { scanNumber } from "./strscan.ts";
 
 export const EMPTY: LuaValue[] = [];
 const LUAI_MAXSTACK = 65500; // LJ_STACK_MAX
@@ -214,28 +215,9 @@ export function isCallable(v: LuaValue): boolean {
 
 // ---- string <-> number -------------------------------------------------------------------------------------
 
-const DEC_RE = /^[ \t\n\v\f\r]*([+-]?)(?:(\d+\.?\d*|\.\d+)(?:[eE]([+-]?\d+))?)[ \t\n\v\f\r]*$/;
-const HEX_RE = /^[ \t\n\v\f\r]*([+-]?)0[xX]([0-9a-fA-F]+)(?:\.([0-9a-fA-F]*))?(?:[pP]([+-]?\d+))?[ \t\n\v\f\r]*$/;
-
-/** lj_strscan for plain Lua number syntax (decimal, hex, hex floats). Returns undefined when not a number. */
+/** lj_strscan_num (a literal port, see strscan.ts): the number a string denotes, or undefined. */
 export function strToNumber(s: string): number | undefined {
-  let m = DEC_RE.exec(s);
-  if (m) {
-    const v = Number(m[2] + (m[3] !== undefined ? "e" + m[3] : ""));
-    return m[1] === "-" ? -v : v;
-  }
-  m = HEX_RE.exec(s);
-  if (m) {
-    let v = parseInt(m[2]!, 16);
-    if (m[3]) v += parseInt(m[3], 16) / 16 ** m[3].length;
-    if (m[4]) v *= 2 ** Number(m[4]);
-    return m[1] === "-" ? -v : v;
-  }
-  const t = s.trim().toLowerCase();
-  if (t === "inf" || t === "+inf") return Infinity;
-  if (t === "-inf") return -Infinity;
-  if (t === "nan" || t === "+nan" || t === "-nan") return NaN;
-  return undefined;
+  return scanNumber(s);
 }
 
 export function toNumber(v: LuaValue): number | undefined {
@@ -928,8 +910,12 @@ function runLoop(L: LuaThread, entryDepth: number): void {
         const t = stack[ra - 1] as LuaTable;
         const start = kn[ins >>> 16]! - 2 ** 52;
         const n = L.multres;
-        if (start + n > t.asize) t.reasize(start + n - 1 > 0 ? start + n - 1 : 0);
-        for (let i = 0; i < n; i++) t.setInt(start + i, stack[ra + i]);
+        if (n > 0) { // vm_x86.dasc BC_TSETM: "Nothing to copy?" skips everything
+          // needed = n + start; a bigger array is made with lj_tab_reasize(L, t, needed) = needed + 1 slots (one spare slot, which
+          // is visible through the border search of #t)
+          if (start + n > t.asize) t.reasize(start + n);
+          for (let i = 0; i < n; i++) t.setInt(start + i, stack[ra + i]);
+        }
         break;
       }
       // ---- calls ----

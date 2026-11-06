@@ -44,8 +44,13 @@ export function optNum(args: LuaValue[], i: number, fname: string, def: number):
 }
 
 /** Number truncated toward zero (lua_Integer semantics; values stay doubles). */
+/**
+ * lj_lib_checkint: `(int32_t)n`, which is `cvttsd2si` on x86: truncation toward zero, and NaN or anything outside the int32 range
+ * becomes INT32_MIN (not a modular wrap). So ("hello"):sub(2, math.huge) is "" and string.rep("x", 2^32 + 2) is "".
+ */
 export function checkInt(args: LuaValue[], i: number, fname: string): number {
   const n = checkNum(args, i, fname);
+  if (!(n > -2147483649 && n < 2147483648)) return -2147483648;
   return n < 0 ? Math.ceil(n) : Math.floor(n);
 }
 

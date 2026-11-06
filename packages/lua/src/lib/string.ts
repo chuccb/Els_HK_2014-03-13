@@ -177,7 +177,8 @@ export function strFormat(L: LuaThread, a: LuaValue[]): string {
         break;
       }
       default:
-        throw callerError(`invalid option '%${conv ?? "\0"}' to 'format'`);
+        // the message is built with "%c": a NUL conversion character (end of the format) cuts the message there
+        throw callerError(conv === undefined || conv === "\0" ? "invalid option '%" : `invalid option '%${conv}' to 'format'`);
     }
   }
   return out;
@@ -269,11 +270,22 @@ export function installString(G: LuaState): void {
       return [asciiLower(checkStr(a, 0, "lower"))];
     },
     rep(_L, a) {
+      // lib_string.c string_rep: string.rep(s, n [, sep]); lengths are checked against LJ_MAX_STR before anything is built
       const s = checkStr(a, 0, "rep");
-      const n = checkInt(a, 1, "rep");
-      if (n <= 0) return [""];
-      if (s.length * n > 0x7fffff00) throw callerError("not enough memory");
-      return [s.repeat(n)];
+      const k = checkInt(a, 1, "rep");
+      const sep = a[2] === undefined ? undefined : checkStr(a, 2, "rep");
+      if (k <= 0) return [""];
+      const MAX_STR = 0x7fffff00;
+      let tlen: number;
+      if (sep !== undefined) {
+        tlen = s.length + sep.length;
+        if (tlen > MAX_STR) throw callerError("string length overflow");
+        tlen *= k;
+      } else tlen = k * s.length;
+      if (tlen > MAX_STR) throw callerError("string length overflow");
+      if (tlen === 0) return [""];
+      if (sep !== undefined && k > 1) return [(s + sep).repeat(k - 1) + s];
+      return [s.repeat(k)];
     },
     reverse(_L, a) {
       const s = checkStr(a, 0, "reverse");
