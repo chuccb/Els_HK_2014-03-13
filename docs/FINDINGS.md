@@ -60,7 +60,7 @@ unless marked *(assumption)*.
 * The KOMs hold 41 Algorithm-2 `.txt`/`.kim` entries: 2 of them are the Lua sources above (`GameOption.txt`,
   `GameOptionPreset.txt`); the other 39 are not Lua: `particlesystem "GameMajor" 1.00 { ... }` particle scripts
   (`Game*/UI*Particle*.txt`), `XMESHPLAYER` scripts (`*XMeshPlayer*.txt`), a 0-byte `bossraid_dummy.txt`, and the 18.7 MB
-  binary `item.kim` ("KIM" magic). They are parsed by C++ code of the exe and are phase 2 work.
+  binary `item.kim` ("KIM" magic). They are parsed by C++ code of the exe and are phase 2 work (`item.kim` is done, see section 8).
 * The exe's LuaJIT is stock 2.0.2 plus a few KOG additions: `dofile_UTF8` (`luaL_loadfilex(L, name, mode, iEncoding)`:
   encoding 0 accepts a UTF-8 BOM, 1 *requires* one unless the file is bytecode (`invalid encoding <chunk>` otherwise), 2 does no
   check), `lua_setencoding`/`lua_getencoding` (a flag in `global_State`), and the compat aliases `string.gfind` and `math.mod`
@@ -241,9 +241,26 @@ lines, 3,625 empty texts, 3,029 entries with line breaks, 783 with `@N` placehol
 with no stray control characters. Open point: whether the exe's CRT rounds exact `printf` ties half-to-even (modern UCRT, as ported) or
 half-up (older MSVC runtimes) only matters for values like 0.125 passed to `f` / `e`.
 
+**`item.kim` is the item database as a flat memory image** (`packages/assets/src/kim.ts`, `tools/verify-kim.ts`). It sits in `data036.kom`
+(18,704,284 bytes after the KOM layer). `CX2ItemManager::OpenItemScriptFile` 32C49BC0 reads it through the mass-file manager,
+`DoMemoryNotEncrypt` 32C4B4B0 checks magic `'KIM '`, version 4609 and size >= `192 * numItems | 0x10`, and the whole buffer becomes
+`KItemFormatTemplet::ms_pData`; the templet accessors (32B85150..32B85FD0, 780 lines of decompile, all ported) follow offsets into it.
+When the file is missing the exe runs `Item.lua` / `SetItem.lua` instead (the names are passed along), and the image is produced from those
+same scripts by `KProxy2` (writer at x2.exe.c L855618), so the KIM is a cache and **a ground truth for what `AddItemTemplet` makes of
+`Item.lua`**: once the host API exists, running the scripts must reproduce this table (Phase 5 acceptance test). Layout: 16-byte header
+{magic, version, numItems, numSetIDs}, sorted `u32` item ids, `numItems * 188`-byte templets (struct in x2.exe.h: 11 numeric words,
+30 string/block offsets, 4 shorts, 16 bytes), sorted `u32` set ids, `numSetIDs * 20`-byte set entries, then the pool (strings =
+`u16` length, NUL-terminated UTF-16; stat / ability / socket-option / particle / mesh / extra blocks). Measured: **57,106 items, 3,811
+sets, 321,726 strings, 0 out-of-range offsets, 0 length-word mismatches, every templet id equals its table id, every item whose set id
+exists is listed in that set (16,575 of 16,737 set-bearing items; 162 name a set that is not in the table; 844 sets list no items)**.
+The decoder accounts for the whole file: of 18.7 MB only 51,176 zero padding bytes (block alignment) and 138 bytes of 6 unreferenced
+strings are never read, 0 bytes are unexplained (a field I would have missed shows up here). `flags2` bit 0 (PvP item) is never set;
+44,745 items carry base stats, 30,205 socket options, 469 special abilities (615 entries), 120 particles, 93 attached meshes, 44 slash
+trace colours. Defaults of absent blocks are the exe's zero-initialised dummies (`ms_vOne` = (1,1,1) for render scales).
+
 Not done in Phase 2 (see section 9 for what the mesh work added): particle and XMeshPlayer text scripts (a custom block / `key = value`
 DSL: `particlesystem "Name" 1.00 { eventsequence "..." { particleType = PT_2D_PLANE ... Fade so From 0.000 to 0.300 Position = XYZ(...) } }`,
-parsed by `CKTDGParticleSystem::Compile` 328F5DB0 and `CKTDGXMeshPlayer::Compile` 32917A60 after a tokenizer), `item.kim`,
+parsed by `CKTDGParticleSystem::Compile` 328F5DB0 and `CKTDGXMeshPlayer::Compile` 32917A60 after a tokenizer),
 MPEG-1, the `XETProxy` / `TETProxy` Lua authoring classes (registered with `lua_tinker`, but none of the 4,498 shipped scripts calls
 them; the shipped tables are already binary).
 

@@ -35,7 +35,8 @@ Census of the KOMs (`bun run tools/census.ts`): `tga` 23,784 (2.4 GB), `dds` 31,
 | mesh semantics (todo): X `Mesh` -> vertex/index/attribute buffers with frame transforms (static `.y`), `SkinWeights` -> bones, `AnimationSet` -> keys (quaternion convention), `OptimizeKeys`, D3DX controller / track blending, weld + optimize of static meshes | needs the renderer to check against; assumptions are listed in FINDINGS section 9 | todo |
 | XET / TET | done: binary tables (not text), 5,799 files parse with 0 structural problems; exact `FindAniDataIndex` (16 shipped files defeat it, kept) | `xet.ts`, `tools/verify-xet-tet.ts` |
 | `general.ess` string table | done: exe-exact loader (`fgetws` lines, XOR 0x10, id check), `GetGeneralString`, `GetReplacedString`; 30,584 entries, 0 index mismatches (FINDINGS section 8) | `ess.ts`, `tools/verify-ess.ts` |
-| particle / XMeshPlayer text scripts (39 `.txt` entries, e.g. `GameMajorParticle*.txt`), `item.kim` (18 MB, "KIM") | custom parsers in the exe (`CKTDGParticleSystem::Compile`, `CKTDGXMeshPlayer::Compile` with their tokenizers, `item.kim` loader not located yet) | todo |
+| `item.kim` item database (57,106 items, 3,811 sets) | done: flat image decoded with the exe's accessors (`KItemFormatTemplet` 188-byte records + pool); whole file accounted for (FINDINGS section 8). Also the oracle for the Phase 5 `Item.lua` -> `AddItemTemplet` host API | `kim.ts`, `tools/verify-kim.ts` |
+| particle / XMeshPlayer text scripts (39 `.txt` entries, e.g. `GameMajorParticle*.txt`) | custom parsers in the exe (`CKTDGParticleSystem::Compile`, `CKTDGXMeshPlayer::Compile` with their tokenizers) | todo |
 | audio | `ogg`/`wav` are decoded by the browser (WebAudio) | todo |
 | MPEG-1 movies | software decoder | todo |
 

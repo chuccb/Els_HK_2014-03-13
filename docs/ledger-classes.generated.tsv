@@ -86,7 +86,7 @@ boost::io::detail	42	6523	32895130	n/a	-	C++ runtime library (STL, boost, ATL, d
 CKTDGUISlot	42	3451	328C2120	todo		
 CKTDXDeviceManager	42	2928	328ECB20	todo		
 CX2BattleFieldGame	42	3350	3318FB60	todo		
-CX2Item::KItemFormatTemplet	41	904	32AACC60	todo		
+CX2Item::KItemFormatTemplet	41	904	32AACC60	partial	packages/assets/src/kim.ts	every accessor of KItemFormatTemplet / KItemFormatSetItemData (32B85150..32B85FD0) ported; the constructor and the KProxy2 writer are not
 CX2UICharInfo	41	6320	32CD7F60	todo		
 CKTDGParticleSystem::CParticleEventSequence	40	5254	328C0EF0	todo		
 CKTDGXSkinAnim	40	8392	328CE380	todo		
@@ -632,7 +632,7 @@ std::vector<CKTDGUIDialogHandle>	4	345	32A9EF00	n/a	-	C++ runtime library (STL, 
 CX2GUUser::UserUnitStateData	4	162	32B36F00	todo		
 std::map<unsigned char,CX2GUUser::UserUnitStateData>	4	149	32B370C0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CX2Game::CinematicUI	4	627	32B4F7A0	todo		
-CX2Item::KItemFormatSetItemData	4	237	32B85150	todo		
+CX2Item::KItemFormatSetItemData	4	237	32B85150	partial	packages/assets/src/kim.ts	every accessor of KItemFormatTemplet / KItemFormatSetItemData (32B85150..32B85FD0) ported; the constructor and the KProxy2 writer are not
 std::map<int,CX2ItemManager::CubePackageData>	4	139	32BA3230	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CX2TrainingCenterTable::TC_TABLE_INFO	4	194	32C234F0	todo		
 boost::exception_detail::clone_impl<boost::exception_detail::error_info_injector<boost::bad_lexical_cast>>	4	74	32C26E80	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -739,7 +739,7 @@ KSquareInfo	3	93	32A8E200	todo
 KBillPackageInfo	3	63	32A902A0	todo		
 std::_Tree_val<std::_Tree_simple_types<std::pair<enum CX2SkillTree::SKILL_ID const,CX2UserSkillTree::UserSkillData>>>	3	55	32A98440	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CX2UserSkillTree::UserSkillData	3	104	32A98900	todo		
-CX2Item::KItemFormatStatData	3	90	32AAE0D0	todo		
+CX2Item::KItemFormatStatData	3	90	32AAE0D0	partial	packages/assets/src/kim.ts	every accessor of KItemFormatTemplet / KItemFormatSetItemData (32B85150..32B85FD0) ported; the constructor and the KProxy2 writer are not
 CX2GameUnit::InitDeviceData	3	99	32AC0EA0	todo		
 KObserverPtr<CX2GameUnit>	3	67	32AE6850	todo		
 CX2GameUnit::StateParam	3	196	32B36B60	todo		
@@ -2180,7 +2180,7 @@ KDungeonPlayResultInfo	1	21	32B76850	todo
 KEGS_GET_ITEM_REQ	1	8	32B76A90	todo		
 KEGS_NPC_UNIT_DIE_NOT	1	6	32B76AE0	todo		
 std::vector<CX2Game::NewGameUser>	1	22	32B778C0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CX2Item::KItemFormatSpecialAbility	1	13	32B85120	todo		
+CX2Item::KItemFormatSpecialAbility	1	13	32B85120	partial	packages/assets/src/kim.ts	every accessor of KItemFormatTemplet / KItemFormatSetItemData (32B85150..32B85FD0) ported; the constructor and the KProxy2 writer are not
 std::_Tree_val<std::_Tree_simple_types<std::pair<unsigned long const,CX2ItemManager::KProxy2::KSetItemData>>>	1	29	32B8BA00	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::_Tree<std::_Tmap_traits<D3DXVECTOR3,unsigned long,CX2ItemManager::D3DVECTOR3Compare,std::allocator<std::pair<D3DXVECTOR3 const,unsigned long>>,0>>	1	46	32B8BAD0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::pair<unsigned long const,CX2ItemManager::KProxy2::KSetItemData>	1	15	32B8C000	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library

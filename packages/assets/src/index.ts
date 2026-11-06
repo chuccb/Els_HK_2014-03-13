@@ -39,3 +39,5 @@ export function decodeImage(bytes: Uint8Array): DecodedImage {
     default: throw new ImageFormatError(`unrecognised image data (${bytes.length} bytes)`);
   }
 }
+export { Kim, KimFormatError, KIM_MAGIC, KIM_VERSION, UNIT_TYPE, decodeItemFlags, itemNameColor, setItemOptions, frameOffsetFor, renderRotateFor, renderScaleFor, commonItemModelNameFor, commonItemXETNameFor, slashTraceColors } from "./kim.ts";
+export type { KimItem, KimSetItem, KimItemFlags, KimVec3, KimStat, KimStatRelLV, KimSpecialAbility, KimAttachedParticle, KimAttachedMesh, KimPerUnit, KimSlashTrace, KimColor, KimOpenOptions } from "./kim.ts";
