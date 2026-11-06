@@ -288,7 +288,7 @@ CBaseCamera	10	694	328A6C40	todo
 CD3DEnumeration	10	2795	328A9270	todo		
 CKTDGXMeshPlayer::CXMeshPlayerTokenizer	10	1418	329175F0	todo		
 std::set<int>	10	571	3295F680	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDXDeviceTexture	10	1105	32967340	todo		
+CKTDXDeviceTexture	10	1105	32967340	partial	packages/assets (decoders)	image decoding ported (D3DX semantics); the D3D device object, detail levels and GPU upload belong to phase 3
 CKTDXDeviceSound	10	495	329718B0	todo		
 KBenchMark_MXM	10	902	32C35750	todo		
 CX2CashShop::CashItemToInvenPopup	10	789	32C89240	todo		
@@ -333,7 +333,7 @@ CX2PVPGameTeamDeath	9	747	3328DC20	todo
 CX2FieldMapBase	9	839	332972E0	todo		
 CxImageJPG::CxExifInfo	9	1343	33362150	todo		
 CBandiVideoTexture_DX9	8	421	3289C7D0	todo		
-CKTDXDeviceXET_Preprocessing	8	668	328B4CE0	todo		
+CKTDXDeviceXET_Preprocessing	8	668	328B4CE0	partial	packages/assets/src/xet.ts	reader (OpenFile, FindAniDataIndex, GetString) ported with the exe-exact binary search (16 shipped files defeat it, kept)
 lua_tinker::mem_functor<CKTDGUIDialog,char const *,void,void,void,void,void,void,void,void,void>	8	264	328BB4C0	todo	-	phase 5 host API
 CKTDGUIControl::CMovieData	8	294	328CD8B0	todo		
 std::_Hash<std::_Umap_traits<std::wstring,KGCMassFileManager::SMassFileIndex,std::_Uhash_compare<std::wstring,std::hash<std::wstring>,std::equal_to<std::wstring>>,std::allocator<std::pair<std::wstring const,KGCMassFileManager::SMassFileIndex>>,0>>	8	522	328D3270	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -481,8 +481,8 @@ boost::char_separator<char,std::char_traits<char>>	5	472	328B4BB0	n/a	-	C++ runt
 CxFile	5	32	328CF970	todo		
 std::map<std::wstring,int>	5	282	328DD360	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDXCollision::CollisionData	5	120	328E5960	todo		
-CKTDXDeviceTET_Preprocessing	5	223	328E5B90	todo		
-CKTDXDeviceXET_Preprocessing::XETProxy	5	330	328E9980	todo		
+CKTDXDeviceTET_Preprocessing	5	223	328E5B90	partial	packages/assets/src/xet.ts	reader (OpenFile, GetTexUV, GetString) ported
+CKTDXDeviceXET_Preprocessing::XETProxy	5	330	328E9980	n/a	-	Lua authoring API that writes .xet tables (AddAniData, AddChangeTexture, SetMultiTexStage1/2, ...); the shipped tables are already binary
 CKTDGXMeshPlayer::CXMeshEvent	5	209	3291E710	todo		
 std::vector<KBuffInfo>	5	357	32996050	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 KRoomUserInfo	5	1083	32998B40	todo		
@@ -888,9 +888,9 @@ std::list<CKTDGUIDialogHandle>	2	47	328DD830	n/a	-	C++ runtime library (STL, boo
 CKTDGUIDialog::CKTDGUIDialogManagerAccess	2	24	328E0AE0	todo		
 std::_Tree_val<std::_Tree_simple_types<std::pair<unsigned long const,boost::shared_ptr<KSocketObject>>>>	2	62	328E1120	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::_Tree_val<std::_Tree_simple_types<std::pair<std::wstring const,CKTDGXMeshPlayer::XMeshTemplet *>>>	2	57	328E1320	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDXDeviceTET_Preprocessing::TETProxy	2	382	328E5E10	todo		
+CKTDXDeviceTET_Preprocessing::TETProxy	2	382	328E5E10	n/a	-	Lua authoring API that writes .tet tables (AddRect, RotateRect); the shipped tables are already binary
 boost::io::detail::format_item<char,std::char_traits<char>,std::allocator<char>>	2	99	328E9330	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDXDeviceXET_Preprocessing::XETProxy::AniData	2	151	328E9760	todo		
+CKTDXDeviceXET_Preprocessing::XETProxy::AniData	2	151	328E9760	n/a	-	Lua authoring API that writes .xet tables (AddAniData, AddChangeTexture, SetMultiTexStage1/2, ...); the shipped tables are already binary
 boost::detail	2	18	328E9950	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<std::pair<std::wstring,std::pair<int,int>>>	2	158	328EC780	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDXDeviceManager::PendQueue	2	39	328ECD50	todo		
@@ -1376,7 +1376,7 @@ lua_tinker::mem_functor<CKTDXApp,char *,void,void,void,void,void,void,void,void,
 lua_tinker::mem_functor<CKTDGUIControl::CMovieData,float,float,float,float,void,void,void,void,void,void>	1	21	328BE710	todo	-	phase 5 host API
 lua_tinker::mem_functor<CKTDGParticleSystem::CParticleEventSequence,D3DXVECTOR3 const &,bool,bool,void,void,void,void,void,void,void>	1	35	328BE780	todo	-	phase 5 host API
 lua_tinker::mem_functor<CKTDGUIControl::CPictureData,int,void,void,void,void,void,void,void,void,void>	1	15	328BE820	todo	-	phase 5 host API
-lua_tinker::mem_functor<CKTDXDeviceXET_Preprocessing::XETProxy,char const *,char const *,void,void,void,void,void,void,void,void>	1	19	328BE860	todo	-	phase 5 host API
+lua_tinker::mem_functor<CKTDXDeviceXET_Preprocessing::XETProxy,char const *,char const *,void,void,void,void,void,void,void,void>	1	19	328BE860	n/a	-	binding thunks of the XET/TET authoring API (see the XETProxy / TETProxy rows)
 lua_tinker::mem_functor<CKTDGUIControl::CPictureData,D3DXVECTOR2,void,void,void,void,void,void,void,void,void>	1	36	328BE8B0	todo	-	phase 5 host API
 lua_tinker::mem_functor<CKTDGUIControl::CPictureData,bool,int,D3DXCOLOR,void,void,void,void,void,void,void>	1	33	328BE940	todo	-	phase 5 host API
 lua_tinker::mem_functor<CKTDGUIControl::CPictureData,bool,bool,void,void,void,void,void,void,void,void>	1	19	328BE9F0	todo	-	phase 5 host API
@@ -1438,18 +1438,18 @@ std::_List_node<CKTDXDeviceData,void *>	1	23	328E1AB0	n/a	-	C++ runtime library 
 std::_Alloc_construct_ptr<std::allocator<std::_List_node<CKTDGObject *,void *>>>	1	11	328E1B50	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::_List_node_insert_op2<std::allocator<std::_List_node<CKTDXDeviceData,void *>>>	1	22	328E1B70	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 boost::array<CKTDGDynamicVBManager::DynamicVBInfo,4>	1	11	328E2E90	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-lua_tinker::mem_functor<CKTDXDeviceTET_Preprocessing::TETProxy,char const *,D3DXVECTOR2 const &,D3DXVECTOR2 const &,D3DXVECTOR2 const &,D3DXVECTOR2 const &,void,void,void,void,void>	1	71	328E59C0	todo	-	phase 5 host API
-lua_tinker::mem_functor<CKTDXDeviceTET_Preprocessing::TETProxy,char const *,int,void,void,void,void,void,void,void,void>	1	19	328E5B40	todo	-	phase 5 host API
+lua_tinker::mem_functor<CKTDXDeviceTET_Preprocessing::TETProxy,char const *,D3DXVECTOR2 const &,D3DXVECTOR2 const &,D3DXVECTOR2 const &,D3DXVECTOR2 const &,void,void,void,void,void>	1	71	328E59C0	n/a	-	binding thunks of the XET/TET authoring API (see the XETProxy / TETProxy rows)
+lua_tinker::mem_functor<CKTDXDeviceTET_Preprocessing::TETProxy,char const *,int,void,void,void,void,void,void,void,void>	1	19	328E5B40	n/a	-	binding thunks of the XET/TET authoring API (see the XETProxy / TETProxy rows)
 std::_Alloc_construct_ptr<std::allocator<std::_Tree_node<std::pair<enum CX2DamageManager::EXTRA_DAMAGE_TYPE const,CX2EnchantItem::EnchantData>,void *>>>	1	11	328E5BC0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::list<std::pair<std::string const,unsigned int>>	1	41	328E5CB0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::list<std::pair<std::wstring const,unsigned int>>	1	25	328E5D50	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::map<std::wstring,CKTDXDeviceXET_Preprocessing::XETProxy::AniData>	1	123	328E6CA0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::multimap<std::wstring,CKTDXDeviceXET_Preprocessing::XETProxy::AniTexChangeEventData>	1	103	328E6E80	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::_Tree_val<std::_Tree_simple_types<std::pair<std::wstring const,CKTDXDeviceXET_Preprocessing::XETProxy::AniTexChangeEventData>>>	1	25	328E7010	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-lua_tinker::mem_functor<CKTDXDeviceXET_Preprocessing::XETProxy,char const *,int,float,void,void,void,void,void,void,void>	1	38	328E7810	todo	-	phase 5 host API
-lua_tinker::mem_functor<CKTDXDeviceXET_Preprocessing::XETProxy,char const *,float,float,void,void,void,void,void,void,void>	1	38	328E78A0	todo	-	phase 5 host API
-lua_tinker::mem_functor<CKTDXDeviceXET_Preprocessing::XETProxy::AniData,D3DXVECTOR2 const &,char const *,char const *,void,void,void,void,void,void,void>	1	41	328E7930	todo	-	phase 5 host API
-lua_tinker::mem_functor<CKTDXDeviceXET_Preprocessing::XETProxy,char const *,char const *,int,void,void,void,void,void,void,void>	1	21	328E7A10	todo	-	phase 5 host API
+lua_tinker::mem_functor<CKTDXDeviceXET_Preprocessing::XETProxy,char const *,int,float,void,void,void,void,void,void,void>	1	38	328E7810	n/a	-	binding thunks of the XET/TET authoring API (see the XETProxy / TETProxy rows)
+lua_tinker::mem_functor<CKTDXDeviceXET_Preprocessing::XETProxy,char const *,float,float,void,void,void,void,void,void,void>	1	38	328E78A0	n/a	-	binding thunks of the XET/TET authoring API (see the XETProxy / TETProxy rows)
+lua_tinker::mem_functor<CKTDXDeviceXET_Preprocessing::XETProxy::AniData,D3DXVECTOR2 const &,char const *,char const *,void,void,void,void,void,void,void>	1	41	328E7930	n/a	-	binding thunks of the XET/TET authoring API (see the XETProxy / TETProxy rows)
+lua_tinker::mem_functor<CKTDXDeviceXET_Preprocessing::XETProxy,char const *,char const *,int,void,void,void,void,void,void,void>	1	21	328E7A10	n/a	-	binding thunks of the XET/TET authoring API (see the XETProxy / TETProxy rows)
 boost::io::basic_oaltstringstream<char,std::char_traits<char>,std::allocator<char>>	1	28	328E9270	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::_Alloc_construct_ptr<std::allocator<std::_Tree_node<std::pair<unsigned short const,CX2SystemInfo::LocaleInfo>,void *>>>	1	11	328E93F0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::_Alloc_construct_ptr<std::allocator<std::_Tree_node<std::pair<std::wstring const,CX2EventScene::EventScene>,void *>>>	1	11	328E9410	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library

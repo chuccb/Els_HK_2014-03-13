@@ -38,6 +38,13 @@ over HTTP range requests (browser).
 `xorCrcDecrypt`), `readStored` / `verifyStored` give the raw bytes and the Adler-32 check, `find(name)` is case-insensitive.
 `ByteSource` abstracts a file (`fileSource`) or an HTTP resource with `Range` (`httpSource`).
 
+### `@els/assets` (`packages/assets`)
+Decoders for the client's asset formats (Phase 2). `decodeImage(bytes)` sniffs the container from the content (as D3DX does) and
+returns level 0 as straight RGBA8, first row on top, plus the D3D9 source format name: `tga.ts` (types 1/2/3/9/10/11, 15-32 bpp,
+palettes, origin bits), `dds.ts` (BC1/BC2/BC3 block decoders, bit-mask formats), `bmp.ts`, `png.ts` (non-interlaced, via fflate);
+`xet.ts` reads the `.xet` / `.tet` tables with the exe's own `GetString` and binary search. Tests: `packages/assets/test`
+(`bun test packages/assets`); corpus tools: `decode-images.ts` + `verify-images.py` (Pillow), `verify-xet-tet.ts`.
+
 ### `@els/lua` (`packages/lua`)
 A register-based interpreter for LuaJIT 2.0.2 bytecode, following `lj_*` of the exe:
 
@@ -77,6 +84,7 @@ Design points that matter for faithfulness:
 | `lua-run.ts` + `lib/lua-host.ts` | run a `.luac` in the TS VM (`arg` like the standalone interpreter); the shared runner of the corpus tool |
 | `bindings.py` | extracts the `lua_tinker` registrations from `data/x2.exe.c` -> `docs/HOST_API.md`, `docs/host_api.tsv` (phase 5 ground truth) |
 | `api-census.ts`, `script-graph.ts` | what the scripts use of the host API (`docs/SCRIPT_API_USAGE.md`) and which scripts the exe loads (`docs/SCRIPT_GRAPH.md`) |
+| `census-images.ts`, `decode-images.ts`, `verify-images.py`, `verify-xet-tet.ts` | image format census, decode of all 55,377 TGA/DDS entries, cross-check against Pillow (needs a venv with `pillow`), XET/TET structure check |
 | `ledger.py` | coverage ledger keyed by IDA address -> `docs/LEDGER.md` (rules in `docs/ledger.tsv`, `docs/ledger-classes.tsv`) |
 | `index_decomp.py`, `komlib.py`, `kom_extract.py`, `luadecrypt.py`, `census.ts` | reverse-engineering helpers (function index, extraction, census) |
 
@@ -97,4 +105,9 @@ python3 tools/index_decomp.py data/x2.exe.c /home/user/work/analysis/functions.t
 ./node_modules/.bin/bun run tools/api-census.ts --md docs/SCRIPT_API_USAGE.md --json /home/user/work/analysis/api_census.json --usage /home/user/work/analysis/member_usage.json
 ./node_modules/.bin/bun run tools/script-graph.ts --md docs/SCRIPT_GRAPH.md
 python3 tools/bindings.py && python3 tools/ledger.py                                # docs/HOST_API.md, docs/LEDGER.md
+./node_modules/.bin/bun test packages/assets                                          # image / XET / TET unit tests
+./node_modules/.bin/bun run tools/decode-images.ts --tsv /home/user/work/analysis/images_ts.tsv --dump /home/user/work/analysis/rgba_dump --every 40
+python3 -m venv /home/user/work/venv && /home/user/work/venv/bin/pip install pillow
+/home/user/work/venv/bin/python tools/verify-images.py /home/user/work/analysis/images_ts.tsv /home/user/work/analysis/rgba_dump
+./node_modules/.bin/bun run tools/verify-xet-tet.ts
 ```

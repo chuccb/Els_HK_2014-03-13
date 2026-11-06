@@ -182,3 +182,49 @@ at load time. Coverage of function bodies is shallow (most calls with stub argum
   `AddWeddingHallItem`, `AddSetItemDataTrans_LUA`, ...): none of those scripts is reachable from the exe's loader except
   `GameEditCommandList.lua` (one GM command, `OccurLag_LUA`). The original would raise `attempt to call method ... (a nil value)`.
 
+## 8. Image and table formats (Phase 2 so far)
+
+**How the exe loads a texture** (`CKTDXDeviceTexture::_Load`, 329682A0, x2.exe.c L423330): the KOM entry is handed to
+`D3DXGetImageInfoFromFileInMemory` and then `D3DXCreateTextureFromFileInMemoryEx(device, data, size, w, h, MipLevels = 1,
+Usage = 0, format = m_LoadTexFormat (the caller's `texFormat`), Pool = MANAGED, Filter = NONE when the size is unchanged else LINEAR,
+MipFilter = NONE, ColorKey = 0, ...)`. Consequences for the port: the container is recognised from the **content** (the KOMs hold
+BMP, JPEG, PNG and TGA files under `.tga` / `.dds` names), only the top mip level is used, there is no colour key, and the
+detail level can shrink the texture (medium: width/height >= 128 are halved, low: quartered; R8G8B8 / R5G6B5 sources are then
+re-encoded as DXT1, other low-detail textures as DXT3). `@els/assets` decodes level 0 to RGBA8 (high detail).
+
+**Census** (`tools/census-images.ts`, 55,377 entries): TGA 23,784 = 23,477 true-colour (24 bpp 20,226, 32 bpp 3,227, 16 bpp 24) + 299
+RLE true-colour + 3 colour-mapped + 1 grey + 4 that are not TGA (2 BMP `UIEdge.tga` / `HQ_ShopEqipedBorder2.tga`, 2 JPEG
+`tempStick.tga` / `tempSword.tga`). DDS 31,593 = DXT1 27,439, DXT5 1,824, DXT3 1,021, R8G8B8 848, A8R8G8B8 428, X8R8G8B8 16,
+A4R4G4B4 12, one FourCC 63 (`D3DFMT_Q8W8V8U8` bump map, `field_Peita_stage1_bluegate.dds`) + 4 that are not DDS (a PNG, a TGA
+`DLG_UI_AD.dds`, and two **empty** files `Velder_Field_001.dds` / `_003.dds`). 45 DDS carry the volume-texture flag; the exe has no
+volume loader, so only the first slice is decoded. 128x128 (20,557) and 64x64 DDS (26,251) dominate.
+
+**Verification** (`tools/decode-images.ts`, `tools/verify-images.py`): 55,372 of 55,377 entries decode (the 5 exceptions are the
+Q8W8V8U8 map, the 2 JPEGs and the 2 empty files; JPEG is left to the browser's decoder). Against Pillow 13 as an independent
+decoder, **55,348 are pixel-identical** (all DXT1/3/5, all uncompressed DDS, 24/32 bpp, RLE, palette and grey TGA, BMP, PNG);
+the 24 that differ are the 16 bpp TGAs, where Pillow ignores the alpha bit and scales 5 -> 8 bits by rounding (we replicate
+bits and honour the descriptor's alpha-bit count).
+
+Open assumptions (no D3DX available to compare): (1) 32 bpp TGA = A8R8G8B8 whatever the descriptor says (673 files have
+descriptor 0x00/0x20 with real alpha data; reading them as opaque would break the UI atlases); (2) 16 bpp TGA with descriptor
+alpha bits = 1 is A1R5G5B5. The 24 such files are `MESH_*` textures whose bit 15 is clear in every pixel of the one inspected
+(`MESH_ARME_CASH_FOOT20A.tga`): decoded as alpha 0. Harmless as long as meshes ignore the texture alpha; to be confirmed against
+real captures.
+
+**XET / TET are small binary tables, not text** (`CKTDXDeviceXET_Preprocessing::OpenFile` 328EA3A0, `FindAniDataIndex` 328E9F70,
+`CKTDXDeviceTET_Preprocessing::OpenFile` 328E6460, `GetTexUV` 328E62E0, `GetString` 328E6280; layouts in `packages/assets/src/xet.ts`):
+* TET (1,247 files): `"TET "`, version 256, N, `u32 nameOffset[N]` sorted by `wcscmp`, N x 40-byte UV records (leftTop,
+  rightBottom, leftBottom, rightTop, rectSize as float pairs in texels), UTF-16 strings (`u16 length`, chars, NUL).
+* XET (4,552 files): 36-byte header (counts of change-texture pairs, animation entries and animation texture-change events, two
+  multi-texture stages), then the three tables and the strings. Used for mesh texture swaps and face animations.
+* All 5,799 files parse; every string offset resolves; every file ends exactly where its last referenced string ends
+  (`tools/verify-xet-tet.ts`). 12 XET files are empty tables.
+* **Data bug the port must keep**: the exe finds animations with a binary search using `_wcsicmp`, but 16 shipped XET files
+  (the `*_Face_Sorted.XET` family and `UI_NPC_Roseang.XET`) are sorted case-sensitively, so the search misses 120 of their names
+  (e.g. in `Mesh_Lire_Basic_Face_Sorted.XET` `CR_LobbyWait` sorts before `ComboX4`). `findAniDataIndex` reproduces the exact
+  search, including those misses.
+
+Not done in Phase 2: X / Y meshes, particle and XMeshPlayer text scripts, `item.kim`, `general.ess`, MPEG-1, the `XETProxy` /
+`TETProxy` Lua authoring classes (registered with `lua_tinker`, but none of the 4,498 shipped scripts calls them; the shipped tables are
+already binary).
+

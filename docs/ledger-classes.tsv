@@ -2,6 +2,12 @@
 # columns: regex<TAB>status<TAB>ts<TAB>verification<TAB>note
 ^KGCMassFileManager	done	packages/kom	tools/verify-kom.ts: 97,891 entries, 0 failures	CRC, adler32, MSZIP/KOM v1-v4 container, per-entry encryption variants
 ^CKTDXStringTable	todo	-	-	general.ess decode: algorithm known (docs/FINDINGS.md), not ported
+^lua_tinker.*(XETProxy|TETProxy)	n/a	-	docs/SCRIPT_API_USAGE.md: 0 uses in the 4,498 shipped scripts	binding thunks of the XET/TET authoring API (see the XETProxy / TETProxy rows)
+^CKTDXDeviceXET_Preprocessing::XETProxy	n/a	-	docs/SCRIPT_API_USAGE.md: 0 uses in the 4,498 shipped scripts	Lua authoring API that writes .xet tables (AddAniData, AddChangeTexture, SetMultiTexStage1/2, ...); the shipped tables are already binary
+^CKTDXDeviceTET_Preprocessing::TETProxy	n/a	-	docs/SCRIPT_API_USAGE.md: 0 uses in the 4,498 shipped scripts	Lua authoring API that writes .tet tables (AddRect, RotateRect); the shipped tables are already binary
+^CKTDXDeviceTET_Preprocessing	partial	packages/assets/src/xet.ts	tools/verify-xet-tet.ts: 1,247 files, 0 problems; packages/assets/test	reader (OpenFile, GetTexUV, GetString) ported
+^CKTDXDeviceXET_Preprocessing	partial	packages/assets/src/xet.ts	tools/verify-xet-tet.ts: 4,552 files, 0 problems; packages/assets/test	reader (OpenFile, FindAniDataIndex, GetString) ported with the exe-exact binary search (16 shipped files defeat it, kept)
+^CKTDXDeviceTexture	partial	packages/assets (decoders)	tools/verify-images.py: 55,348 of 55,372 identical to Pillow	image decoding ported (D3DX semantics); the D3D device object, detail levels and GPU upload belong to phase 3
 ^lua_tinker	todo	-	-	phase 5 host API
 ^(std|,std|const,std|boost|const,boost|ATL|dbg|`)	n/a	-	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 ^CryptoPP	todo	-	-	crypto primitives of the protocol: WebCrypto or a port, decided with the network layer

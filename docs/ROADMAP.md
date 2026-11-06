@@ -28,10 +28,10 @@ Census of the KOMs (`bun run tools/census.ts`): `tga` 23,784 (2.4 GB), `dds` 31,
 
 | Format | Notes | Status |
 |---|---|---|
-| TGA | all 23,784 must decode; cross-check with a reference decoder | todo |
-| DDS (DXT1/3/5, A8R8G8B8, ...) | upload as WebGPU BC textures or software-decode | todo |
+| TGA | done: 23,780 of 23,784 decode as TGA (the other 4 are BMP/JPEG under a `.tga` name); pixel-identical to Pillow except 16 bpp (rounding / alpha bit, FINDINGS section 8) | `packages/assets` (`tga.ts`), `tools/decode-images.ts`, `tools/verify-images.py` |
+| DDS (DXT1/3/5, R8G8B8, A8R8G8B8, X8R8G8B8, A4R4G4B4) + BMP + PNG | done (level 0 only, as the exe asks D3DX for 1 mip level); identical to Pillow; JPEG (2 files) is left to the platform decoder; FourCC 63 bump map (1 file) and volume slices (45) are not decoded | `dds.ts`, `bmp.ts`, `png.ts`; GPU upload as BC textures comes with phase 3 |
 | X meshes (`.x`, `.y`) | formats of `CKTDXDeviceXMesh` / `CKTDXDeviceXSkinMesh`, MSZIP-compressed blocks | todo |
-| XET / TET | text templates parsed by the exe | todo |
+| XET / TET | done: binary tables (not text), 5,799 files parse with 0 structural problems; exact `FindAniDataIndex` (16 shipped files defeat it, kept) | `xet.ts`, `tools/verify-xet-tet.ts` |
 | particle / XMeshPlayer text scripts (39 `.txt` entries, e.g. `GameMajorParticle*.txt`), `item.kim` (18 MB, "KIM"), `general.ess` (string table, algorithm known) | custom parsers in the exe (`CKTDGParticleSystem`, `CKTDGXMeshPlayer`, `CKTDXStringTable`) | todo |
 | audio | `ogg`/`wav` are decoded by the browser (WebAudio) | todo |
 | MPEG-1 movies | software decoder | todo |
