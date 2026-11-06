@@ -43,12 +43,36 @@ export class DeviceTexture {
   }
 }
 
-/** the texture part of `CKTDXDeviceManager` */
+/**
+ * `CKTDXDeviceSound` (329718B0): a sound the FMOD system plays.  Only the identity is modelled (the name it was opened under, the
+ * 3D settings, the reference count); there is no audio device behind it yet.
+ */
+export class DeviceSound {
+  readonly deviceID: string;
+  refCount = 0;
+  readonly b3DSound: boolean;
+  /** `m_fMaxDistance` (-1: unset) */
+  fMaxDistance = -1;
+
+  constructor(deviceID: string, bUse3D: boolean) {
+    this.deviceID = deviceID;
+    this.b3DSound = bUse3D;
+  }
+}
+
+/** the texture and sound part of `CKTDXDeviceManager` */
 export class DeviceManager {
   /** `m_MassFileManager`: the one the Lua global `KGCMassFileManager` is */
   readonly massFiles: KGCMassFileManager;
-  /** `m_DeviceMap` (textures only so far) */
+  /** `m_DeviceMap` (textures) */
   readonly devices = new Map<string, DeviceTexture>();
+  /** `m_DeviceMap` (sounds; the exe has one map for every device type, the ids never collide) */
+  readonly sounds = new Map<string, DeviceSound>();
+  /**
+   * `g_pKTDXApp->m_pDSManager->m_bInit`: whether the sound system (FMOD) is up.  `OpenSound` creates a sound device only then; without
+   * it `OpenSound` answers null for every sound that is not open yet, as the exe does when FMOD failed to initialise.
+   */
+  soundSystemInitialised = false;
 
   constructor(massFiles: KGCMassFileManager = new KGCMassFileManager()) {
     this.massFiles = massFiles;
@@ -98,12 +122,38 @@ export class DeviceManager {
     return true;
   }
 
-  /** `CKTDXDeviceManager::CloseDevice(deviceID)` */
+  /**
+   * `CKTDXDeviceManager::OpenSound(deviceID, bufCount, bUse3D, fMax3DDistance)` (328EE5E0): an empty id gives null; the id is upper-cased;
+   * an open sound is referenced once more; otherwise a valid file (`IsValidFile`) and a running sound system are needed to create it.
+   * A positive `fMax3DDistance` is handed to the sound (also an already open one).
+   */
+  openSound(deviceID: string, bUse3D = true, fMax3DDistance = -1): DeviceSound | undefined {
+    if (deviceID.length === 0) return undefined;
+    const id = towupperAscii(deviceID);
+    let snd = this.sounds.get(id);
+    if (snd) {
+      snd.refCount++;
+    } else {
+      if (!this.massFiles.isValidFile(id)) return undefined;
+      if (!this.soundSystemInitialised) return undefined;
+      snd = new DeviceSound(id, bUse3D);
+      snd.refCount = 1;
+      this.sounds.set(id, snd);
+    }
+    if (fMax3DDistance > 0) snd.fMaxDistance = Math.fround(fMax3DDistance);
+    return snd;
+  }
+
+  /** `CKTDXDeviceManager::CloseDevice(deviceID)` (328ED610) */
   closeDevice(deviceID: string): void {
     if (deviceID.length === 0) return;
     const id = towupperAscii(deviceID);
     const tex = this.devices.get(id);
-    if (!tex) return;
-    if (--tex.refCount <= 0) this.devices.delete(id);
+    if (tex) {
+      if (--tex.refCount <= 0) this.devices.delete(id);
+      return;
+    }
+    const snd = this.sounds.get(id);
+    if (snd && --snd.refCount <= 0) this.sounds.delete(id);
   }
 }

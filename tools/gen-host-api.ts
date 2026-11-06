@@ -17,6 +17,7 @@ import { join, dirname } from "node:path";
 
 const ROOT = join(dirname(new URL(import.meta.url).pathname), "..");
 const TSV = join(ROOT, "docs", "host_api.tsv");
+const NULL_TSV = join(ROOT, "docs", "host_null_cstr.tsv");
 const OUT = join(ROOT, "packages", "host", "src", "api.generated.ts");
 
 interface Row { kind: string; luaClass: string; cppClass: string; luaName: string; cppFn: string; addr: string; sig: string; via: string }
@@ -25,6 +26,18 @@ const rows: Row[] = readFileSync(TSV, "utf8").split("\n").slice(1).filter(Boolea
   const c = l.split("\t");
   return { kind: c[0]!, luaClass: c[1] ?? "", cppClass: c[2] ?? "", luaName: c[3] ?? "", cppFn: c[4] ?? "", addr: c[5] ?? "", sig: c[6] ?? "", via: c[7] ?? "" };
 });
+
+/**
+ * `docs/host_null_cstr.tsv` (tools/null-cstr.py): which `const char*` parameters tolerate NULL, one character per parameter
+ * (`L`: NULL reads as "", `U`: NULL means "not given").  Key: C++ class, Lua name, address of the registered function.
+ */
+const nullMasks = new Map<string, string>();
+if (existsSync(NULL_TSV)) {
+  for (const l of readFileSync(NULL_TSV, "utf8").split("\n").slice(1).filter(Boolean)) {
+    const c = l.split("\t");
+    nullMasks.set(`${c[0]}|${c[1]}|${parseInt(c[2]!, 16)}`, c[3]!);
+  }
+}
 
 /** split at top-level commas (not inside <> () []) */
 function splitTop(s: string): string[] {
@@ -67,7 +80,7 @@ interface Cls {
   bases: { cpp: string; lua: string }[];
   ctors: string[][];
   fields: { name: string; type: string; offset: number; declaredIn: string }[];
-  methods: { name: string; fn: string; addr: number; params: string[]; ret: string; virtual: boolean }[];
+  methods: { name: string; fn: string; addr: number; params: string[]; ret: string; virtual: boolean; nullCStr?: string }[];
 }
 const classes = new Map<string, Cls>();
 const cls = (cpp: string, lua: string, via: string): Cls => {
@@ -91,7 +104,8 @@ for (const r of rows) {
     }
     case "method": {
       const { params, ret } = parseSig(r.sig);
-      c.methods.push({ name: r.luaName, fn: cppName(r), addr: r.addr ? parseInt(r.addr, 16) : 0, params, ret, virtual: isVirtual(r) });
+      const addr = r.addr ? parseInt(r.addr, 16) : 0;
+      c.methods.push({ name: r.luaName, fn: cppName(r), addr, params, ret, virtual: isVirtual(r), nullCStr: nullMasks.get(`${r.cppClass}|${r.luaName}|${addr}`) });
       break;
     }
   }
@@ -139,6 +153,11 @@ export interface HostMethodSpec {
   readonly params: readonly string[];
   readonly ret: string;
   readonly virtual: boolean;
+  /**
+   * one character per parameter, for the \`const char*\` ones the exe survives a NULL for (a Lua value that is no string or number reads
+   * as NULL; docs/host_null_cstr.tsv): \`L\` the function converts it into a local, NULL is the empty string; \`U\` NULL means "not given"
+   */
+  readonly nullCStr?: string;
 }
 export interface HostFieldSpec { readonly name: string; readonly type: string; readonly offset: number; readonly declaredIn: string }
 export interface HostClassSpec {
@@ -165,7 +184,7 @@ for (const c of classes.values()) {
   out += `    fields: [${c.fields.map((f) => `{ name: ${q(f.name)}, type: ${q(f.type)}, offset: ${f.offset}, declaredIn: ${q(f.declaredIn)} }`).join(", ")}],\n`;
   out += "    methods: [\n";
   for (const m of c.methods) {
-    out += `      { name: ${q(m.name)}, fn: ${q(m.fn)}, addr: 0x${m.addr.toString(16).toUpperCase()}, params: ${JSON.stringify(m.params)}, ret: ${q(m.ret)}, virtual: ${m.virtual} },\n`;
+    out += `      { name: ${q(m.name)}, fn: ${q(m.fn)}, addr: 0x${m.addr.toString(16).toUpperCase()}, params: ${JSON.stringify(m.params)}, ret: ${q(m.ret)}, virtual: ${m.virtual}${m.nullCStr ? `, nullCStr: ${q(m.nullCStr)}` : ""} },\n`;
   }
   out += "    ] },\n";
 }
@@ -225,7 +244,7 @@ for (const c of classes.values()) {
   for (const m of c.methods) {
     if (seen.has(m.name)) continue; // a name registered twice: the later registration wins in the exe, one declaration is enough
     seen.add(m.name);
-    const args = m.params.map((p, i) => `a${i}: ${TS[kindOf(p)]}`).join(", ");
+    const args = m.params.map((p, i) => `a${i}: ${TS[kindOf(p)]}${m.nullCStr?.[i] === "U" ? " | undefined" : ""}`).join(", ");
     const ret = TS[kindOf(m.ret)];
     out += `  /** ${m.fn}${m.addr ? " @" + m.addr.toString(16).toUpperCase() : ""} */\n  ${m.name}(${args}): ${ret};\n`;
   }

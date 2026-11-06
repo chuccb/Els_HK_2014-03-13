@@ -217,7 +217,7 @@ export class HostRuntime {
       const self = this.readSelf(args[0]);
       const impl = (self as Record<string, unknown>)[bm.spec.name];
       if (typeof impl !== "function") return this.missing(key, bm.spec, bm.ret);
-      const a = bm.params.map((p, i) => this.read(p, args[i + 1], i + 2, L));
+      const a = bm.params.map((p, i) => this.read(p, args[i + 1], i + 2, L, bm.spec.nullCStr?.[i]));
       this.frames.push(args);
       let r: unknown;
       try {
@@ -366,7 +366,7 @@ export class HostRuntime {
 
   // ---- crossing the boundary -----------------------------------------------------------------------------------------------
 
-  read(t: TypeSpec, v: LuaValue, luaIndexOfArg: number, _L: LuaThread): unknown {
+  read(t: TypeSpec, v: LuaValue, luaIndexOfArg: number, _L: LuaThread, nullCStr?: string): unknown {
     switch (t.k) {
       case "int": return toInt(t.w, num(v));
       case "float": return Math.fround(num(v));
@@ -374,7 +374,13 @@ export class HostRuntime {
       case "bool": return typeof v === "boolean" ? v : num(v) !== 0;
       case "cstr": {
         const s = tostr(v);
-        if (s === undefined) throw new LuaError(`bad argument #${luaIndexOfArg} (string expected, got ${typeName(v)}): the exe would pass NULL`);
+        if (s === undefined) {
+          // NULL (`lua_tostring` of a table, nil, a missing argument). Where the exe survives it (docs/host_null_cstr.tsv) the method
+          // gets what the exe's code makes of it: "" (converted into a local) or undefined (tested by the function / left alone).
+          if (nullCStr === "L") return "";
+          if (nullCStr === "U") return undefined;
+          throw new LuaError(`bad argument #${luaIndexOfArg} (string expected, got ${typeName(v)}): the exe would pass NULL`);
+        }
         return luaToUtf8(s);
       }
       case "string": {

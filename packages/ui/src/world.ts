@@ -7,6 +7,7 @@ import type { HostOptions, MassFileSource } from "@els/host";
 import type { StringTable } from "@els/assets";
 import { CKTDGUIControl, CPictureData } from "./control.ts";
 import type { UIContext } from "./control.ts";
+import { CKTDGUIButton } from "./button.ts";
 import { CKTDGUIDialog } from "./dialog.ts";
 import { DeviceManager } from "./device.ts";
 import { CKTDGUIStatic } from "./static.ts";
@@ -20,10 +21,23 @@ export interface UIWorldOptions extends HostOptions {
   tickCount?: () => number;
 }
 
+/** the Lua classes (C++ names) the UI classes implement */
+const IMPLEMENTATIONS: [string, object][] = [
+  ["KGCMassFileManager", KGCMassFileManager],
+  ["CKTDGUIDialog", CKTDGUIDialog],
+  ["CKTDGUIControl", CKTDGUIControl],
+  ["CKTDGUIStatic", CKTDGUIStatic],
+  ["CKTDGUIButton", CKTDGUIButton],
+  ["CKTDGUIControl::CPictureData", CPictureData],
+];
+
 export class UIWorld implements UIContext {
   readonly devices: DeviceManager;
   readonly strings: StringTable;
   readonly world: HostWorld;
+  controlFocus: CKTDGUIControl | null = null;
+  /** the message boxes the UI code opened, in order (the exe shows them modally) */
+  readonly messageBoxes: { text: string; caption: string }[] = [];
 
   constructor(opts: UIWorldOptions) {
     const massFiles = new KGCMassFileManager();
@@ -33,11 +47,11 @@ export class UIWorld implements UIContext {
     this.strings = opts.strings;
     this.world = new HostWorld({ readScript: (name) => massFiles.loadDataFile(name), massFiles, notPorted: opts.notPorted });
     const rt = this.world.rt;
-    rt.registerImpl("KGCMassFileManager", KGCMassFileManager);
-    rt.registerImpl("CKTDGUIDialog", CKTDGUIDialog);
-    rt.registerImpl("CKTDGUIControl", CKTDGUIControl);
-    rt.registerImpl("CKTDGUIStatic", CKTDGUIStatic);
-    rt.registerImpl("CKTDGUIControl::CPictureData", CPictureData);
+    for (const [cpp, impl] of IMPLEMENTATIONS) rt.registerImpl(cpp, impl);
+  }
+
+  messageBox(text: string, caption: string): void {
+    this.messageBoxes.push({ text, caption });
   }
 
   /** `LoadLuaEnum`: Enum.lua, DungeonEnum.lua, MassFileMappingList_HK.lua, StringID_def.lua */

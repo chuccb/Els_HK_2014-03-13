@@ -34,7 +34,12 @@ export class KomMassFileSource implements MassFileSource {
   /** what `read` was asked for and could not hand out since the last `settle` round began */
   readonly pending = new Set<string>();
 
-  constructor(readonly index: Map<string, IndexedEntry>) {}
+  /**
+   * @param imageHeaderBytes keep only the first N bytes of an image file (.TGA / .DDS / .BMP / .PNG / .JPG): enough for the image's
+   *   header (what `D3DXGetImageInfoFromFileInMemory` reads) when a census only needs sizes; the full bytes of the ~1,300 textures the
+   *   dialogs name are 1.3 GB.  Such bytes must never be drawn.
+   */
+  constructor(readonly index: Map<string, IndexedEntry>, private readonly imageHeaderBytes = 0) {}
 
   has(upperName: string): boolean {
     return this.index.has(upperName);
@@ -49,7 +54,11 @@ export class KomMassFileSource implements MassFileSource {
   async load(upperNames: Iterable<string>): Promise<void> {
     for (const name of upperNames) {
       const hit = this.index.get(name);
-      if (hit && !this.resident.has(name)) this.resident.set(name, await hit.kom.read(hit.entry));
+      if (hit && !this.resident.has(name)) {
+        let bytes = await hit.kom.read(hit.entry);
+        if (this.imageHeaderBytes > 0 && /\.(TGA|DDS|BMP|PNG|JPG)$/.test(name) && bytes.length > this.imageHeaderBytes) bytes = bytes.slice(0, this.imageHeaderBytes);
+        this.resident.set(name, bytes);
+      }
     }
   }
 

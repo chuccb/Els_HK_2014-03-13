@@ -14,6 +14,11 @@ export interface HostMethodSpec {
   readonly params: readonly string[];
   readonly ret: string;
   readonly virtual: boolean;
+  /**
+   * one character per parameter, for the `const char*` ones the exe survives a NULL for (a Lua value that is no string or number reads
+   * as NULL; docs/host_null_cstr.tsv): `L` the function converts it into a local, NULL is the empty string; `U` NULL means "not given"
+   */
+  readonly nullCStr?: string;
 }
 export interface HostFieldSpec { readonly name: string; readonly type: string; readonly offset: number; readonly declaredIn: string }
 export interface HostClassSpec {
@@ -52,7 +57,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CKTDGUIControl::UIStringData", lua: "UIStringData", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: [], ctors: [],
     fields: [{ name: "fontIndex", type: "int", offset: 0, declaredIn: "CKTDGUIControl::UIStringData" }, { name: "pos", type: "D3DXVECTOR2", offset: 32, declaredIn: "CKTDGUIControl::UIStringData" }, { name: "color", type: "D3DXCOLOR", offset: 40, declaredIn: "CKTDGUIControl::UIStringData" }, { name: "outlineColor", type: "D3DXCOLOR", offset: 56, declaredIn: "CKTDGUIControl::UIStringData" }, { name: "sortFlag", type: "unsigned long", offset: 72, declaredIn: "CKTDGUIControl::UIStringData" }, { name: "fontStyle", type: "enum CKTDGFontManager::FONT_STYLE", offset: 76, declaredIn: "CKTDGUIControl::UIStringData" }],
     methods: [
-      { name: "SetMsg", fn: "CKTDGUIControl::UIStringData::SetMsg_LUA", addr: 0x328CD920, params: ["char const *"], ret: "void", virtual: false },
+      { name: "SetMsg", fn: "CKTDGUIControl::UIStringData::SetMsg_LUA", addr: 0x328CD920, params: ["char const *"], ret: "void", virtual: false, nullCStr: "U" },
     ] },
   { cpp: "CKTDXTimer", lua: "CKTDXTimer", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: [], ctors: [],
     fields: [],
@@ -78,8 +83,8 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CKTDXCollision::CollisionData", lua: "CollisionData", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: [], ctors: [],
     fields: [],
     methods: [
-      { name: "SetPoint1", fn: "CKTDXCollision::CollisionData::SetPoint1_LUA", addr: 0x328E5960, params: ["char const *","D3DXVECTOR3"], ret: "void", virtual: false },
-      { name: "SetPoint2", fn: "CKTDXCollision::CollisionData::SetPoint2_LUA", addr: 0x328E5990, params: ["char const *","D3DXVECTOR3"], ret: "void", virtual: false },
+      { name: "SetPoint1", fn: "CKTDXCollision::CollisionData::SetPoint1_LUA", addr: 0x328E5960, params: ["char const *","D3DXVECTOR3"], ret: "void", virtual: false, nullCStr: "U." },
+      { name: "SetPoint2", fn: "CKTDXCollision::CollisionData::SetPoint2_LUA", addr: 0x328E5990, params: ["char const *","D3DXVECTOR3"], ret: "void", virtual: false, nullCStr: "U." },
     ] },
   { cpp: "CKTDGObject", lua: "CKTDGObject", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: [], ctors: [],
     fields: [],
@@ -98,9 +103,9 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "SetTex1UVSpeed", fn: "CKTDGSkyDome::SetTex1UVSpeed", addr: 0x328CE1C0, params: ["float","float"], ret: "void", virtual: false },
       { name: "SetTex2UVSpeed", fn: "CKTDGSkyDome::SetTex2UVSpeed", addr: 0x328CE1F0, params: ["float","float"], ret: "void", virtual: false },
       { name: "SetRotationSpeed", fn: "CKTDGParticleSystem::CParticleEventSequence::SetLandPosition", addr: 0x328CD830, params: ["float"], ret: "void", virtual: false },
-      { name: "SetDomeMesh", fn: "CKTDGSkyDome::SetDomeMesh_LUA", addr: 0x32914950, params: ["char const *"], ret: "void", virtual: false },
-      { name: "SetMultiTexXET", fn: "CKTDGSkyDome::SetMultiTexXET_LUA", addr: 0x32914B50, params: ["char const *"], ret: "void", virtual: false },
-      { name: "SetChangeTexXET", fn: "CKTDGSkyDome::SetChangeTexXET_LUA", addr: 0x329147A0, params: ["char const *"], ret: "void", virtual: false },
+      { name: "SetDomeMesh", fn: "CKTDGSkyDome::SetDomeMesh_LUA", addr: 0x32914950, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
+      { name: "SetMultiTexXET", fn: "CKTDGSkyDome::SetMultiTexXET_LUA", addr: 0x32914B50, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
+      { name: "SetChangeTexXET", fn: "CKTDGSkyDome::SetChangeTexXET_LUA", addr: 0x329147A0, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
       { name: "SetViewTrace", fn: "CKTDGSkyDome::SetViewTrace", addr: 0x328CE400, params: ["bool"], ret: "void", virtual: false },
       { name: "SetViewTraceXZ", fn: "CKTDGSkyDome::SetViewTraceXZ", addr: 0x328CE410, params: ["bool"], ret: "void", virtual: false },
       { name: "SetViewRotation", fn: "CKTDGSkyDome::SetViewRotation", addr: 0x328CE3F0, params: ["bool"], ret: "void", virtual: false },
@@ -146,7 +151,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CKTDGUIDialog", lua: "CKTDGUIDialog", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: [], ctors: [],
     fields: [],
     methods: [
-      { name: "SetName", fn: "CKTDGUIDialog::SetName_LUA", addr: 0x3295B7E0, params: ["char const *"], ret: "void", virtual: false },
+      { name: "SetName", fn: "CKTDGUIDialog::SetName_LUA", addr: 0x3295B7E0, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
       { name: "SetPos", fn: "CKTDGUIDialog::SetPos_LUA", addr: 0x328CDBD0, params: ["float","float"], ret: "void", virtual: false },
       { name: "SetModal", fn: "CKTDGUIDialog::SetModal", addr: 0x328CD8F0, params: ["bool"], ret: "void", virtual: false },
       { name: "CreatePicture", fn: "CKTDGUIDialog::CreatePicture", addr: 0x328C16C0, params: [], ret: "CKTDGUIControl::CPictureData *", virtual: false },
@@ -174,20 +179,20 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "GetDummyString", fn: "CKTDGUIDialog::GetDummyString", addr: 0x328C21E0, params: ["int"], ret: "std::wstring", virtual: false },
       { name: "AddDummyInt", fn: "CKTDGUIDialog::AddDummyInt", addr: 0x328C0CD0, params: ["int"], ret: "void", virtual: false },
       { name: "GetDummyInt", fn: "CKTDGUIDialog::GetDummyInt", addr: 0x328C2140, params: ["int"], ret: "int", virtual: false },
-      { name: "GetButton", fn: "CKTDGUIDialog::GetButton_LUA", addr: 0x32957000, params: ["char const *"], ret: "CKTDGUIButton *", virtual: false },
-      { name: "GetCheckBox", fn: "CKTDGUIDialog::GetCheckBox_LUA", addr: 0x329570F0, params: ["char const *"], ret: "CKTDGUICheckBox *", virtual: false },
-      { name: "GetComboBox", fn: "CKTDGUIDialog::GetComboBox_LUA", addr: 0x329571E0, params: ["char const *"], ret: "CKTDGUIComboBox *", virtual: false },
-      { name: "GetEditBox", fn: "CKTDGUIDialog::GetEditBox_LUA", addr: 0x32957580, params: ["char const *"], ret: "CKTDGUIEditBox *", virtual: false },
-      { name: "GetIMEEdieBox", fn: "CKTDGUIDialog::GetIMEEdieBox_LUA", addr: 0x32957670, params: ["char const *"], ret: "CKTDGUIIMEEditBox *", virtual: false },
-      { name: "GetListBox", fn: "CKTDGUIDialog::GetListBox_LUA", addr: 0x329577B0, params: ["char const *"], ret: "CKTDGUIListBox *", virtual: false },
-      { name: "GetRadioButton", fn: "CKTDGUIDialog::GetRadioButton_LUA", addr: 0x329578A0, params: ["char const *"], ret: "CKTDGUIRadioButton *", virtual: false },
-      { name: "GetStatic", fn: "CKTDGUIDialog::GetStatic_LUA", addr: 0x329579B0, params: ["char const *"], ret: "CKTDGUIStatic *", virtual: false },
+      { name: "GetButton", fn: "CKTDGUIDialog::GetButton_LUA", addr: 0x32957000, params: ["char const *"], ret: "CKTDGUIButton *", virtual: false, nullCStr: "L" },
+      { name: "GetCheckBox", fn: "CKTDGUIDialog::GetCheckBox_LUA", addr: 0x329570F0, params: ["char const *"], ret: "CKTDGUICheckBox *", virtual: false, nullCStr: "L" },
+      { name: "GetComboBox", fn: "CKTDGUIDialog::GetComboBox_LUA", addr: 0x329571E0, params: ["char const *"], ret: "CKTDGUIComboBox *", virtual: false, nullCStr: "L" },
+      { name: "GetEditBox", fn: "CKTDGUIDialog::GetEditBox_LUA", addr: 0x32957580, params: ["char const *"], ret: "CKTDGUIEditBox *", virtual: false, nullCStr: "L" },
+      { name: "GetIMEEdieBox", fn: "CKTDGUIDialog::GetIMEEdieBox_LUA", addr: 0x32957670, params: ["char const *"], ret: "CKTDGUIIMEEditBox *", virtual: false, nullCStr: "L" },
+      { name: "GetListBox", fn: "CKTDGUIDialog::GetListBox_LUA", addr: 0x329577B0, params: ["char const *"], ret: "CKTDGUIListBox *", virtual: false, nullCStr: "L" },
+      { name: "GetRadioButton", fn: "CKTDGUIDialog::GetRadioButton_LUA", addr: 0x329578A0, params: ["char const *"], ret: "CKTDGUIRadioButton *", virtual: false, nullCStr: "L" },
+      { name: "GetStatic", fn: "CKTDGUIDialog::GetStatic_LUA", addr: 0x329579B0, params: ["char const *"], ret: "CKTDGUIStatic *", virtual: false, nullCStr: "L" },
       { name: "SetLayer", fn: "CKTDGUIDialog::SetLayer", addr: 0x3295B790, params: ["int"], ret: "void", virtual: false },
       { name: "SetColor", fn: "CKTDGUIDialog::SetColor", addr: 0x328CD070, params: ["D3DXCOLOR"], ret: "void", virtual: false },
       { name: "SetCloseOnFocusOut", fn: "CKTDGUIDialog::SetCloseOnFocusOut", addr: 0x328CD050, params: ["bool"], ret: "void", virtual: false },
       { name: "SetCloseOnFocusOutEvent", fn: "CKTDGUIDialog::SetCloseOnFocusOutEvent", addr: 0x328CD060, params: ["int"], ret: "void", virtual: false },
-      { name: "ChangeSequenceByName", fn: "CKTDGUIDialog::ChangeSequenceByName_LUA", addr: 0x32956920, params: ["char const *","bool"], ret: "void", virtual: false },
-      { name: "ChangeSequenceByNameAndPivot", fn: "CKTDGUIDialog::ChangeSequenceByNameAndPivot_LUA", addr: 0x329567B0, params: ["char const *","char const *","bool"], ret: "void", virtual: false },
+      { name: "ChangeSequenceByName", fn: "CKTDGUIDialog::ChangeSequenceByName_LUA", addr: 0x32956920, params: ["char const *","bool"], ret: "void", virtual: false, nullCStr: "L." },
+      { name: "ChangeSequenceByNameAndPivot", fn: "CKTDGUIDialog::ChangeSequenceByNameAndPivot_LUA", addr: 0x329567B0, params: ["char const *","char const *","bool"], ret: "void", virtual: false, nullCStr: "LL." },
       { name: "SetSize", fn: "CKTDGUIDialog::SetSize", addr: 0x328CDFF0, params: ["float","float"], ret: "void", virtual: false },
       { name: "SetEnableDraggingRange", fn: "CKTDGUIDialog::SetEnableDraggingRange", addr: 0x328CD440, params: ["bool"], ret: "void", virtual: false },
       { name: "SetDraggingRangeCenter", fn: "CKTDGUIDialog::SetDraggingRangeCenter", addr: 0x328CD360, params: ["float","float"], ret: "void", virtual: false },
@@ -197,21 +202,21 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "SetCustomMsgStartDragging", fn: "CKTDGUIDialog::SetCustomMsgStartDragging", addr: 0x328CD2B0, params: ["int"], ret: "void", virtual: false },
       { name: "SetTimeForSelfDelete", fn: "CKTDGUIDialog::SetTimeForSelfDelete", addr: 0x328CE340, params: ["float"], ret: "void", virtual: false },
       { name: "SetCustomMsgRMouseUp", fn: "CKTDGUIDialog::SetCustomMsgRMouseUp", addr: 0x328CD270, params: ["int"], ret: "void", virtual: false },
-      { name: "SetCustomButtonMouseOverSndFile", fn: "CKTDGUIDialog::SetCustomButtonMouseOverSndFile_LUA", addr: 0x3295B650, params: ["char const *"], ret: "void", virtual: false },
-      { name: "SetCustomButtonMouseUpSndFile", fn: "CKTDGUIDialog::SetCustomButtonMouseUpSndFile_LUA", addr: 0x3295B670, params: ["char const *"], ret: "void", virtual: false },
+      { name: "SetCustomButtonMouseOverSndFile", fn: "CKTDGUIDialog::SetCustomButtonMouseOverSndFile_LUA", addr: 0x3295B650, params: ["char const *"], ret: "void", virtual: false, nullCStr: "U" },
+      { name: "SetCustomButtonMouseUpSndFile", fn: "CKTDGUIDialog::SetCustomButtonMouseUpSndFile_LUA", addr: 0x3295B670, params: ["char const *"], ret: "void", virtual: false, nullCStr: "U" },
     ] },
   { cpp: "CKTDGUIDialogManager", lua: "CKTDGUIDialogManager", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: [], ctors: [],
     fields: [],
     methods: [
-      { name: "GetDialog", fn: "CKTDGUIDialogManager::GetDialog_LUA", addr: 0x328DEB20, params: ["char const *"], ret: "CKTDGUIDialog *", virtual: false },
+      { name: "GetDialog", fn: "CKTDGUIDialogManager::GetDialog_LUA", addr: 0x328DEB20, params: ["char const *"], ret: "CKTDGUIDialog *", virtual: false, nullCStr: "U" },
       { name: "SetShow", fn: "CKTDGUIDialogManager::SetShow", addr: 0x328CDFA0, params: ["bool"], ret: "void", virtual: false },
     ] },
   { cpp: "CKTDGUIControl", lua: "CKTDGUIControl", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: [], ctors: [],
     fields: [],
     methods: [
-      { name: "SetName", fn: "CKTDGUIControl::SetName_LUA", addr: 0x32925D70, params: ["char const *"], ret: "void", virtual: false },
-      { name: "SetTabControlName", fn: "CKTDGUIControl::SetTabControlName_LUA", addr: 0x32926E40, params: ["char const *"], ret: "void", virtual: false },
-      { name: "SetPrevTabControlName", fn: "CKTDGUIControl::SetPrevTabControlName_LUA", addr: 0x32926450, params: ["char const *"], ret: "void", virtual: false },
+      { name: "SetName", fn: "CKTDGUIControl::SetName_LUA", addr: 0x32925D70, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
+      { name: "SetTabControlName", fn: "CKTDGUIControl::SetTabControlName_LUA", addr: 0x32926E40, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
+      { name: "SetPrevTabControlName", fn: "CKTDGUIControl::SetPrevTabControlName_LUA", addr: 0x32926450, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
       { name: "SetOffsetPos", fn: "CKTDGUIControl::SetOffsetPos_LUA", addr: 0x328CD970, params: ["float","float"], ret: "void", virtual: false },
       { name: "GetOffsetPos", fn: "CKTDGUIControl::GetOffsetPos", addr: 0x328C22D0, params: [], ret: "D3DXVECTOR2", virtual: false },
       { name: "SetColor", fn: "CKTDGUIControl::SetColor", addr: 0x0, params: ["D3DXCOLOR"], ret: "void", virtual: true },
@@ -226,7 +231,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "GetIsMoving", fn: "CKTDGUIControl::GetIsMoving", addr: 0x32924810, params: [], ret: "bool", virtual: false },
       { name: "AddDummyPos", fn: "CKTDGUIControl::AddDummyPos", addr: 0x328C0D00, params: ["D3DXVECTOR3"], ret: "void", virtual: false },
       { name: "GetDummyPos", fn: "CKTDGUIControl::GetDummyPos", addr: 0x329246B0, params: ["int"], ret: "D3DXVECTOR3", virtual: false },
-      { name: "AddDummyString", fn: "CKTDGUIControl::AddDummyString_LUA", addr: 0x32923B50, params: ["char const *"], ret: "void", virtual: false },
+      { name: "AddDummyString", fn: "CKTDGUIControl::AddDummyString_LUA", addr: 0x32923B50, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
       { name: "GetDummyString", fn: "CKTDGUIControl::GetDummyString", addr: 0x32924720, params: ["int"], ret: "std::wstring", virtual: false },
       { name: "AddDummyInt", fn: "CKTDGUIControl::AddDummyInt", addr: 0x328C0CA0, params: ["int"], ret: "void", virtual: false },
       { name: "GetDummyInt", fn: "CKTDGUIControl::GetDummyInt", addr: 0x32924680, params: ["int"], ret: "int", virtual: false },
@@ -234,7 +239,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "SetEnableLeftTop", fn: "CKTDGUIControl::SetEnableLeftTop", addr: 0x328CD450, params: ["D3DXVECTOR2"], ret: "void", virtual: false },
       { name: "SetEnableRightBottom", fn: "CKTDGUIControl::SetEnableRightBottom", addr: 0x328CD490, params: ["D3DXVECTOR2"], ret: "void", virtual: false },
       { name: "SetGuideDesc", fn: "CKTDGUIControl::SetGuideDesc_LUA", addr: 0x329255C0, params: ["int"], ret: "void", virtual: false },
-      { name: "SetGuideDescByString", fn: "CKTDGUIControl::SetGuideDescByString_LUA", addr: 0x32925580, params: ["char const *"], ret: "void", virtual: false },
+      { name: "SetGuideDescByString", fn: "CKTDGUIControl::SetGuideDescByString_LUA", addr: 0x32925580, params: ["char const *"], ret: "void", virtual: false, nullCStr: "U" },
       { name: "SetGuideDescAbsolutePos", fn: "CKTDGUIControl::SetGuideDescAbsolutePos", addr: 0x0, params: ["D3DXVECTOR2"], ret: "void", virtual: true },
       { name: "SetGuideDescOffsetPos", fn: "CKTDGUIControl::SetGuideDescOffsetPos", addr: 0x0, params: ["D3DXVECTOR2"], ret: "void", virtual: true },
       { name: "SetNameStrID", fn: "CKTDGUIControl::SetNameStrID_LUA", addr: 0x0, params: ["int"], ret: "bool", virtual: true },
@@ -243,8 +248,8 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CKTDGUIControl::CPictureData", lua: "CPictureData", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: [], ctors: [],
     fields: [],
     methods: [
-      { name: "SetTex2", fn: "CKTDGUIControl::CPictureData::SetTex_LUA2", addr: 0x32927620, params: ["char const *"], ret: "void", virtual: false },
-      { name: "SetTex", fn: "CKTDGUIControl::CPictureData::SetTex_LUA", addr: 0x329277D0, params: ["char const *","char const *"], ret: "void", virtual: false },
+      { name: "SetTex2", fn: "CKTDGUIControl::CPictureData::SetTex_LUA2", addr: 0x32927620, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
+      { name: "SetTex", fn: "CKTDGUIControl::CPictureData::SetTex_LUA", addr: 0x329277D0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
       { name: "SetPoint", fn: "CKTDGUIControl::CPictureData::SetPoint_LUA", addr: 0x329262D0, params: [], ret: "void", virtual: false },
       { name: "SetShow", fn: "CKTDGUIControl::CPictureData::SetShow", addr: 0x328CDFB0, params: ["bool"], ret: "void", virtual: false },
       { name: "SetPos", fn: "CKTDGUIControl::CPictureData::SetPos", addr: 0x329263B0, params: ["D3DXVECTOR2"], ret: "void", virtual: false },
@@ -256,7 +261,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CKTDGUIControl::CMovieData", lua: "CMovieData", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: [], ctors: [],
     fields: [],
     methods: [
-      { name: "SetMovieFileName", fn: "CKTDGUIControl::CMovieData::SetMovieFileName_LUA", addr: 0x329258F0, params: ["char const *"], ret: "void", virtual: false },
+      { name: "SetMovieFileName", fn: "CKTDGUIControl::CMovieData::SetMovieFileName_LUA", addr: 0x329258F0, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
       { name: "SetRect", fn: "CKTDGUIControl::CMovieData::SetRect_LUA", addr: 0x32926540, params: ["float","float","float","float"], ret: "void", virtual: false },
       { name: "SetShow", fn: "CKTDGXMeshPlayer::CXMeshInstance::SetPerFrameSimulation", addr: 0x328CDAF0, params: ["bool"], ret: "void", virtual: false },
       { name: "SetLoop", fn: "CKTDGUIControl::CMovieData::SetLoop", addr: 0x328CD8B0, params: ["bool"], ret: "void", virtual: false },
@@ -264,10 +269,10 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CKTDGUIButton", lua: "CKTDGUIButton", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: ["CKTDGUIControl"], ctors: [],
     fields: [],
     methods: [
-      { name: "SetNormalTex", fn: "CKTDGUIButton::SetNormalTex_LUA", addr: 0x32930230, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetOverTex", fn: "CKTDGUIButton::SetOverTex_LUA", addr: 0x329306A0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetDownTex", fn: "CKTDGUIButton::SetDownTex_LUA", addr: 0x3292FD70, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetDisableTex", fn: "CKTDGUIButton::SetDisableTex_LUA", addr: 0x3292F980, params: ["char const *","char const *"], ret: "void", virtual: false },
+      { name: "SetNormalTex", fn: "CKTDGUIButton::SetNormalTex_LUA", addr: 0x32930230, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetOverTex", fn: "CKTDGUIButton::SetOverTex_LUA", addr: 0x329306A0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetDownTex", fn: "CKTDGUIButton::SetDownTex_LUA", addr: 0x3292FD70, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetDisableTex", fn: "CKTDGUIButton::SetDisableTex_LUA", addr: 0x3292F980, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
       { name: "SetNormalAnimTex", fn: "CKTDGUIButton::SetNormalAnimTex_LUA", addr: 0x32930000, params: [], ret: "void", virtual: false },
       { name: "SetOverAnimTex", fn: "CKTDGUIButton::SetOverAnimTex_LUA", addr: 0x32930420, params: [], ret: "void", virtual: false },
       { name: "SetDownAnimTex", fn: "CKTDGUIButton::SetDownAnimTex_LUA", addr: 0x3292FB30, params: [], ret: "void", virtual: false },
@@ -285,16 +290,16 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "SetCustomMsgMouseDown", fn: "CKTDGUIButton::SetCustomMsgMouseDown", addr: 0x328CD190, params: ["int"], ret: "void", virtual: false },
       { name: "SetCustomMsgMouseUp", fn: "CKTDGUIButton::SetCustomMsgMouseUp", addr: 0x328CD240, params: ["int"], ret: "void", virtual: false },
       { name: "SetCustomMsgMouseRightUp", fn: "CKTDGUIButton::SetCustomMsgMouseRightUp", addr: 0x328CD220, params: ["int"], ret: "void", virtual: false },
-      { name: "SetCustomFuncMouseOver", fn: "CKTDGUIButton::SetCustomFuncMouseOver", addr: 0x328CD0A0, params: ["char const *"], ret: "void", virtual: false },
-      { name: "SetCustomFuncMouseDown", fn: "CKTDGUIButton::SetCustomFuncMouseDown", addr: 0x328CD080, params: ["char const *"], ret: "void", virtual: false },
-      { name: "SetCustomFuncMouseUp", fn: "CKTDGUIButton::SetCustomFuncMouseUp", addr: 0x328CD0C0, params: ["char const *"], ret: "void", virtual: false },
+      { name: "SetCustomFuncMouseOver", fn: "CKTDGUIButton::SetCustomFuncMouseOver", addr: 0x328CD0A0, params: ["char const *"], ret: "void", virtual: false, nullCStr: "U" },
+      { name: "SetCustomFuncMouseDown", fn: "CKTDGUIButton::SetCustomFuncMouseDown", addr: 0x328CD080, params: ["char const *"], ret: "void", virtual: false, nullCStr: "U" },
+      { name: "SetCustomFuncMouseUp", fn: "CKTDGUIButton::SetCustomFuncMouseUp", addr: 0x328CD0C0, params: ["char const *"], ret: "void", virtual: false, nullCStr: "U" },
       { name: "SetCustomMsgMouseDblClk", fn: "CKTDGUIEditBox::SetCustomMsgChange", addr: 0x328CD0E0, params: ["int"], ret: "void", virtual: false },
       { name: "SetEnableClick", fn: "CKTDGUIButton::SetEnableClick", addr: 0x328CD420, params: ["bool"], ret: "void", virtual: false },
       { name: "SetEdge", fn: "CKTDGUIButton::SetEdge", addr: 0x3292FF50, params: ["bool","int","D3DXCOLOR"], ret: "void", virtual: false },
       { name: "SetEdge2", fn: "CKTDGUIButton::SetEdge2", addr: 0x3292FF20, params: ["bool","int","D3DXCOLOR","int"], ret: "void", virtual: false },
-      { name: "ChangeMouseUpSound_LUA", fn: "CKTDGUIButton::ChangeMouseUpSound_LUA", addr: 0x3292CEA0, params: ["char const *"], ret: "void", virtual: false },
-      { name: "ChangeMouseDownSound_LUA", fn: "CKTDGUIButton::ChangeMouseDownSound_LUA", addr: 0x3292CAA0, params: ["char const *"], ret: "void", virtual: false },
-      { name: "ChangeMouseOverSound_LUA", fn: "CKTDGUIButton::ChangeMouseOverSound_LUA", addr: 0x3292CC90, params: ["char const *"], ret: "void", virtual: false },
+      { name: "ChangeMouseUpSound_LUA", fn: "CKTDGUIButton::ChangeMouseUpSound_LUA", addr: 0x3292CEA0, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
+      { name: "ChangeMouseDownSound_LUA", fn: "CKTDGUIButton::ChangeMouseDownSound_LUA", addr: 0x3292CAA0, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
+      { name: "ChangeMouseOverSound_LUA", fn: "CKTDGUIButton::ChangeMouseOverSound_LUA", addr: 0x3292CC90, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
     ] },
   { cpp: "CKTDGUIStatic", lua: "CKTDGUIStatic", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: ["CKTDGUIControl"], ctors: [],
     fields: [],
@@ -310,10 +315,10 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CKTDGUICheckBox", lua: "CKTDGUICheckBox", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: ["CKTDGUIControl"], ctors: [],
     fields: [],
     methods: [
-      { name: "SetNormalTex", fn: "CKTDGUICheckBox::SetNormalTex_LUA", addr: 0x329320C0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetOverTex", fn: "CKTDGUICheckBox::SetOverTex_LUA", addr: 0x32932250, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetDisableTex", fn: "CKTDGUICheckBox::SetDisableTex_LUA", addr: 0x32931F30, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetCheckedTex", fn: "CKTDGUICheckBox::SetCheckedTex_LUA", addr: 0x32931DA0, params: ["char const *","char const *"], ret: "void", virtual: false },
+      { name: "SetNormalTex", fn: "CKTDGUICheckBox::SetNormalTex_LUA", addr: 0x329320C0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetOverTex", fn: "CKTDGUICheckBox::SetOverTex_LUA", addr: 0x32932250, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetDisableTex", fn: "CKTDGUICheckBox::SetDisableTex_LUA", addr: 0x32931F30, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetCheckedTex", fn: "CKTDGUICheckBox::SetCheckedTex_LUA", addr: 0x32931DA0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
       { name: "SetBGPoint", fn: "CKTDGUICheckBox::SetBGPoint_LUA", addr: 0x32931B40, params: [], ret: "void", virtual: false },
       { name: "SetCheckPoint", fn: "CKTDGUICheckBox::SetCheckPoint_LUA", addr: 0x32931C30, params: [], ret: "void", virtual: false },
       { name: "SetCustomMsgChecked", fn: "CKTDGUICheckBox::SetCustomMsgChecked", addr: 0x328CD0F0, params: ["int"], ret: "void", virtual: false },
@@ -324,8 +329,8 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CKTDGUIEditBox", lua: "CKTDGUIEditBox", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: ["CKTDGUIControl"], ctors: [],
     fields: [],
     methods: [
-      { name: "SetNormalTex", fn: "CKTDGUIEditBox::SetNormalTex_LUA", addr: 0x32935020, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetDisableTex", fn: "CKTDGUIIMEEditBox::SetDisableTex_LUA", addr: 0x32934BA0, params: ["char const *","char const *"], ret: "void", virtual: false },
+      { name: "SetNormalTex", fn: "CKTDGUIEditBox::SetNormalTex_LUA", addr: 0x32935020, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetDisableTex", fn: "CKTDGUIIMEEditBox::SetDisableTex_LUA", addr: 0x32934BA0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
       { name: "SetNormalPoint", fn: "CKTDGUIEditBox::SetNormalPoint_LUA", addr: 0x32934F70, params: [], ret: "void", virtual: false },
       { name: "SetDisablePoint", fn: "CKTDGUIIMEEditBox::SetDisablePoint_LUA", addr: 0x32934AF0, params: [], ret: "void", virtual: false },
       { name: "SetTextPoint", fn: "CKTDGUIEditBox::SetTextPoint_LUA", addr: 0x329351C0, params: [], ret: "void", virtual: false },
@@ -337,18 +342,18 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "SetSelectedBackColor", fn: "CKTDGUIEditBox::SetSelectedBackColor_LUA", addr: 0x328CDDA0, params: ["float","float","float","float"], ret: "void", virtual: false },
       { name: "SetCaretColor", fn: "CKTDGUIEditBox::SetCaretColor_LUA", addr: 0x328CCF10, params: ["float","float","float","float"], ret: "void", virtual: false },
       { name: "SetOutlineColor", fn: "CKTDGUIEditBox::SetOutlineColor_LUA", addr: 0x328CD9F0, params: ["float","float","float","float"], ret: "void", virtual: false },
-      { name: "SetHideChar", fn: "CKTDGUIEditBox::SetHideChar_", addr: 0x32934E90, params: ["char const *"], ret: "void", virtual: false },
+      { name: "SetHideChar", fn: "CKTDGUIEditBox::SetHideChar_", addr: 0x32934E90, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
     ] },
   { cpp: "CKTDGUIIMEEditBox", lua: "CKTDGUIIMEEditBox", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: ["CKTDGUIControl"], ctors: [],
     fields: [],
     methods: [
-      { name: "SetNormalTex", fn: "CKTDGUIEditBox::SetNormalTex_LUA", addr: 0x32935020, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetDisableTex", fn: "CKTDGUIIMEEditBox::SetDisableTex_LUA", addr: 0x32934BA0, params: ["char const *","char const *"], ret: "void", virtual: false },
+      { name: "SetNormalTex", fn: "CKTDGUIEditBox::SetNormalTex_LUA", addr: 0x32935020, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetDisableTex", fn: "CKTDGUIIMEEditBox::SetDisableTex_LUA", addr: 0x32934BA0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
       { name: "SetNormalPoint", fn: "CKTDGUIEditBox::SetNormalPoint_LUA", addr: 0x32934F70, params: [], ret: "void", virtual: false },
       { name: "SetDisablePoint", fn: "CKTDGUIIMEEditBox::SetDisablePoint_LUA", addr: 0x32934AF0, params: [], ret: "void", virtual: false },
       { name: "SetTextPoint", fn: "CKTDGUIIMEEditBox::SetTextPoint_LUA", addr: 0x3293ADE0, params: [], ret: "void", virtual: false },
       { name: "SetFont", fn: "CKTDGUIEditBox::SetFont_LUA", addr: 0x32934D40, params: ["int"], ret: "void", virtual: false },
-      { name: "SetText", fn: "CKTDGUIIMEEditBox::SetText_LUA", addr: 0x3293AE40, params: ["char const *"], ret: "void", virtual: false },
+      { name: "SetText", fn: "CKTDGUIIMEEditBox::SetText_LUA", addr: 0x3293AE40, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
       { name: "SetCustomMsgChange", fn: "CKTDGUIEditBox::SetCustomMsgChange", addr: 0x328CD0E0, params: ["int"], ret: "void", virtual: false },
       { name: "SetCustomMsgEnter", fn: "CKTDGUIEditBox::SetCustomMsgEnter", addr: 0x328CD140, params: ["int"], ret: "void", virtual: false },
       { name: "SetCustomMsgFocusOut", fn: "CKTDGUIIMEEditBox::SetCustomMsgFocusOut", addr: 0x328CD160, params: ["int"], ret: "void", virtual: false },
@@ -374,10 +379,10 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CKTDGUIRadioButton", lua: "CKTDGUIRadioButton", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: ["CKTDGUIControl"], ctors: [],
     fields: [],
     methods: [
-      { name: "SetNormalTex", fn: "CKTDGUIRadioButton::SetNormalTex_LUA", addr: 0x3294C2F0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetOverTex", fn: "CKTDGUIRadioButton::SetOverTex_LUA", addr: 0x3294C480, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetDisableTex", fn: "CKTDGUIRadioButton::SetDisableTex_LUA", addr: 0x3294BEE0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetCheckedTex", fn: "CKTDGUIRadioButton::SetCheckedTex_LUA", addr: 0x3294BBF0, params: ["char const *","char const *"], ret: "void", virtual: false },
+      { name: "SetNormalTex", fn: "CKTDGUIRadioButton::SetNormalTex_LUA", addr: 0x3294C2F0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetOverTex", fn: "CKTDGUIRadioButton::SetOverTex_LUA", addr: 0x3294C480, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetDisableTex", fn: "CKTDGUIRadioButton::SetDisableTex_LUA", addr: 0x3294BEE0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetCheckedTex", fn: "CKTDGUIRadioButton::SetCheckedTex_LUA", addr: 0x3294BBF0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
       { name: "SetDisabledPoint", fn: "CKTDGUIRadioButton::SetDisabledPoint_LUA", addr: 0x3294C070, params: [], ret: "void", virtual: false },
       { name: "SetBGPoint", fn: "CKTDGUIRadioButton::SetBGPoint_LUA", addr: 0x3294B810, params: [], ret: "void", virtual: false },
       { name: "SetBGMouseOverPoint", fn: "CKTDGUIRadioButton::SetBGMouseOverPoint_LUA", addr: 0x3294B770, params: [], ret: "void", virtual: false },
@@ -403,18 +408,18 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CKTDGUIComboBox", lua: "CKTDGUIComboBox", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: ["CKTDGUIControl"], ctors: [],
     fields: [],
     methods: [
-      { name: "SetTextTex", fn: "CKTDGUIComboBox::SetTextTex_LUA", addr: 0x32940C30, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetDropdownTex", fn: "CKTDGUIComboBox::SetDropdownTex_LUA", addr: 0x3293FDF0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetDropdownTextTex", fn: "CKTDGUIComboBox::SetDropdownTextTex_LUA", addr: 0x3293FF80, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetButtonTex", fn: "CKTDGUIComboBox::SetButtonTex_LUA", addr: 0x3293FC60, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetButtonMouseOverTex", fn: "CKTDGUIComboBox::SetButtonMouseOverTex_LUA", addr: 0x3293FA70, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetButtonMouseDownTex", fn: "CKTDGUIComboBox::SetButtonMouseDownTex_LUA", addr: 0x3293F8E0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetScollBarDownButtonTex", fn: "CKTDGUIComboBox::SetScollBarDownButtonTex_LUA", addr: 0x329402D0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetScollBarDownButtonDownTex", fn: "CKTDGUIComboBox::SetScollBarDownButtonDownTex_LUA", addr: 0x32940140, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetScollBarThumbTex", fn: "CKTDGUIComboBox::SetScollBarThumbTex_LUA", addr: 0x32940460, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetScollBarTrackTex", fn: "CKTDGUIComboBox::SetScollBarTrackTex_LUA", addr: 0x329405F0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetScollBarUpButtonTex", fn: "CKTDGUIComboBox::SetScollBarUpButtonTex_LUA", addr: 0x32940910, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetScollBarUpButtonDownTex", fn: "CKTDGUIComboBox::SetScollBarUpButtonDownTex_LUA", addr: 0x32940780, params: ["char const *","char const *"], ret: "void", virtual: false },
+      { name: "SetTextTex", fn: "CKTDGUIComboBox::SetTextTex_LUA", addr: 0x32940C30, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetDropdownTex", fn: "CKTDGUIComboBox::SetDropdownTex_LUA", addr: 0x3293FDF0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetDropdownTextTex", fn: "CKTDGUIComboBox::SetDropdownTextTex_LUA", addr: 0x3293FF80, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetButtonTex", fn: "CKTDGUIComboBox::SetButtonTex_LUA", addr: 0x3293FC60, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetButtonMouseOverTex", fn: "CKTDGUIComboBox::SetButtonMouseOverTex_LUA", addr: 0x3293FA70, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetButtonMouseDownTex", fn: "CKTDGUIComboBox::SetButtonMouseDownTex_LUA", addr: 0x3293F8E0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetScollBarDownButtonTex", fn: "CKTDGUIComboBox::SetScollBarDownButtonTex_LUA", addr: 0x329402D0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetScollBarDownButtonDownTex", fn: "CKTDGUIComboBox::SetScollBarDownButtonDownTex_LUA", addr: 0x32940140, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetScollBarThumbTex", fn: "CKTDGUIComboBox::SetScollBarThumbTex_LUA", addr: 0x32940460, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetScollBarTrackTex", fn: "CKTDGUIComboBox::SetScollBarTrackTex_LUA", addr: 0x329405F0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetScollBarUpButtonTex", fn: "CKTDGUIComboBox::SetScollBarUpButtonTex_LUA", addr: 0x32940910, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetScollBarUpButtonDownTex", fn: "CKTDGUIComboBox::SetScollBarUpButtonDownTex_LUA", addr: 0x32940780, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
       { name: "SetPos", fn: "CKTDGUIComboBox::SetPos_LUA", addr: 0x32940110, params: ["int","int"], ret: "void", virtual: false },
       { name: "SetSize", fn: "CKTDGUIComboBox::SetSize_LUA", addr: 0x32940BA0, params: ["int","int"], ret: "void", virtual: false },
       { name: "SetTextStringOffsetPos", fn: "CKTDGUIComboBox::SetTextStringOffsetPos", addr: 0x328CE320, params: ["int","int"], ret: "void", virtual: false },
@@ -426,7 +431,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "SetStaticHeight", fn: "CKTDGUIComboBox::SetStaticHeight", addr: 0x328CE0A0, params: ["int"], ret: "void", virtual: false },
       { name: "SetButtonAddSize", fn: "CKTDGUIComboBox::SetButtonAddSize", addr: 0x3293F8B0, params: ["int","int"], ret: "void", virtual: false },
       { name: "SetString", fn: "CKTDGUIComboBox::SetString_LUA", addr: 0x328CE0E0, params: [], ret: "void", virtual: false },
-      { name: "AddItem", fn: "CKTDGUIComboBox::AddItem_LUA", addr: 0x3293D190, params: ["char const *"], ret: "void", virtual: false },
+      { name: "AddItem", fn: "CKTDGUIComboBox::AddItem_LUA", addr: 0x3293D190, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
       { name: "AddControl", fn: "CKTDGUIComboBox::AddControl", addr: 0x3293C800, params: ["CKTDGUIControl *"], ret: "long", virtual: false },
       { name: "InitScrollBar", fn: "CKTDGUIComboBox::InitScrollBar_LUA", addr: 0x3293D840, params: [], ret: "void", virtual: false },
       { name: "SetCustomMsgSelectionChanged", fn: "CKTDGUIComboBox::SetCustomMsgSelectionChanged", addr: 0x328CD2A0, params: ["int"], ret: "void", virtual: false },
@@ -441,25 +446,25 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CKTDGUIListBox", lua: "CKTDGUIListBox", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: ["CKTDGUIControl"], ctors: [],
     fields: [],
     methods: [
-      { name: "SetButtonMouseOverTex", fn: "CKTDGUIListBox::SetButtonMouseOverTex_LUA", addr: 0x32947340, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetTextTex", fn: "CKTDGUIContolList::SetXScollBarTrackTex_LUA", addr: 0x329480B0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetBoundingBoxTex", fn: "CKTDGUIContolList::SetXScollBarDownButtonDownTex_LUA", addr: 0x329471B0, params: ["char const *","char const *"], ret: "void", virtual: false },
+      { name: "SetButtonMouseOverTex", fn: "CKTDGUIListBox::SetButtonMouseOverTex_LUA", addr: 0x32947340, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetTextTex", fn: "CKTDGUIContolList::SetXScollBarTrackTex_LUA", addr: 0x329480B0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetBoundingBoxTex", fn: "CKTDGUIContolList::SetXScollBarDownButtonDownTex_LUA", addr: 0x329471B0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
       { name: "SetScrollBarWidth", fn: "CKTDGUIListBox::SetScrollBarWidth", addr: 0x328CDD50, params: ["int"], ret: "void", virtual: false },
       { name: "SetScrollBarPos", fn: "CKTDGUIListBox::SetScrollBarPos", addr: 0x328CDCF0, params: ["int","int"], ret: "void", virtual: false },
       { name: "SetScrollBarSize", fn: "CKTDGUIListBox::SetScrollBarSize", addr: 0x328CDD20, params: ["int","int"], ret: "void", virtual: false },
-      { name: "SetScollBarDownButtonTex", fn: "CKTDGUIContolList::SetYScollBarDownButtonTex_LUA", addr: 0x329477B0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetScollBarDownButtonDownTex", fn: "CKTDGUIContolList::SetYScollBarDownButtonDownTex_LUA", addr: 0x32947620, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetScollBarThumbTex", fn: "CKTDGUIContolList::SetYScollBarThumbTex_LUA", addr: 0x32947940, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetScollBarTrackTex", fn: "CKTDGUIContolList::SetYScollBarTrackTex_LUA", addr: 0x32947AD0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetScollBarUpButtonTex", fn: "CKTDGUIContolList::SetYScollBarUpButtonTex_LUA", addr: 0x32947DF0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetScollBarUpButtonDownTex", fn: "CKTDGUIContolList::SetYScollBarUpButtonDownTex_LUA", addr: 0x32947C60, params: ["char const *","char const *"], ret: "void", virtual: false },
+      { name: "SetScollBarDownButtonTex", fn: "CKTDGUIContolList::SetYScollBarDownButtonTex_LUA", addr: 0x329477B0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetScollBarDownButtonDownTex", fn: "CKTDGUIContolList::SetYScollBarDownButtonDownTex_LUA", addr: 0x32947620, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetScollBarThumbTex", fn: "CKTDGUIContolList::SetYScollBarThumbTex_LUA", addr: 0x32947940, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetScollBarTrackTex", fn: "CKTDGUIContolList::SetYScollBarTrackTex_LUA", addr: 0x32947AD0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetScollBarUpButtonTex", fn: "CKTDGUIContolList::SetYScollBarUpButtonTex_LUA", addr: 0x32947DF0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetScollBarUpButtonDownTex", fn: "CKTDGUIContolList::SetYScollBarUpButtonDownTex_LUA", addr: 0x32947C60, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
       { name: "SetPos", fn: "CKTDGUIListBox::SetPos_LUA", addr: 0x328CDC00, params: ["int","int"], ret: "void", virtual: false },
       { name: "SetSize", fn: "CKTDGUIListBox::SetSize_LUA", addr: 0x328CE050, params: ["int","int"], ret: "void", virtual: false },
       { name: "SetStaticHeight", fn: "CKTDGUIListBox::SetStaticHeight", addr: 0x328CE0C0, params: ["int"], ret: "void", virtual: false },
       { name: "SetScrollBarTrackRange", fn: "CKTDGUIListBox::SetScrollBarTrackRange", addr: 0x32947FB0, params: ["int","int"], ret: "void", virtual: false },
       { name: "SetString", fn: "CKTDGUIListBox::SetString_LUA", addr: 0x328CE0F0, params: [], ret: "void", virtual: false },
       { name: "SetGroupString", fn: "CKTDGUIListBox::SetGroupString_LUA", addr: 0x328CD7C0, params: [], ret: "void", virtual: false },
-      { name: "AddItem", fn: "CKTDGUIListBox::AddItem_LUA", addr: 0x32942A20, params: ["char const *"], ret: "void", virtual: false },
+      { name: "AddItem", fn: "CKTDGUIListBox::AddItem_LUA", addr: 0x32942A20, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
       { name: "SetCustomMsgSelection", fn: "CKTDGUISlot::SetCustomMsgMouseRightUp", addr: 0x328CD230, params: ["int"], ret: "void", virtual: false },
       { name: "SetCustomMsgSelection_End", fn: "CKTDGUIListBox::SetCustomMsgSelection_End", addr: 0x328CD130, params: ["int"], ret: "void", virtual: false },
       { name: "SetCustomMsgItemDoubleClick", fn: "CKTDGUIListBox::SetCustomMsgItemDoubleClick", addr: 0x328CD170, params: ["int"], ret: "void", virtual: false },
@@ -482,8 +487,8 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CKTDGUISlider", lua: "CKTDGUISlider", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: ["CKTDGUIControl"], ctors: [],
     fields: [],
     methods: [
-      { name: "SetButtonTex", fn: "CKTDGUISlider::SetButtonTex_LUA", addr: 0x3294D050, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetBGTex", fn: "CKTDGUISlider::SetBGTex_LUA", addr: 0x3294CEC0, params: ["char const *","char const *"], ret: "void", virtual: false },
+      { name: "SetButtonTex", fn: "CKTDGUISlider::SetButtonTex_LUA", addr: 0x3294D050, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetBGTex", fn: "CKTDGUISlider::SetBGTex_LUA", addr: 0x3294CEC0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
       { name: "SetPos", fn: "CKTDGUISlider::SetPos", addr: 0x328CDB50, params: ["int","int"], ret: "void", virtual: false },
       { name: "SetSize", fn: "CKTDGUISlider::SetSize", addr: 0x328CE020, params: ["int","int"], ret: "void", virtual: false },
       { name: "SetButtonSize", fn: "CKTDGUISlider::SetButtonSize", addr: 0x328CCEC0, params: ["int","int"], ret: "void", virtual: false },
@@ -494,8 +499,8 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CKTDGUINavigation", lua: "CKTDGUINavigation", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: ["CKTDGUIControl"], ctors: [],
     fields: [],
     methods: [
-      { name: "SetBGTex_LUA", fn: "CKTDGUINavigation::SetBGTex_LUA", addr: 0x3294E7C0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetWindowTex_LUA", fn: "CKTDGUINavigation::SetWindowTex_LUA", addr: 0x3294EC40, params: ["char const *","char const *"], ret: "void", virtual: false },
+      { name: "SetBGTex_LUA", fn: "CKTDGUINavigation::SetBGTex_LUA", addr: 0x3294E7C0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetWindowTex_LUA", fn: "CKTDGUINavigation::SetWindowTex_LUA", addr: 0x3294EC40, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
       { name: "SetBGPoint_LUA", fn: "CKTDGUINavigation::SetBGPoint_LUA", addr: 0x3294E6C0, params: [], ret: "void", virtual: false },
       { name: "SetWindowPoint_LUA", fn: "CKTDGUINavigation::SetWindowPoint_LUA", addr: 0x3294EBA0, params: [], ret: "void", virtual: false },
       { name: "SetCustomMsgLButtonDown", fn: "CKTDGUINavigation::SetCustomMsgLButtonDown", addr: 0x328CD120, params: ["int"], ret: "void", virtual: false },
@@ -504,21 +509,21 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CKTDGUIContolList", lua: "CKTDGUIContolList", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: ["CKTDGUIControl"], ctors: [],
     fields: [],
     methods: [
-      { name: "SetXScollBarDownButtonTex", fn: "CKTDGUIContolList::SetXScollBarDownButtonTex_LUA", addr: 0x3294FFD0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetXScollBarDownButtonDownTex", fn: "CKTDGUIContolList::SetXScollBarDownButtonDownTex_LUA", addr: 0x329471B0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetXScollBarThumbTex", fn: "CKTDGUIListBox::SetButtonMouseOverTex_LUA", addr: 0x32947340, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetXScollBarTrackTex", fn: "CKTDGUIContolList::SetXScollBarTrackTex_LUA", addr: 0x329480B0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetXScollBarUpButtonTex", fn: "CKTDGUIContolList::SetXScollBarUpButtonTex_LUA", addr: 0x329502F0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetXScollBarUpButtonDownTex", fn: "CKTDGUIContolList::SetXScollBarUpButtonDownTex_LUA", addr: 0x32950160, params: ["char const *","char const *"], ret: "void", virtual: false },
+      { name: "SetXScollBarDownButtonTex", fn: "CKTDGUIContolList::SetXScollBarDownButtonTex_LUA", addr: 0x3294FFD0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetXScollBarDownButtonDownTex", fn: "CKTDGUIContolList::SetXScollBarDownButtonDownTex_LUA", addr: 0x329471B0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetXScollBarThumbTex", fn: "CKTDGUIListBox::SetButtonMouseOverTex_LUA", addr: 0x32947340, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetXScollBarTrackTex", fn: "CKTDGUIContolList::SetXScollBarTrackTex_LUA", addr: 0x329480B0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetXScollBarUpButtonTex", fn: "CKTDGUIContolList::SetXScollBarUpButtonTex_LUA", addr: 0x329502F0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetXScollBarUpButtonDownTex", fn: "CKTDGUIContolList::SetXScollBarUpButtonDownTex_LUA", addr: 0x32950160, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
       { name: "SetXScrollBarPos", fn: "CKTDGUIContolList::SetXScrollBarPos", addr: 0x328CE430, params: ["int","int"], ret: "void", virtual: false },
       { name: "SetXScrollBarSize", fn: "CKTDGUIContolList::SetXScrollBarSize", addr: 0x328CE460, params: ["int","int"], ret: "void", virtual: false },
       { name: "SetShowEnableXScroolBar", fn: "CKTDGUIContolList::SetShowEnableXScroolBar", addr: 0x328CDFD0, params: ["bool","bool"], ret: "void", virtual: false },
-      { name: "SetYScollBarDownButtonTex", fn: "CKTDGUIContolList::SetYScollBarDownButtonTex_LUA", addr: 0x329477B0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetYScollBarDownButtonDownTex", fn: "CKTDGUIContolList::SetYScollBarDownButtonDownTex_LUA", addr: 0x32947620, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetYScollBarThumbTex", fn: "CKTDGUIContolList::SetYScollBarThumbTex_LUA", addr: 0x32947940, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetYScollBarTrackTex", fn: "CKTDGUIContolList::SetYScollBarTrackTex_LUA", addr: 0x32947AD0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetYScollBarUpButtonTex", fn: "CKTDGUIContolList::SetYScollBarUpButtonTex_LUA", addr: 0x32947DF0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetYScollBarUpButtonDownTex", fn: "CKTDGUIContolList::SetYScollBarUpButtonDownTex_LUA", addr: 0x32947C60, params: ["char const *","char const *"], ret: "void", virtual: false },
+      { name: "SetYScollBarDownButtonTex", fn: "CKTDGUIContolList::SetYScollBarDownButtonTex_LUA", addr: 0x329477B0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetYScollBarDownButtonDownTex", fn: "CKTDGUIContolList::SetYScollBarDownButtonDownTex_LUA", addr: 0x32947620, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetYScollBarThumbTex", fn: "CKTDGUIContolList::SetYScollBarThumbTex_LUA", addr: 0x32947940, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetYScollBarTrackTex", fn: "CKTDGUIContolList::SetYScollBarTrackTex_LUA", addr: 0x32947AD0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetYScollBarUpButtonTex", fn: "CKTDGUIContolList::SetYScollBarUpButtonTex_LUA", addr: 0x32947DF0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetYScollBarUpButtonDownTex", fn: "CKTDGUIContolList::SetYScollBarUpButtonDownTex_LUA", addr: 0x32947C60, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
       { name: "SetYScrollBarPos", fn: "CKTDGUIContolList::SetYScrollBarPos", addr: 0x328CE490, params: ["int","int"], ret: "void", virtual: false },
       { name: "SetYScrollBarSize", fn: "CKTDGUIContolList::SetYScrollBarSize", addr: 0x328CE4C0, params: ["int","int"], ret: "void", virtual: false },
       { name: "SetShowEnableYScroolBar", fn: "CKTDGUIContolList::SetShowEnableYScroolBar", addr: 0x328CDFE0, params: ["bool","bool"], ret: "void", virtual: false },
@@ -543,9 +548,9 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "SetCustomMsgMouseUp", fn: "CKTDGUIListBox::SetCustomMsgItemDoubleClick", addr: 0x328CD170, params: ["int"], ret: "void", virtual: false },
       { name: "SetCustomMsgMouseRightUp", fn: "CKTDGUISlot::SetCustomMsgMouseRightUp", addr: 0x328CD230, params: ["int"], ret: "void", virtual: false },
       { name: "SetCustomMsgDropped", fn: "CKTDGUIListBox::SetCustomMsgSelection_End", addr: 0x328CD130, params: ["int"], ret: "void", virtual: false },
-      { name: "SetItemTex", fn: "CKTDGUISlot::SetItemTex_LUA", addr: 0x32953E40, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetItemTex2", fn: "CKTDGUISlot::SetItemTex_LUA2", addr: 0x32953B00, params: ["char const *"], ret: "void", virtual: false },
-      { name: "SetMouseOverTex", fn: "CKTDGUISlot::SetMouseOverTex_LUA", addr: 0x32954140, params: ["char const *","char const *"], ret: "void", virtual: false },
+      { name: "SetItemTex", fn: "CKTDGUISlot::SetItemTex_LUA", addr: 0x32953E40, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "SetItemTex2", fn: "CKTDGUISlot::SetItemTex_LUA2", addr: 0x32953B00, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
+      { name: "SetMouseOverTex", fn: "CKTDGUISlot::SetMouseOverTex_LUA", addr: 0x32954140, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
       { name: "SetString", fn: "CKTDGUISlot::SetString_LUA", addr: 0x32954570, params: [], ret: "void", virtual: false },
       { name: "SetPoint", fn: "CKTDGUISlot::SetPoint_LUA", addr: 0x329543F0, params: [], ret: "void", virtual: false },
       { name: "SetMouseOverPoint", fn: "CKTDGUISlot::SetMouseOverPoint_LUA", addr: 0x32954030, params: [], ret: "void", virtual: false },
@@ -556,8 +561,8 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CKTDGParticleSystem", lua: "CKTDGParticleSystem", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: [], ctors: [],
     fields: [],
     methods: [
-      { name: "CreateSequence_LUA", fn: "CKTDGParticleSystem::CreateSequence_LUA", addr: 0x328C17A0, params: ["char const *","D3DXVECTOR3","D3DXVECTOR2","D3DXVECTOR2"], ret: "CKTDGParticleSystem::CParticleEventSequence *", virtual: false },
-      { name: "GameUnitCreateSequence_LUA", fn: "CKTDGParticleSystem::GameUnitCreateSequence_LUA", addr: 0x328C1DD0, params: ["CKTDGObject *","char const *","D3DXVECTOR3","D3DXVECTOR2","D3DXVECTOR2"], ret: "CKTDGParticleSystem::CParticleEventSequence *", virtual: false },
+      { name: "CreateSequence_LUA", fn: "CKTDGParticleSystem::CreateSequence_LUA", addr: 0x328C17A0, params: ["char const *","D3DXVECTOR3","D3DXVECTOR2","D3DXVECTOR2"], ret: "CKTDGParticleSystem::CParticleEventSequence *", virtual: false, nullCStr: "L..." },
+      { name: "GameUnitCreateSequence_LUA", fn: "CKTDGParticleSystem::GameUnitCreateSequence_LUA", addr: 0x328C1DD0, params: ["CKTDGObject *","char const *","D3DXVECTOR3","D3DXVECTOR2","D3DXVECTOR2"], ret: "CKTDGParticleSystem::CParticleEventSequence *", virtual: false, nullCStr: ".L..." },
       { name: "DestroyInstance", fn: "CKTDGParticleSystem::DestroyInstance_LUA", addr: 0x328F7E90, params: ["CKTDGParticleSystem::CParticleEventSequence *"], ret: "void", virtual: false },
       { name: "IsLiveInstance", fn: "CKTDGParticleSystem::IsLiveInstance", addr: 0x328FA040, params: ["CKTDGParticleSystem::CParticleEventSequence *"], ret: "bool", virtual: false },
     ] },
@@ -573,7 +578,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "SetAutoDie", fn: "CKTDGParticleSystem::CParticleEventSequence::SetAutoDie", addr: 0x328CCE50, params: [], ret: "void", virtual: false },
       { name: "SetAddRotate", fn: "CKTDGParticleSystem::CParticleEventSequence::SetAddRotate", addr: 0x328CCE10, params: ["D3DXVECTOR3"], ret: "void", virtual: false },
       { name: "SetAxisAngle", fn: "CKTDGParticleSystem::CParticleEventSequence::SetAxisAngle", addr: 0x328CCE80, params: ["D3DXVECTOR3 const &"], ret: "void", virtual: false },
-      { name: "ChangeTexForce_LUA", fn: "CKTDGParticleSystem::CParticleEventSequence::ChangeTexForce_LUA", addr: 0x328C0EF0, params: ["char const *"], ret: "void", virtual: false },
+      { name: "ChangeTexForce_LUA", fn: "CKTDGParticleSystem::CParticleEventSequence::ChangeTexForce_LUA", addr: 0x328C0EF0, params: ["char const *"], ret: "void", virtual: false, nullCStr: "U" },
       { name: "SetScaleFactor", fn: "CKTDGParticleSystem::CParticleEventSequence::SetScaleFactor", addr: 0x328CDCA0, params: ["D3DXVECTOR3 const &"], ret: "void", virtual: false },
       { name: "GetHandle", fn: "CKTDGParticleSystem::CParticleEventSequence::GetHandle", addr: 0x328C2220, params: [], ret: "KHandleType<int,CKTDGParticleSystem_CParticleEventSequence_TAG>", virtual: false },
       { name: "SetDrawCount", fn: "CKTDGParticleSystem::CParticleEventSequence::SetDrawCount", addr: 0x328CD3B0, params: ["int"], ret: "void", virtual: false },
@@ -593,7 +598,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CKTDGXMeshPlayer", lua: "CKTDGXMeshPlayer", registeredIn: "CKTDXApp::RegisterLuabind@328C5370", bases: [], ctors: [],
     fields: [],
     methods: [
-      { name: "CreateInstance_LUA", fn: "CKTDGXMeshPlayer::CreateInstance_LUA", addr: 0x328C13C0, params: ["char *","D3DXVECTOR3","D3DXVECTOR3","D3DXVECTOR3","int"], ret: "CKTDGXMeshPlayer::CXMeshInstance *", virtual: false },
+      { name: "CreateInstance_LUA", fn: "CKTDGXMeshPlayer::CreateInstance_LUA", addr: 0x328C13C0, params: ["char *","D3DXVECTOR3","D3DXVECTOR3","D3DXVECTOR3","int"], ret: "CKTDGXMeshPlayer::CXMeshInstance *", virtual: false, nullCStr: "L...." },
       { name: "DestroyInstance", fn: "CKTDGXMeshPlayer::DestroyInstance_LUA", addr: 0x328C1A20, params: ["KHandleType<int,CKTDGXMeshPlayer_CXMeshInstance_TAG>"], ret: "void", virtual: false },
       { name: "IsLiveInstanceHandle", fn: "CKTDGXMeshPlayer::IsLiveInstanceHandle", addr: 0x32919F50, params: ["KHandleType<int,CKTDGXMeshPlayer_CXMeshInstance_TAG>"], ret: "bool", virtual: false },
       { name: "IsLiveInstance", fn: "CKTDGXMeshPlayer::IsLiveInstance", addr: 0x328C4AD0, params: ["CKTDGXMeshPlayer::CXMeshInstance const *"], ret: "bool", virtual: false },
@@ -642,9 +647,9 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "SendGameMessage", fn: "CKTDXApp::SendGameMessage", addr: 0x328CCCD0, params: ["unsigned int","unsigned int","long","bool"], ret: "bool", virtual: false },
       { name: "GetProj3DPos", fn: "CKTDXApp::GetProj3DPos", addr: 0x328C2330, params: ["D3DXVECTOR3 const &"], ret: "D3DXVECTOR2", virtual: false },
       { name: "SlowFrame_LUA", fn: "CKTDXApp::SlowFrame_LUA", addr: 0x328CE4F0, params: ["float","float"], ret: "void", virtual: false },
-      { name: "PlaySound2D_LUA", fn: "CKTDXApp::PlaySound2D_LUA", addr: 0x328C5120, params: ["char *"], ret: "void", virtual: false },
-      { name: "PlaySound_LUA", fn: "CKTDXApp::PlaySound_LUA", addr: 0x328C51F0, params: ["char *"], ret: "void", virtual: false },
-      { name: "StopSound_LUA", fn: "CKTDXApp::StopSound_LUA", addr: 0x328CE530, params: ["char *"], ret: "void", virtual: false },
+      { name: "PlaySound2D_LUA", fn: "CKTDXApp::PlaySound2D_LUA", addr: 0x328C5120, params: ["char *"], ret: "void", virtual: false, nullCStr: "L" },
+      { name: "PlaySound_LUA", fn: "CKTDXApp::PlaySound_LUA", addr: 0x328C51F0, params: ["char *"], ret: "void", virtual: false, nullCStr: "L" },
+      { name: "StopSound_LUA", fn: "CKTDXApp::StopSound_LUA", addr: 0x328CE530, params: ["char *"], ret: "void", virtual: false, nullCStr: "L" },
       { name: "GetVectorByRotate", fn: "CKTDXApp::GetVectorByRotate", addr: 0x328C2740, params: ["D3DXVECTOR3 const &","D3DXVECTOR3 const &"], ret: "D3DXVECTOR3", virtual: false },
       { name: "GetVec3", fn: "CKTDXApp::GetVec3", addr: 0x328C2710, params: ["float","float","float"], ret: "D3DXVECTOR3", virtual: false },
     ] },
@@ -664,22 +669,22 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CKTDXDeviceTET_Preprocessing::TETProxy", lua: "CKTDXDeviceTET_Preprocessing::TETProxy", registeredIn: "CKTDXDeviceTET_Preprocessing::RegisterLuabind@328E64C0", bases: [], ctors: [],
     fields: [],
     methods: [
-      { name: "AddRect", fn: "CKTDXDeviceTET_Preprocessing::TETProxy::AddRect_LUA", addr: 0x328E5E10, params: ["char const *","D3DXVECTOR2 const &","D3DXVECTOR2 const &","D3DXVECTOR2 const &","D3DXVECTOR2 const &"], ret: "void", virtual: false },
-      { name: "RotateRect", fn: "CKTDXDeviceTET_Preprocessing::TETProxy::RotateRect_LUA", addr: 0x328E6630, params: ["char const *","int"], ret: "void", virtual: false },
+      { name: "AddRect", fn: "CKTDXDeviceTET_Preprocessing::TETProxy::AddRect_LUA", addr: 0x328E5E10, params: ["char const *","D3DXVECTOR2 const &","D3DXVECTOR2 const &","D3DXVECTOR2 const &","D3DXVECTOR2 const &"], ret: "void", virtual: false, nullCStr: "U...." },
+      { name: "RotateRect", fn: "CKTDXDeviceTET_Preprocessing::TETProxy::RotateRect_LUA", addr: 0x328E6630, params: ["char const *","int"], ret: "void", virtual: false, nullCStr: "U." },
     ] },
   { cpp: "CKTDXDeviceXET_Preprocessing::XETProxy", lua: "CKTDXDeviceXET_Preprocessing::XETProxy", registeredIn: "CKTDXDeviceXET_Preprocessing::RegisterLuabind@328EA680", bases: [], ctors: [],
     fields: [],
     methods: [
-      { name: "AddChangeTexture", fn: "CKTDXDeviceXET_Preprocessing::XETProxy::AddChangeTexture_LUA", addr: 0x328E9DE0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "SetMultiTexStage1", fn: "CKTDXDeviceXET_Preprocessing::XETProxy::SetMultiTexStage1_LUA", addr: 0x328EAA00, params: ["char const *","char const *","int"], ret: "void", virtual: false },
-      { name: "SetMultiTexStage2", fn: "CKTDXDeviceXET_Preprocessing::XETProxy::SetMultiTexStage2_LUA", addr: 0x328EAA40, params: ["char const *","char const *","int"], ret: "void", virtual: false },
+      { name: "AddChangeTexture", fn: "CKTDXDeviceXET_Preprocessing::XETProxy::AddChangeTexture_LUA", addr: 0x328E9DE0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "UU" },
+      { name: "SetMultiTexStage1", fn: "CKTDXDeviceXET_Preprocessing::XETProxy::SetMultiTexStage1_LUA", addr: 0x328EAA00, params: ["char const *","char const *","int"], ret: "void", virtual: false, nullCStr: "LU." },
+      { name: "SetMultiTexStage2", fn: "CKTDXDeviceXET_Preprocessing::XETProxy::SetMultiTexStage2_LUA", addr: 0x328EAA40, params: ["char const *","char const *","int"], ret: "void", virtual: false, nullCStr: "LU." },
       { name: "AddAniData", fn: "CKTDXDeviceXET_Preprocessing::XETProxy::AddAniData_LUA", addr: 0x328E99C0, params: ["char const *","float","float"], ret: "CKTDXDeviceXET_Preprocessing::XETProxy::AniData const *", virtual: false },
       { name: "AddAniDataByFrame", fn: "CKTDXDeviceXET_Preprocessing::XETProxy::AddAniDataByFrame_LUA", addr: 0x328E9980, params: ["char const *","int","float"], ret: "CKTDXDeviceXET_Preprocessing::XETProxy::AniData const *", virtual: false },
     ] },
   { cpp: "CKTDXDeviceXET_Preprocessing::XETProxy::AniData", lua: "AniData", registeredIn: "CKTDXDeviceXET_Preprocessing::RegisterLuabind@328EA680", bases: [], ctors: [],
     fields: [],
     methods: [
-      { name: "SetTexChangeEvent", fn: "CKTDXDeviceXET_Preprocessing::XETProxy::AniData::SetTexChangeEvent_LUA", addr: 0x328EAA80, params: ["D3DXVECTOR2 const &","char const *","char const *"], ret: "void", virtual: false },
+      { name: "SetTexChangeEvent", fn: "CKTDXDeviceXET_Preprocessing::XETProxy::AniData::SetTexChangeEvent_LUA", addr: 0x328EAA80, params: ["D3DXVECTOR2 const &","char const *","char const *"], ret: "void", virtual: false, nullCStr: ".UU" },
     ] },
   { cpp: "CX2Main", lua: "CX2Main", registeredIn: "CX2State::CX2State@329BC670", bases: [], ctors: [],
     fields: [],
@@ -689,19 +694,19 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "SetDefaultChannelServerIPIndex", fn: "CX2Main::SetDefaultChannelServerIPIndex", addr: 0x32A2AE70, params: ["int"], ret: "void", virtual: false },
       { name: "SetServerTimeOut", fn: "CX2Main::SetServerTimeOut_LUA", addr: 0x32A2BDA0, params: ["float"], ret: "void", virtual: false },
       { name: "SetAutoLoginUnitIndex", fn: "CX2Main::SetAutoLoginUnitIndex", addr: 0x32A2AB50, params: ["int"], ret: "void", virtual: false },
-      { name: "SetSafetyKey", fn: "CX2Main::SetSafetyKey_LUA", addr: 0x329F2800, params: ["char const *"], ret: "void", virtual: false },
+      { name: "SetSafetyKey", fn: "CX2Main::SetSafetyKey_LUA", addr: 0x329F2800, params: ["char const *"], ret: "void", virtual: false, nullCStr: "U" },
       { name: "ResetFullScreenResolution", fn: "CX2Main::ResetFullScreenResolution", addr: 0x329F2820, params: ["int","int"], ret: "void", virtual: false },
       { name: "KTDGUIOKMsgBox", fn: "CX2Main::KTDGUIOKMsgBox_LUA", addr: 0x329F1910, params: ["D3DXVECTOR2","char const *","CKTDXStage *"], ret: "CKTDGUIDialog *", virtual: false },
       { name: "KTDGUIOkAndCancelMsgBox", fn: "CX2Main::KTDGUIOkAndCancelMsgBox_LUA", addr: 0x329F1A70, params: ["D3DXVECTOR2","char const *","int","CKTDXStage *"], ret: "CKTDGUIDialog *", virtual: false },
       { name: "InstallFont", fn: "CX2Main::InstallFont", addr: 0x329F3F50, params: ["char const *","char const *"], ret: "bool", virtual: false },
-      { name: "SetClientVersion_LUA", fn: "CX2Main::SetClientVersion_LUA", addr: 0x329F4310, params: ["char *"], ret: "void", virtual: false },
-      { name: "DeleteFile", fn: "CX2Main::DeleteFile_LUA", addr: 0x329F49F0, params: ["char const *"], ret: "bool", virtual: false },
+      { name: "SetClientVersion_LUA", fn: "CX2Main::SetClientVersion_LUA", addr: 0x329F4310, params: ["char *"], ret: "void", virtual: false, nullCStr: "U" },
+      { name: "DeleteFile", fn: "CX2Main::DeleteFile_LUA", addr: 0x329F49F0, params: ["char const *"], ret: "bool", virtual: false, nullCStr: "L" },
       { name: "SetNationFlag", fn: "CX2Main::SetNationFlag_LUA", addr: 0x32A2B9C0, params: ["unsigned long"], ret: "void", virtual: false },
       { name: "BuyItemSuper_LUA", fn: "CX2Main::BuyItemSuper_LUA", addr: 0x329F4AC0, params: ["int","int","short"], ret: "void", virtual: false },
       { name: "BuySuperEqipLevel_LUA", fn: "CX2Main::BuySuperEqipLevel_LUA", addr: 0x329F4D20, params: ["int"], ret: "void", virtual: false },
       { name: "SetAuthLevel_LUA", fn: "CX2Main::SetAuthLevel_LUA", addr: 0x0, params: ["char const *","enum CX2User::X2_USER_AUTH_LEVEL"], ret: "void", virtual: false },
       { name: "GetAuthUserList_LUA", fn: "CX2Main::GetAuthUserList_LUA", addr: 0x329F4D10, params: ["enum CX2Dungeon::DIFFICULTY_LEVEL"], ret: "void", virtual: false },
-      { name: "SetSubClientVersion_LUA", fn: "CX2Main::SetSubClientVersion_LUA", addr: 0x329F4330, params: ["char *"], ret: "void", virtual: false },
+      { name: "SetSubClientVersion_LUA", fn: "CX2Main::SetSubClientVersion_LUA", addr: 0x329F4330, params: ["char *"], ret: "void", virtual: false, nullCStr: "U" },
       { name: "InitMyUnitSkillTree", fn: "CX2Main::InitMyUnitSkillTree", addr: 0x329F57A0, params: [], ret: "void", virtual: false },
       { name: "SetMyUnitSP", fn: "CX2Main::SetMyUnitSP", addr: 0x329F57D0, params: ["int"], ret: "void", virtual: false },
       { name: "SendStatisticsLocLog", fn: "CX2Main::SendStatisticsLocLog", addr: 0x329F5890, params: [], ret: "void", virtual: false },
@@ -869,19 +874,19 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CX2SlideShot", lua: "CX2SlideShot", registeredIn: "CX2Main::RegisterLuabind@32A00060", bases: [], ctors: [],
     fields: [],
     methods: [
-      { name: "ScenStart_LUA", fn: "CX2SlideShot::ScenStart_LUA", addr: 0x32E76F60, params: ["char *","int"], ret: "void", virtual: false },
+      { name: "ScenStart_LUA", fn: "CX2SlideShot::ScenStart_LUA", addr: 0x32E76F60, params: ["char *","int"], ret: "void", virtual: false, nullCStr: "L." },
       { name: "ScenWait", fn: "CX2SlideShot::ScenWait", addr: 0x0, params: [], ret: "void", virtual: false },
       { name: "ScenEnd", fn: "CX2SlideShot::ScenEnd", addr: 0x32E77180, params: [], ret: "void", virtual: false },
       { name: "GoNextScen", fn: "CX2SlideShot::GoNextScen", addr: 0x32E773A0, params: [], ret: "void", virtual: false },
       { name: "GetNowTime", fn: "srutil::delegate1<float,CX2GameUnit *>::const_method_stub<CX2BuffPassHpFinalizerTemplet,&protected: float CX2BuffPassHpFinalizerTemplet::GetCriterionByValue(CX2GameUnit *)const>", addr: 0x0, params: [], ret: "float", virtual: false },
       { name: "EventTimer", fn: "CX2SlideShot::EventTimer", addr: 0x32E77C60, params: ["float"], ret: "bool", virtual: false },
       { name: "CannotInput", fn: "CX2SlideShot::CannotInput", addr: 0x32E77C20, params: ["float"], ret: "void", virtual: false },
-      { name: "AddText_LUA", fn: "CX2SlideShot::AddText_LUA", addr: 0x32E773C0, params: ["bool","int","int","float","char *"], ret: "void", virtual: false },
-      { name: "AddText2_LUA", fn: "CX2SlideShot::AddText2_LUA", addr: 0x32E77810, params: ["bool","int","int","float","char *"], ret: "void", virtual: false },
+      { name: "AddText_LUA", fn: "CX2SlideShot::AddText_LUA", addr: 0x32E773C0, params: ["bool","int","int","float","char *"], ret: "void", virtual: false, nullCStr: "....L" },
+      { name: "AddText2_LUA", fn: "CX2SlideShot::AddText2_LUA", addr: 0x32E77810, params: ["bool","int","int","float","char *"], ret: "void", virtual: false, nullCStr: "....L" },
       { name: "AddSeqMap_LUA", fn: "CX2SlideShot::AddSeqMap_LUA", addr: 0x32A27550, params: ["char *","CKTDGParticleSystem::CParticleEventSequence *"], ret: "void", virtual: false },
       { name: "CrashSeq_LUA", fn: "CX2SlideShot::CrashSeq_LUA", addr: 0x32E77C80, params: ["char *","float","float"], ret: "void", virtual: false },
       { name: "ChangeColor_LUA", fn: "CX2SlideShot::ChangeColor_LUA", addr: 0x32E77E40, params: ["char *","float","D3DXCOLOR"], ret: "void", virtual: false },
-      { name: "ChangeTex_LUA", fn: "CX2SlideShot::ChangeTex_LUA", addr: 0x32E77FB0, params: ["char *","char *"], ret: "void", virtual: false },
+      { name: "ChangeTex_LUA", fn: "CX2SlideShot::ChangeTex_LUA", addr: 0x32E77FB0, params: ["char *","char *"], ret: "void", virtual: false, nullCStr: ".L" },
       { name: "ChangeSize_LUA", fn: "CX2SlideShot::ChangeSize_LUA", addr: 0x32E78200, params: ["char *","float","float"], ret: "void", virtual: false },
       { name: "DeleteSeq_LUA", fn: "CX2SlideShot::DeleteSeq_LUA", addr: 0x32E78300, params: ["char *"], ret: "void", virtual: false },
       { name: "SetTextBoxShow", fn: "CX2SlideShot::SetTextBoxShow", addr: 0x32A2BFE0, params: ["bool"], ret: "void", virtual: false },
@@ -893,7 +898,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "SetNameTabShow", fn: "CX2SlideShot::SetNameTabShow", addr: 0x32E783E0, params: ["bool"], ret: "void", virtual: false },
       { name: "SetSpeechBallonShow", fn: "CX2SlideShot::SetSpeechBallonShow", addr: 0x32E78450, params: ["bool"], ret: "void", virtual: false },
       { name: "SetEnterShow", fn: "CX2SlideShot::SetEnterShow", addr: 0x32E784C0, params: ["bool"], ret: "void", virtual: false },
-      { name: "PlaySound2D_LUA", fn: "CX2SlideShot::PlaySound2D_LUA", addr: 0x32E786E0, params: ["char *"], ret: "void", virtual: false },
+      { name: "PlaySound2D_LUA", fn: "CX2SlideShot::PlaySound2D_LUA", addr: 0x32E786E0, params: ["char *"], ret: "void", virtual: false, nullCStr: "L" },
       { name: "StopAllSound_LUA", fn: "CX2SlideShot::StopAllSound_LUA", addr: 0x32E788A0, params: [], ret: "void", virtual: false },
       { name: "SetSlideBGM_LUA", fn: "CX2SlideShot::SetSlideBGM_LUA", addr: 0x32E78910, params: ["char *"], ret: "void", virtual: false },
       { name: "ResetBGM", fn: "CX2SlideShot::ResetBGM", addr: 0x32E789F0, params: [], ret: "void", virtual: false },
@@ -905,7 +910,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CX2TrainingGameUI", lua: "CX2TrainingGameUI", registeredIn: "CX2Main::RegisterLuabind@32A00060", bases: [], ctors: [],
     fields: [],
     methods: [
-      { name: "ScenStart_LUA", fn: "CX2TrainingGameUI::ScenStart_LUA", addr: 0x32E9FA70, params: ["char *","int"], ret: "void", virtual: false },
+      { name: "ScenStart_LUA", fn: "CX2TrainingGameUI::ScenStart_LUA", addr: 0x32E9FA70, params: ["char *","int"], ret: "void", virtual: false, nullCStr: "L." },
       { name: "ScenWait", fn: "CX2TrainingGameUI::ScenWait", addr: 0x0, params: [], ret: "void", virtual: false },
       { name: "ScenEnd", fn: "CX2TrainingGameUI::ScenEnd", addr: 0x32E9FC40, params: [], ret: "void", virtual: false },
       { name: "GoNextScen", fn: "CX2TrainingGameUI::GoNextScen", addr: 0x32E9FC60, params: [], ret: "void", virtual: false },
@@ -920,7 +925,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "IsTextSpreading", fn: "CX2TrainingGameUI::IsTextSpreading", addr: 0x32EA11D0, params: [], ret: "bool", virtual: false },
       { name: "GetElapsedTimeAfterTextSpread", fn: "CX2TrainingGameUI::GetElapsedTimeAfterTextSpread", addr: 0x32A28D20, params: [], ret: "float", virtual: false },
       { name: "SetEnableWaitingUserState", fn: "CX2TrainingGameUI::SetEnableWaitingUserState", addr: 0x32A2B070, params: ["bool"], ret: "void", virtual: false },
-      { name: "AddWaitingUserState_LUA", fn: "CX2TrainingGameUI::AddWaitingUserState_LUA", addr: 0x32EA1220, params: ["int","int","int","char const *"], ret: "void", virtual: false },
+      { name: "AddWaitingUserState_LUA", fn: "CX2TrainingGameUI::AddWaitingUserState_LUA", addr: 0x32EA1220, params: ["int","int","int","char const *"], ret: "void", virtual: false, nullCStr: "...L" },
       { name: "IsWaitingUserState", fn: "CX2TrainingGameUI::IsWaitingUserState", addr: 0x32EA14C0, params: [], ret: "bool", virtual: false },
       { name: "ClearWaitingUserState", fn: "CX2TrainingGameUI::ClearWaitingUserState", addr: 0x32A27AE0, params: [], ret: "void", virtual: false },
       { name: "AddSimpleWaitingUserState", fn: "CX2TrainingGameUI::AddSimpleWaitingUserState", addr: 0x32EA1510, params: ["int","int","int"], ret: "void", virtual: false },
@@ -928,12 +933,12 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "ClearSimpleWaitingUserState", fn: "CX2TrainingGameUI::ClearSimpleWaitingUserState", addr: 0x32A27A70, params: [], ret: "void", virtual: false },
       { name: "GetElapsedTimeAfterCompletingSimpleUserState", fn: "CX2TrainingGameUI::GetElapsedTimeAfterCompletingSimpleUserState", addr: 0x32A28CF0, params: [], ret: "float", virtual: false },
       { name: "ClearGatherItem", fn: "CX2TrainingGameUI::ClearGatherItem", addr: 0x32A279C0, params: [], ret: "void", virtual: false },
-      { name: "AddGatherItem_LUA", fn: "CX2TrainingGameUI::AddGatherItem_LUA", addr: 0x32EA1580, params: ["int","int","int","char const *"], ret: "void", virtual: false },
+      { name: "AddGatherItem_LUA", fn: "CX2TrainingGameUI::AddGatherItem_LUA", addr: 0x32EA1580, params: ["int","int","int","char const *"], ret: "void", virtual: false, nullCStr: "...L" },
       { name: "IsWaitingGatherItem", fn: "CX2TrainingGameUI::IsWaitingGatherItem", addr: 0x32EA1820, params: [], ret: "bool", virtual: false },
       { name: "ClearWaitingSpecialAttack", fn: "CX2TrainingGameUI::ClearWaitingSpecialAttack", addr: 0x32A27AB0, params: [], ret: "void", virtual: false },
-      { name: "AddWaitingSpecialAttack_LUA", fn: "CX2TrainingGameUI::AddWaitingSpecialAttack_LUA", addr: 0x32EA1900, params: ["int","int","char const *","bool"], ret: "void", virtual: false },
+      { name: "AddWaitingSpecialAttack_LUA", fn: "CX2TrainingGameUI::AddWaitingSpecialAttack_LUA", addr: 0x32EA1900, params: ["int","int","char const *","bool"], ret: "void", virtual: false, nullCStr: "..L." },
       { name: "IsWaitingSpecialAttack", fn: "CX2TrainingGameUI::IsWaitingSpecialAttack", addr: 0x32EA1BB0, params: [], ret: "bool", virtual: false },
-      { name: "AddWaitingSeqUserState_LUA", fn: "CX2TrainingGameUI::AddWaitingSeqUserState_LUA", addr: 0x32EA1BF0, params: ["float","int","int","char const *"], ret: "int", virtual: false },
+      { name: "AddWaitingSeqUserState_LUA", fn: "CX2TrainingGameUI::AddWaitingSeqUserState_LUA", addr: 0x32EA1BF0, params: ["float","int","int","char const *"], ret: "int", virtual: false, nullCStr: "...L" },
       { name: "SetWaitingSeqUserState", fn: "CX2TrainingGameUI::SetWaitingSeqUserState", addr: 0x32EA1E90, params: ["int","int","int","int"], ret: "void", virtual: false },
       { name: "ClearWaitingSeqUserState", fn: "CX2TrainingGameUI::ClearWaitingSeqUserState", addr: 0x32A27A80, params: [], ret: "void", virtual: false },
       { name: "IsWaitingSeqUserState", fn: "CX2TrainingGameUI::IsWaitingSeqUserState", addr: 0x32EA1F50, params: [], ret: "bool", virtual: false },
@@ -1069,11 +1074,11 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "SetLightColor_LUA", fn: "CX2World::SetLightColor_LUA", addr: 0x32DE0740, params: ["float","float","float"], ret: "void", virtual: false },
       { name: "SetLightPos", fn: "CX2World::SetLightPos", addr: 0x32DE0770, params: ["float","float","float"], ret: "void", virtual: false },
       { name: "SetLineMap", fn: "CX2World::SetLineMap_LUA", addr: 0x32DE07A0, params: ["char const *"], ret: "bool", virtual: false },
-      { name: "SetBGM", fn: "CX2World::SetBGM_LUA", addr: 0x32DE0AF0, params: ["char const *"], ret: "void", virtual: false },
+      { name: "SetBGM", fn: "CX2World::SetBGM_LUA", addr: 0x32DE0AF0, params: ["char const *"], ret: "void", virtual: false, nullCStr: "U" },
       { name: "PlayBGM", fn: "CX2World::PlayBGM", addr: 0x32DDF070, params: [], ret: "void", virtual: false },
       { name: "StopBGM", fn: "CX2World::StopBGM", addr: 0x32DDF160, params: [], ret: "void", virtual: false },
-      { name: "AddEffectBGM_LUA", fn: "CX2World::AddEffectBGM_LUA", addr: 0x32DE0B10, params: ["char const *"], ret: "void", virtual: false },
-      { name: "Add3DEffectBGM_LUA", fn: "CX2World::Add3DEffectBGM_LUA", addr: 0x32DE0C60, params: ["char const *","float","float","float","float"], ret: "void", virtual: false },
+      { name: "AddEffectBGM_LUA", fn: "CX2World::AddEffectBGM_LUA", addr: 0x32DE0B10, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
+      { name: "Add3DEffectBGM_LUA", fn: "CX2World::Add3DEffectBGM_LUA", addr: 0x32DE0C60, params: ["char const *","float","float","float","float"], ret: "void", virtual: false, nullCStr: "L...." },
       { name: "CreateSkyDome", fn: "CX2World::CreateSkyDome", addr: 0x32DE14E0, params: [], ret: "CKTDGSkyDome *", virtual: false },
       { name: "CreateObjectMesh", fn: "CX2World::CreateObjectMesh", addr: 0x32DE13B0, params: [], ret: "CX2WorldObjectMesh *", virtual: false },
       { name: "CreateLensFlare", fn: "CX2World::CreateLensFlare", addr: 0x32DE1590, params: [], ret: "CKTDGLensFlare *", virtual: false },
@@ -1101,7 +1106,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CX2WorldObject", lua: "CX2WorldObject", registeredIn: "CX2Main::RegisterLuabind@32A00060", bases: ["CKTDGObject"], ctors: [],
     fields: [],
     methods: [
-      { name: "SetName", fn: "CX2WorldObject::SetName", addr: 0x32DD86A0, params: ["char const *"], ret: "void", virtual: false },
+      { name: "SetName", fn: "CX2WorldObject::SetName", addr: 0x32DD86A0, params: ["char const *"], ret: "void", virtual: false, nullCStr: "U" },
       { name: "SetPos", fn: "CX2WorldObject::SetPos", addr: 0x32DD86C0, params: ["D3DXVECTOR3"], ret: "void", virtual: false },
       { name: "SetAngleDegree", fn: "CX2WorldObject::SetAngleDegree", addr: 0x32DD8710, params: ["D3DXVECTOR3"], ret: "void", virtual: false },
       { name: "SetColorFactor", fn: "CX2WorldObject::SetColorFactor", addr: 0x32A2AC60, params: ["D3DXCOLOR"], ret: "void", virtual: false },
@@ -1115,7 +1120,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CX2WorldLayer", lua: "CX2WorldLayer", registeredIn: "CX2Main::RegisterLuabind@32A00060", bases: ["CX2WorldObject"], ctors: [],
     fields: [],
     methods: [
-      { name: "SetTex", fn: "CX2WorldLayer::SetTex", addr: 0x32DDD840, params: ["char const *"], ret: "void", virtual: false },
+      { name: "SetTex", fn: "CX2WorldLayer::SetTex", addr: 0x32DDD840, params: ["char const *"], ret: "void", virtual: false, nullCStr: "U" },
       { name: "SetColor", fn: "CX2WorldLayer::SetColor", addr: 0x32A2AC50, params: ["D3DXCOLOR"], ret: "void", virtual: false },
       { name: "SetPos", fn: "CX2WorldLayer::SetPos", addr: 0x32DDD8C0, params: ["float","float","float","float"], ret: "void", virtual: false },
       { name: "SetBlendType", fn: "CX2WorldLayer::SetBlendType", addr: 0x32A2AB70, params: ["int"], ret: "void", virtual: false },
@@ -1258,7 +1263,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
     fields: [],
     methods: [
       { name: "PlaySound_LUA", fn: "CX2GameUnit::PlaySound_LUA", addr: 0x32ACF6E0, params: ["char const *"], ret: "void", virtual: false },
-      { name: "StopSound_LUA", fn: "CX2GameUnit::StopSound_LUA", addr: 0x32ACF8D0, params: ["char const *"], ret: "void", virtual: false },
+      { name: "StopSound_LUA", fn: "CX2GameUnit::StopSound_LUA", addr: 0x32ACF8D0, params: ["char const *"], ret: "void", virtual: false, nullCStr: "U" },
       { name: "GetPos", fn: "CX2GameUnit::GetPos", addr: 0x0, params: ["bool"], ret: "D3DXVECTOR3 const &", virtual: true },
       { name: "ClearHitUnitList_LUA", fn: "CX2GameUnit::ClearHitUnitList_LUA", addr: 0x32A279F0, params: [], ret: "void", virtual: false },
       { name: "SetSpeedX", fn: "CX2GameUnit::SetSpeedX", addr: 0x32A2BE90, params: ["float"], ret: "void", virtual: false },
@@ -1295,7 +1300,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "AddOnStatReq", fn: "CX2GameUnit::AddOnStatReq", addr: 0x0, params: ["enum KEGS_ADD_ON_STAT_REQ::ADD_ON_STAT","float","float"], ret: "void", virtual: false },
       { name: "GetWeaponBonePos_LUA", fn: "CX2GameUnit::GetWeaponBonePos_LUA", addr: 0x32AD00E0, params: ["int","char const *"], ret: "D3DXVECTOR3", virtual: false },
       { name: "SetWeaponEnable", fn: "CX2GameUnit::SetWeaponEnable", addr: 0x32A2C170, params: ["unsigned int","bool"], ret: "void", virtual: false },
-      { name: "AttachWeaponParticle_LUA", fn: "CX2GameUnit::AttachWeaponParticle_LUA", addr: 0x32AD0670, params: ["int","bool","char *","KHandleType<int,CKTDGParticleSystem_CParticleEventSequence_TAG>"], ret: "void", virtual: false },
+      { name: "AttachWeaponParticle_LUA", fn: "CX2GameUnit::AttachWeaponParticle_LUA", addr: 0x32AD0670, params: ["int","bool","char *","KHandleType<int,CKTDGParticleSystem_CParticleEventSequence_TAG>"], ret: "void", virtual: false, nullCStr: "..U." },
       { name: "GetExtraDamagePack", fn: "CX2GameUnit::GetExtraDamagePack", addr: 0x32A28D50, params: [], ret: "CX2GameUnit::ExtraDamagePack const &", virtual: false },
       { name: "SetExtraDamagePack", fn: "CX2GameUnit::SetExtraDamagePack", addr: 0x32ACF9E0, params: ["CX2GameUnit::ExtraDamagePack *"], ret: "void", virtual: false },
       { name: "GetGameUnitType", fn: "CX2GameUnit::GetGameUnitType", addr: 0x32A28DF0, params: [], ret: "enum CX2Unit::UNIT_CLASS", virtual: false },
@@ -1317,7 +1322,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "TransformScale_LUA", fn: "CX2GameUnit::TransformScale_LUA", addr: 0x32AD4BF0, params: ["float","float"], ret: "void", virtual: false },
       { name: "IsChangedGameUnitScaleByBuff", fn: "CX2GameUnit::IsChangedGameUnitScaleByBuff", addr: 0x32AD5170, params: [], ret: "bool", virtual: false },
       { name: "GetChangeUnitScaleByBuff", fn: "CX2GameUnit::GetChangeUnitScaleByBuff", addr: 0x32AD53F0, params: [], ret: "D3DXVECTOR3", virtual: false },
-      { name: "WriteTraceLog_LUA", fn: "CX2GameUnit::WriteTraceLog_LUA", addr: 0x32A2C340, params: ["char const *"], ret: "void", virtual: false },
+      { name: "WriteTraceLog_LUA", fn: "CX2GameUnit::WriteTraceLog_LUA", addr: 0x32A2C340, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
       { name: "ShowIncreaseValue", fn: "CX2GameUnit::ShowIncreaseValue", addr: 0x32AD9290, params: ["D3DXVECTOR3","bool","float"], ret: "void", virtual: false },
       { name: "HaveThisBuff", fn: "CX2GameUnit::HaveThisBuff", addr: 0x32AD1AF0, params: ["enum BUFF_TEMPLET_ID"], ret: "bool", virtual: false },
     ] },
@@ -1379,7 +1384,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "SetDieSeq", fn: "CX2GUNPC::SetDieSeq", addr: 0x32A2AEA0, params: ["KHandleType<int,CKTDGParticleSystem_CParticleEventSequence_TAG>"], ret: "void", virtual: false },
       { name: "GetHardLevel", fn: "CX2GUNPC::GetHardLevel", addr: 0x32A28E10, params: [], ret: "int", virtual: false },
       { name: "GetBoneRotateDegree_LUA", fn: "CX2GUNPC::GetBoneRotateDegree_LUA", addr: 0x32E2A3E0, params: ["char *"], ret: "D3DXVECTOR3", virtual: false },
-      { name: "SetBoneScale_LUA", fn: "CX2GUNPC::SetBoneScale_LUA", addr: 0x32E2A630, params: ["char *","bool","float","float","float"], ret: "void", virtual: false },
+      { name: "SetBoneScale_LUA", fn: "CX2GUNPC::SetBoneScale_LUA", addr: 0x32E2A630, params: ["char *","bool","float","float","float"], ret: "void", virtual: false, nullCStr: "L...." },
       { name: "GetHyperModeCount", fn: "CX2GUNPC::GetHyperModeCount", addr: 0x0, params: [], ret: "int", virtual: true },
       { name: "ChangeHyperMode_LUA", fn: "CX2GUNPC::ChangeHyperMode_LUA", addr: 0x32E2E1C0, params: [], ret: "void", virtual: false },
       { name: "SetLockOnTarget", fn: "CX2GUNPC::SetLockOnTarget", addr: 0x32E2E0A0, params: ["CX2GameUnit *"], ret: "void", virtual: false },
@@ -1429,7 +1434,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "IsSelfDestructing", fn: "CX2GUNPC::IsSelfDestructing", addr: 0x32A2A270, params: [], ret: "bool", virtual: false },
       { name: "StartSelfDestruction", fn: "CX2GUNPC::StartSelfDestruction", addr: 0x32A2C2A0, params: ["float"], ret: "void", virtual: false },
       { name: "StopSelfDestruction", fn: "CX2GUNPC::StopSelfDestruction", addr: 0x32A2C2F0, params: [], ret: "void", virtual: false },
-      { name: "AttachParticle_LUA", fn: "CX2GUNPC::AttachParticle_LUA", addr: 0x32E2D0C0, params: ["bool","char *","char *","D3DXVECTOR3"], ret: "void", virtual: false },
+      { name: "AttachParticle_LUA", fn: "CX2GUNPC::AttachParticle_LUA", addr: 0x32E2D0C0, params: ["bool","char *","char *","D3DXVECTOR3"], ret: "void", virtual: false, nullCStr: ".UU." },
       { name: "GetRandVal", fn: "CX2GUNPC::GetRandomInt", addr: 0x0, params: ["int"], ret: "int", virtual: true },
       { name: "GetAttackFront", fn: "CX2GUNPC::GetAttackFront", addr: 0x32A28800, params: [], ret: "bool", virtual: false },
       { name: "SetShowBossGage", fn: "CX2GageUI::NotifyDurationTime5sec", addr: 0x0, params: ["bool"], ret: "void", virtual: false },
@@ -1508,7 +1513,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "GetNearestUserLandPos", fn: "CX2GUNPC::GetNearestUserLandPos", addr: 0x32E2BE80, params: [], ret: "D3DXVECTOR3", virtual: false },
       { name: "GetLastTouchLineIndex", fn: "CX2GUNPC::GetLastTouchLineIndex", addr: 0x0, params: ["bool"], ret: "int", virtual: true },
       { name: "SetFogNPC_LUA", fn: "CX2GUNPC::SetFogNPC", addr: 0x32A2B1B0, params: ["float","float","float","float","float","D3DXCOLOR"], ret: "void", virtual: false },
-      { name: "SetEntryMonsterMessage", fn: "CX2GUNPC::SetEntryMonsterMessage", addr: 0x32E33190, params: ["char const *","float"], ret: "void", virtual: false },
+      { name: "SetEntryMonsterMessage", fn: "CX2GUNPC::SetEntryMonsterMessage", addr: 0x32E33190, params: ["char const *","float"], ret: "void", virtual: false, nullCStr: "L." },
       { name: "SetLightFlowType", fn: "CX2GUNPC::SetLightFlowType", addr: 0x32A2B820, params: ["enum BUFF_TEMPLET_ID"], ret: "void", virtual: false },
       { name: "SetLightFlowMin", fn: "CX2GUNPC::SetLightFlowMin", addr: 0x32A2B670, params: ["float"], ret: "void", virtual: false },
       { name: "SetLightFlowMax", fn: "CX2GUNPC::SetLightFlowMax", addr: 0x32A2B5E0, params: ["float"], ret: "void", virtual: false },
@@ -1518,7 +1523,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "SetLightFlowPoint", fn: "CX2GUNPC::SetLightFlowPoint", addr: 0x32A2B700, params: ["float"], ret: "void", virtual: false },
       { name: "SetBonusDrop", fn: "CX2GUNPC::SetBonusDrop", addr: 0x32A2AB80, params: ["bool"], ret: "void", virtual: false },
       { name: "SetUserHoldReset", fn: "CX2GUNPC::SetUserHoldReset", addr: 0x32E30900, params: [], ret: "void", virtual: false },
-      { name: "SetUserHold", fn: "CX2GUNPC::SetUserHold", addr: 0x32E309A0, params: ["bool","char const *","bool","D3DXVECTOR3"], ret: "void", virtual: false },
+      { name: "SetUserHold", fn: "CX2GUNPC::SetUserHold", addr: 0x32E309A0, params: ["bool","char const *","bool","D3DXVECTOR3"], ret: "void", virtual: false, nullCStr: ".U.." },
       { name: "GetUserHold", fn: "CX2GUNPC::GetUserHold", addr: 0x32A29630, params: [], ret: "bool", virtual: false },
       { name: "IsLostGrap", fn: "CX2GUNPC::IsLostGrap", addr: 0x32E30A40, params: [], ret: "bool", virtual: false },
       { name: "SetUserGrapReset", fn: "CX2GUNPC::SetUserGrapReset", addr: 0x32E30AE0, params: [], ret: "void", virtual: false },
@@ -1546,7 +1551,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "SetCoolTimeSummonCard_LUA", fn: "CX2GUNPC::SetCoolTimeSummonCard_LUA", addr: 0x32E32730, params: [], ret: "void", virtual: false },
       { name: "GetNearestUnitPosByOwnerUnit", fn: "CX2GUNPC::GetNearestUnitPosByOwnerUnit", addr: 0x32E32770, params: ["float"], ret: "CX2GameUnit *", virtual: false },
       { name: "GetNearestActiveNPCPos", fn: "CX2GUNPC::GetNearestActiveNPCPos", addr: 0x32E32F30, params: [], ret: "D3DXVECTOR3", virtual: false },
-      { name: "SetFollowTargetUnitBone", fn: "CX2GUNPC::SetFollowTargetUnitBone", addr: 0x32E33370, params: ["__int64","char const *","bool"], ret: "void", virtual: false },
+      { name: "SetFollowTargetUnitBone", fn: "CX2GUNPC::SetFollowTargetUnitBone", addr: 0x32E33370, params: ["__int64","char const *","bool"], ret: "void", virtual: false, nullCStr: ".U." },
       { name: "ActiveFollowTargetUnitBone", fn: "CX2GUNPC::ActiveFollowTargetUnitBone", addr: 0x32A27420, params: ["bool"], ret: "void", virtual: false },
       { name: "CreateEltrionEvenlyLockonMissile", fn: "CX2GUNPC::CreateEltrionEvenlyLockonMissile", addr: 0x32E33460, params: [], ret: "void", virtual: false },
     ] },
@@ -1587,7 +1592,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "CreateInstance_LUA", fn: "CX2DamageEffect::CreateInstance_LUA", addr: 0x32DFF650, params: ["CX2GameUnit *","char const *","D3DXVECTOR3","float"], ret: "CX2DamageEffect::CEffect *", virtual: false },
       { name: "CreateInstance_LUA2", fn: "CX2DamageEffect::CreateInstance_LUA2", addr: 0x32DFFC00, params: ["CX2GameUnit *","char const *","D3DXVECTOR3","float","D3DXVECTOR3"], ret: "CX2DamageEffect::CEffect *", virtual: false },
       { name: "CreateInstanceByPet_LUA", fn: "CX2DamageEffect::CreateInstanceByPet_LUA", addr: 0x32E00170, params: ["CX2GameUnit *","char const *","D3DXVECTOR3","float","D3DXVECTOR3"], ret: "CX2DamageEffect::CEffect *", virtual: false },
-      { name: "CreateInstanceParabolic_LUA", fn: "CX2DamageEffect::CreateInstanceParabolic_LUA", addr: 0x32E00D00, params: ["CX2GameUnit *","char const *","D3DXVECTOR3","D3DXVECTOR3","D3DXVECTOR3","float","float"], ret: "CX2DamageEffect::CEffect *", virtual: false },
+      { name: "CreateInstanceParabolic_LUA", fn: "CX2DamageEffect::CreateInstanceParabolic_LUA", addr: 0x32E00D00, params: ["CX2GameUnit *","char const *","D3DXVECTOR3","D3DXVECTOR3","D3DXVECTOR3","float","float"], ret: "CX2DamageEffect::CEffect *", virtual: false, nullCStr: ".L....." },
       { name: "IsLiveInstance", fn: "CX2DamageEffect::IsLiveInstance", addr: 0x32E02110, params: ["CX2DamageEffect::CEffect *"], ret: "bool", virtual: false },
       { name: "DestroyInstance", fn: "CX2DamageEffect::DestroyInstance_LUA", addr: 0x32E01EC0, params: ["CX2DamageEffect::CEffect *"], ret: "void", virtual: false },
     ] },
@@ -1612,9 +1617,9 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CX2GameEdit", lua: "CX2GameEdit", registeredIn: "CX2Main::RegisterLuabind@32A00060", bases: [], ctors: [],
     fields: [],
     methods: [
-      { name: "AddCommandChange", fn: "CX2GameEdit::AddCommandChange", addr: 0x32C63DF0, params: ["char const *","char const *"], ret: "void", virtual: false },
-      { name: "AddString", fn: "CX2GameEdit::AddString_LUA", addr: 0x32C63D20, params: ["int","char const *"], ret: "void", virtual: false },
-      { name: "AddHelperText", fn: "CX2GameEdit::AddHelperText", addr: 0x32C64260, params: ["char const *","enum CX2User::X2_USER_AUTH_LEVEL"], ret: "void", virtual: false },
+      { name: "AddCommandChange", fn: "CX2GameEdit::AddCommandChange", addr: 0x32C63DF0, params: ["char const *","char const *"], ret: "void", virtual: false, nullCStr: "LL" },
+      { name: "AddString", fn: "CX2GameEdit::AddString_LUA", addr: 0x32C63D20, params: ["int","char const *"], ret: "void", virtual: false, nullCStr: ".L" },
+      { name: "AddHelperText", fn: "CX2GameEdit::AddHelperText", addr: 0x32C64260, params: ["char const *","enum CX2User::X2_USER_AUTH_LEVEL"], ret: "void", virtual: false, nullCStr: "L." },
       { name: "ToggleCommandList", fn: "CX2GameEdit::ToggleCommandList", addr: 0x32C64380, params: [], ret: "void", virtual: false },
       { name: "SaveFileLoadedDevices", fn: "CX2GameEdit::SaveFileLoadedDevices", addr: 0x32C64440, params: [], ret: "void", virtual: false },
       { name: "ChangeSpirit", fn: "CX2GameEdit::SaveFileLoadedDevices", addr: 0x32C64440, params: [], ret: "void", virtual: false },
@@ -1623,7 +1628,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "MonsterStateChange", fn: "CX2GameEdit::MonsterStateChange", addr: 0x32C646F0, params: ["char const *"], ret: "void", virtual: false },
       { name: "PetCheat", fn: "CX2GameEdit::PetCheat_LUA", addr: 0x32C649A0, params: ["int","int"], ret: "void", virtual: false },
       { name: "PetActionCheat", fn: "CX2GameEdit::PetActionCheat_LUA", addr: 0x32C64A90, params: ["char const *"], ret: "void", virtual: false },
-      { name: "UserEdCheat", fn: "CX2GameEdit::UserEdCheat_LUA", addr: 0x32C64B80, params: ["char const *"], ret: "void", virtual: false },
+      { name: "UserEdCheat", fn: "CX2GameEdit::UserEdCheat_LUA", addr: 0x32C64B80, params: ["char const *"], ret: "void", virtual: false, nullCStr: "L" },
       { name: "ShopCheat", fn: "CX2GameEdit::ShopCheat_LUA", addr: 0x32C64DD0, params: ["int"], ret: "void", virtual: false },
       { name: "ChannelingCodeCheat", fn: "CX2GameEdit::ChannelingCodeCheat_LUA", addr: 0x32C64EC0, params: ["int"], ret: "void", virtual: false },
       { name: "HenirRewardCountCheat", fn: "CX2GameEdit::HenirRewardCountCheat_LUA", addr: 0x32C64FA0, params: ["int"], ret: "void", virtual: false },
@@ -1704,7 +1709,7 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
       { name: "ResetWaitHabitElapsedTime_LUA", fn: "CX2SquareUnit::ResetWaitHabitElapsedTime", addr: 0x32A2A770, params: [], ret: "void", virtual: false },
       { name: "GetFieldUnit_LUA", fn: "CX2SquareUnit::GetFieldUnit_LUA", addr: 0x32A28D70, params: [], ret: "bool", virtual: false },
       { name: "IsMyUnit", fn: "CX2SquareUnit::IsMyUnit", addr: 0x32A2A1F0, params: [], ret: "bool", virtual: false },
-      { name: "PlaySound_LUA", fn: "CX2SquareUnit::PlaySound_LUA", addr: 0x32C803E0, params: ["char const *","bool"], ret: "CKTDXDeviceSound *", virtual: false },
+      { name: "PlaySound_LUA", fn: "CX2SquareUnit::PlaySound_LUA", addr: 0x32C803E0, params: ["char const *","bool"], ret: "CKTDXDeviceSound *", virtual: false, nullCStr: "U." },
       { name: "IsAnimationEnd_LUA", fn: "CX2SquareUnit::IsAnimationEnd_LUA", addr: 0x32C7EC40, params: [], ret: "bool", virtual: false },
     ] },
   { cpp: "CX2RidingPetManager", lua: "CX2RidingPetManager", registeredIn: "CX2Main::RegisterLuabind@32A00060", bases: [], ctors: [],
@@ -1776,10 +1781,10 @@ export const HOST_CLASSES: readonly HostClassSpec[] = [
   { cpp: "CX2StringFilter", lua: "CXSLStringFilter", registeredIn: "CX2Main::RegisterLuabind@32A00060", bases: [], ctors: [],
     fields: [],
     methods: [
-      { name: "AddNickNameFilter", fn: "CX2StringFilter::AddNickNameFilter_LUA", addr: 0x32B8F410, params: ["char *"], ret: "void", virtual: false },
-      { name: "AddNickNameWordFilter", fn: "CX2StringFilter::AddNickNameWordFilter_LUA", addr: 0x32B8F5D0, params: ["char *"], ret: "void", virtual: false },
-      { name: "AddWordFilter", fn: "CX2StringFilter::AddWordFilter_LUA", addr: 0x32B8F790, params: ["char *"], ret: "void", virtual: false },
-      { name: "AddPostWordFilter", fn: "CX2StringFilter::AddPostWordFilter_LUA", addr: 0x32B8EFF0, params: ["char *"], ret: "void", virtual: false },
+      { name: "AddNickNameFilter", fn: "CX2StringFilter::AddNickNameFilter_LUA", addr: 0x32B8F410, params: ["char *"], ret: "void", virtual: false, nullCStr: "L" },
+      { name: "AddNickNameWordFilter", fn: "CX2StringFilter::AddNickNameWordFilter_LUA", addr: 0x32B8F5D0, params: ["char *"], ret: "void", virtual: false, nullCStr: "L" },
+      { name: "AddWordFilter", fn: "CX2StringFilter::AddWordFilter_LUA", addr: 0x32B8F790, params: ["char *"], ret: "void", virtual: false, nullCStr: "L" },
+      { name: "AddPostWordFilter", fn: "CX2StringFilter::AddPostWordFilter_LUA", addr: 0x32B8EFF0, params: ["char *"], ret: "void", virtual: false, nullCStr: "L" },
     ] },
   { cpp: "CX2LVUpEventMgr", lua: "CX2LVUpEventMgr", registeredIn: "CX2Main::RegisterLuabind@32A00060", bases: [], ctors: [],
     fields: [],
@@ -2075,7 +2080,7 @@ export interface CKTDGXRenderer__RenderParam_Methods {
 }
 export interface CKTDGUIControl__UIStringData_Methods {
   /** CKTDGUIControl::UIStringData::SetMsg_LUA @328CD920 */
-  SetMsg(a0: string): void;
+  SetMsg(a0: string | undefined): void;
 }
 export interface CKTDXTimer_Methods {
   /** CKTDXTimer::restart @328CEC90 */
@@ -2109,9 +2114,9 @@ export interface CKTDGMatrix_Methods {
 }
 export interface CKTDXCollision__CollisionData_Methods {
   /** CKTDXCollision::CollisionData::SetPoint1_LUA @328E5960 */
-  SetPoint1(a0: string, a1: Vec3): void;
+  SetPoint1(a0: string | undefined, a1: Vec3): void;
   /** CKTDXCollision::CollisionData::SetPoint2_LUA @328E5990 */
-  SetPoint2(a0: string, a1: Vec3): void;
+  SetPoint2(a0: string | undefined, a1: Vec3): void;
 }
 export interface CKTDGObject_Methods {
   /** CKTDGObject::SetLayer @328CD850 */
@@ -2311,13 +2316,13 @@ export interface CKTDGUIDialog_Methods {
   /** CKTDGUIDialog::SetCustomMsgRMouseUp @328CD270 */
   SetCustomMsgRMouseUp(a0: number): void;
   /** CKTDGUIDialog::SetCustomButtonMouseOverSndFile_LUA @3295B650 */
-  SetCustomButtonMouseOverSndFile(a0: string): void;
+  SetCustomButtonMouseOverSndFile(a0: string | undefined): void;
   /** CKTDGUIDialog::SetCustomButtonMouseUpSndFile_LUA @3295B670 */
-  SetCustomButtonMouseUpSndFile(a0: string): void;
+  SetCustomButtonMouseUpSndFile(a0: string | undefined): void;
 }
 export interface CKTDGUIDialogManager_Methods {
   /** CKTDGUIDialogManager::GetDialog_LUA @328DEB20 */
-  GetDialog(a0: string): HostObject | undefined;
+  GetDialog(a0: string | undefined): HostObject | undefined;
   /** CKTDGUIDialogManager::SetShow @328CDFA0 */
   SetShow(a0: boolean): void;
 }
@@ -2373,7 +2378,7 @@ export interface CKTDGUIControl_Methods {
   /** CKTDGUIControl::SetGuideDesc_LUA @329255C0 */
   SetGuideDesc(a0: number): void;
   /** CKTDGUIControl::SetGuideDescByString_LUA @32925580 */
-  SetGuideDescByString(a0: string): void;
+  SetGuideDescByString(a0: string | undefined): void;
   /** CKTDGUIControl::SetGuideDescAbsolutePos */
   SetGuideDescAbsolutePos(a0: Vec2): void;
   /** CKTDGUIControl::SetGuideDescOffsetPos */
@@ -2457,11 +2462,11 @@ export interface CKTDGUIButton_Methods extends CKTDGUIControl_Methods {
   /** CKTDGUIButton::SetCustomMsgMouseRightUp @328CD220 */
   SetCustomMsgMouseRightUp(a0: number): void;
   /** CKTDGUIButton::SetCustomFuncMouseOver @328CD0A0 */
-  SetCustomFuncMouseOver(a0: string): void;
+  SetCustomFuncMouseOver(a0: string | undefined): void;
   /** CKTDGUIButton::SetCustomFuncMouseDown @328CD080 */
-  SetCustomFuncMouseDown(a0: string): void;
+  SetCustomFuncMouseDown(a0: string | undefined): void;
   /** CKTDGUIButton::SetCustomFuncMouseUp @328CD0C0 */
-  SetCustomFuncMouseUp(a0: string): void;
+  SetCustomFuncMouseUp(a0: string | undefined): void;
   /** CKTDGUIEditBox::SetCustomMsgChange @328CD0E0 */
   SetCustomMsgMouseDblClk(a0: number): void;
   /** CKTDGUIButton::SetEnableClick @328CD420 */
@@ -2947,7 +2952,7 @@ export interface CKTDGParticleSystem__CParticleEventSequence_Methods extends CKT
   /** CKTDGParticleSystem::CParticleEventSequence::SetAxisAngle @328CCE80 */
   SetAxisAngle(a0: Vec3): void;
   /** CKTDGParticleSystem::CParticleEventSequence::ChangeTexForce_LUA @328C0EF0 */
-  ChangeTexForce_LUA(a0: string): void;
+  ChangeTexForce_LUA(a0: string | undefined): void;
   /** CKTDGParticleSystem::CParticleEventSequence::SetScaleFactor @328CDCA0 */
   SetScaleFactor(a0: Vec3): void;
   /** CKTDGParticleSystem::CParticleEventSequence::GetHandle @328C2220 */
@@ -3063,17 +3068,17 @@ export interface KGCMassFileManager_Methods {
 }
 export interface CKTDXDeviceTET_Preprocessing__TETProxy_Methods {
   /** CKTDXDeviceTET_Preprocessing::TETProxy::AddRect_LUA @328E5E10 */
-  AddRect(a0: string, a1: Vec2, a2: Vec2, a3: Vec2, a4: Vec2): void;
+  AddRect(a0: string | undefined, a1: Vec2, a2: Vec2, a3: Vec2, a4: Vec2): void;
   /** CKTDXDeviceTET_Preprocessing::TETProxy::RotateRect_LUA @328E6630 */
-  RotateRect(a0: string, a1: number): void;
+  RotateRect(a0: string | undefined, a1: number): void;
 }
 export interface CKTDXDeviceXET_Preprocessing__XETProxy_Methods {
   /** CKTDXDeviceXET_Preprocessing::XETProxy::AddChangeTexture_LUA @328E9DE0 */
-  AddChangeTexture(a0: string, a1: string): void;
+  AddChangeTexture(a0: string | undefined, a1: string | undefined): void;
   /** CKTDXDeviceXET_Preprocessing::XETProxy::SetMultiTexStage1_LUA @328EAA00 */
-  SetMultiTexStage1(a0: string, a1: string, a2: number): void;
+  SetMultiTexStage1(a0: string, a1: string | undefined, a2: number): void;
   /** CKTDXDeviceXET_Preprocessing::XETProxy::SetMultiTexStage2_LUA @328EAA40 */
-  SetMultiTexStage2(a0: string, a1: string, a2: number): void;
+  SetMultiTexStage2(a0: string, a1: string | undefined, a2: number): void;
   /** CKTDXDeviceXET_Preprocessing::XETProxy::AddAniData_LUA @328E99C0 */
   AddAniData(a0: string, a1: number, a2: number): HostObject | undefined;
   /** CKTDXDeviceXET_Preprocessing::XETProxy::AddAniDataByFrame_LUA @328E9980 */
@@ -3081,7 +3086,7 @@ export interface CKTDXDeviceXET_Preprocessing__XETProxy_Methods {
 }
 export interface CKTDXDeviceXET_Preprocessing__XETProxy__AniData_Methods {
   /** CKTDXDeviceXET_Preprocessing::XETProxy::AniData::SetTexChangeEvent_LUA @328EAA80 */
-  SetTexChangeEvent(a0: Vec2, a1: string, a2: string): void;
+  SetTexChangeEvent(a0: Vec2, a1: string | undefined, a2: string | undefined): void;
 }
 export interface CX2Main_Methods {
   /** CX2Main::SetChannelServerPort @32A2AC10 */
@@ -3095,7 +3100,7 @@ export interface CX2Main_Methods {
   /** CX2Main::SetAutoLoginUnitIndex @32A2AB50 */
   SetAutoLoginUnitIndex(a0: number): void;
   /** CX2Main::SetSafetyKey_LUA @329F2800 */
-  SetSafetyKey(a0: string): void;
+  SetSafetyKey(a0: string | undefined): void;
   /** CX2Main::ResetFullScreenResolution @329F2820 */
   ResetFullScreenResolution(a0: number, a1: number): void;
   /** CX2Main::KTDGUIOKMsgBox_LUA @329F1910 */
@@ -3105,7 +3110,7 @@ export interface CX2Main_Methods {
   /** CX2Main::InstallFont @329F3F50 */
   InstallFont(a0: string, a1: string): boolean;
   /** CX2Main::SetClientVersion_LUA @329F4310 */
-  SetClientVersion_LUA(a0: string): void;
+  SetClientVersion_LUA(a0: string | undefined): void;
   /** CX2Main::DeleteFile_LUA @329F49F0 */
   DeleteFile(a0: string): boolean;
   /** CX2Main::SetNationFlag_LUA @32A2B9C0 */
@@ -3119,7 +3124,7 @@ export interface CX2Main_Methods {
   /** CX2Main::GetAuthUserList_LUA @329F4D10 */
   GetAuthUserList_LUA(a0: number): void;
   /** CX2Main::SetSubClientVersion_LUA @329F4330 */
-  SetSubClientVersion_LUA(a0: string): void;
+  SetSubClientVersion_LUA(a0: string | undefined): void;
   /** CX2Main::InitMyUnitSkillTree @329F57A0 */
   InitMyUnitSkillTree(): void;
   /** CX2Main::SetMyUnitSP @329F57D0 */
@@ -3735,7 +3740,7 @@ export interface CX2World_Methods {
   /** CX2World::SetLineMap_LUA @32DE07A0 */
   SetLineMap(a0: string): boolean;
   /** CX2World::SetBGM_LUA @32DE0AF0 */
-  SetBGM(a0: string): void;
+  SetBGM(a0: string | undefined): void;
   /** CX2World::PlayBGM @32DDF070 */
   PlayBGM(): void;
   /** CX2World::StopBGM @32DDF160 */
@@ -3793,7 +3798,7 @@ export interface CX2World_Methods {
 }
 export interface CX2WorldObject_Methods extends Omit<CKTDGObject_Methods, "SetScale"> {
   /** CX2WorldObject::SetName @32DD86A0 */
-  SetName(a0: string): void;
+  SetName(a0: string | undefined): void;
   /** CX2WorldObject::SetPos @32DD86C0 */
   SetPos(a0: Vec3): void;
   /** CX2WorldObject::SetAngleDegree @32DD8710 */
@@ -3815,7 +3820,7 @@ export interface CX2WorldObject_Methods extends Omit<CKTDGObject_Methods, "SetSc
 }
 export interface CX2WorldLayer_Methods extends Omit<CX2WorldObject_Methods, "SetPos"> {
   /** CX2WorldLayer::SetTex @32DDD840 */
-  SetTex(a0: string): void;
+  SetTex(a0: string | undefined): void;
   /** CX2WorldLayer::SetColor @32A2AC50 */
   SetColor(a0: Color): void;
   /** CX2WorldLayer::SetPos @32DDD8C0 */
@@ -4029,7 +4034,7 @@ export interface CX2GameUnit_Methods {
   /** CX2GameUnit::PlaySound_LUA @32ACF6E0 */
   PlaySound_LUA(a0: string): void;
   /** CX2GameUnit::StopSound_LUA @32ACF8D0 */
-  StopSound_LUA(a0: string): void;
+  StopSound_LUA(a0: string | undefined): void;
   /** CX2GameUnit::GetPos */
   GetPos(a0: boolean): Vec3;
   /** CX2GameUnit::ClearHitUnitList_LUA @32A279F0 */
@@ -4103,7 +4108,7 @@ export interface CX2GameUnit_Methods {
   /** CX2GameUnit::SetWeaponEnable @32A2C170 */
   SetWeaponEnable(a0: number, a1: boolean): void;
   /** CX2GameUnit::AttachWeaponParticle_LUA @32AD0670 */
-  AttachWeaponParticle_LUA(a0: number, a1: boolean, a2: string, a3: HostHandle): void;
+  AttachWeaponParticle_LUA(a0: number, a1: boolean, a2: string | undefined, a3: HostHandle): void;
   /** CX2GameUnit::GetExtraDamagePack @32A28D50 */
   GetExtraDamagePack(): number;
   /** CX2GameUnit::SetExtraDamagePack @32ACF9E0 */
@@ -4365,7 +4370,7 @@ export interface CX2GUNPC_Methods extends Omit<CX2GameUnit_Methods, "GetPos" | "
   /** CX2GUNPC::StopSelfDestruction @32A2C2F0 */
   StopSelfDestruction(): void;
   /** CX2GUNPC::AttachParticle_LUA @32E2D0C0 */
-  AttachParticle_LUA(a0: boolean, a1: string, a2: string, a3: Vec3): void;
+  AttachParticle_LUA(a0: boolean, a1: string | undefined, a2: string | undefined, a3: Vec3): void;
   /** CX2GUNPC::GetRandomInt */
   GetRandVal(a0: number): number;
   /** CX2GUNPC::GetAttackFront @32A28800 */
@@ -4541,7 +4546,7 @@ export interface CX2GUNPC_Methods extends Omit<CX2GameUnit_Methods, "GetPos" | "
   /** CX2GUNPC::SetUserHoldReset @32E30900 */
   SetUserHoldReset(): void;
   /** CX2GUNPC::SetUserHold @32E309A0 */
-  SetUserHold(a0: boolean, a1: string, a2: boolean, a3: Vec3): void;
+  SetUserHold(a0: boolean, a1: string | undefined, a2: boolean, a3: Vec3): void;
   /** CX2GUNPC::GetUserHold @32A29630 */
   GetUserHold(): boolean;
   /** CX2GUNPC::IsLostGrap @32E30A40 */
@@ -4597,7 +4602,7 @@ export interface CX2GUNPC_Methods extends Omit<CX2GameUnit_Methods, "GetPos" | "
   /** CX2GUNPC::GetNearestActiveNPCPos @32E32F30 */
   GetNearestActiveNPCPos(): Vec3;
   /** CX2GUNPC::SetFollowTargetUnitBone @32E33370 */
-  SetFollowTargetUnitBone(a0: bigint, a1: string, a2: boolean): void;
+  SetFollowTargetUnitBone(a0: bigint, a1: string | undefined, a2: boolean): void;
   /** CX2GUNPC::ActiveFollowTargetUnitBone @32A27420 */
   ActiveFollowTargetUnitBone(a0: boolean): void;
   /** CX2GUNPC::CreateEltrionEvenlyLockonMissile @32E33460 */
@@ -4853,7 +4858,7 @@ export interface CX2SquareUnit_Methods {
   /** CX2SquareUnit::IsMyUnit @32A2A1F0 */
   IsMyUnit(): boolean;
   /** CX2SquareUnit::PlaySound_LUA @32C803E0 */
-  PlaySound_LUA(a0: string, a1: boolean): HostObject | undefined;
+  PlaySound_LUA(a0: string | undefined, a1: boolean): HostObject | undefined;
   /** CX2SquareUnit::IsAnimationEnd_LUA @32C7EC40 */
   IsAnimationEnd_LUA(): boolean;
 }

@@ -195,8 +195,29 @@ describe("arguments (lua_tinker::read<T>)", () => {
     m(o, "SetName", utf8ToLua("設定"));
     m(o, "SetName", 12);
     expect(c.log.slice(1)).toEqual([["SetName", "設定"], ["SetName", "12"]]); // lua_tolstring converts numbers
-    expect(msg(() => m(o, "SetName", undefined))).toContain("bad argument #2");
-    expect(msg(() => m(o, "SetName", true))).toContain("string expected, got boolean");
+  });
+
+  test("a value that is no string reads as NULL: where the exe survives that, the method gets what its code makes of it; elsewhere it is an error", () => {
+    const { rt, m } = setup();
+    const c = new FakeControl();
+    const o = rt.pushObject(c, "CKTDGUIControl");
+    // SetName_LUA 32925D70 converts into a local with ConvertUtf8ToWCHAR, which leaves the (empty) local alone for NULL: ""
+    m(o, "SetName", undefined);
+    m(o, "SetName", true);
+    m(o, "SetName", new LuaTable());
+    expect(c.log).toEqual([["SetName", ""], ["SetName", ""], ["SetName", ""]]);
+    // SetGuideDescByString_LUA 32925580 converts straight into the member: NULL leaves it alone, which the method is told by `undefined`
+    const seen: unknown[] = [];
+    (c as unknown as Record<string, unknown>).SetGuideDescByString = (s: unknown) => seen.push(s);
+    m(o, "SetGuideDescByString", undefined);
+    m(o, "SetGuideDescByString", "x");
+    expect(seen).toEqual([undefined, "x"]);
+    // GetStateID_LUA (a NPC method that hands the pointer to something that is not NULL-safe) is not in docs/host_null_cstr.tsv
+    const npc = { GetStateID_LUA: (s: string) => s.length };
+    const n = rt.pushObject(npc, "CX2GUNPC");
+    expect(msg(() => m(n, "GetStateID_LUA", undefined))).toContain("bad argument #2");
+    expect(msg(() => m(n, "GetStateID_LUA", true))).toContain("string expected, got boolean");
+    expect(m(n, "GetStateID_LUA", "abc")).toEqual([3]);
   });
 
   test("a struct by value is copied in: the callee cannot change the script's value", () => {
