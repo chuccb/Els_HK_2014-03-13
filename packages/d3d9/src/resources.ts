@@ -29,6 +29,8 @@ export abstract class D3DResource {
     return this.refs;
   }
   protected destroy(): void {}
+  /** Free the GPU objects regardless of the reference count (device reset / shutdown). */
+  destroyNow(): void { this.refs = 0; this.destroy(); }
 }
 
 const align4 = (n: number): number => (n + 3) & ~3;
@@ -238,6 +240,25 @@ export class Direct3DTexture9 extends D3DResource {
     if (info.compressed) throw new Error("compressed textures are filled with their native data");
     fromRgba8(this.format, rgba, w, h, sh, surfacePitch(this.format, w));
     this.dirty[level] = true;
+  }
+
+  /** `UpdateTexture`: copy every level of `src` that has a counterpart of the same size.  False when formats differ or nothing matches. */
+  copyFrom(src: Direct3DTexture9): boolean {
+    if (src.format !== this.format || this.isRenderTarget || this.isDepth) return false;
+    let copied = 0;
+    for (let l = 0; l < this.levels; l++) {
+      const w = mipSize(this.width, l), h = mipSize(this.height, l);
+      for (let k = 0; k < src.levels; k++) {
+        if (mipSize(src.width, k) !== w || mipSize(src.height, k) !== h) continue;
+        const from = src.shadow[k];
+        if (!from) return false;
+        this.shadow[l]!.set(from);
+        this.dirty[l] = true;
+        copied++;
+        break;
+      }
+    }
+    return copied > 0;
   }
 
   /** The GPU texture with all dirty levels uploaded.  Marks the texture as used in the pending encoder. */

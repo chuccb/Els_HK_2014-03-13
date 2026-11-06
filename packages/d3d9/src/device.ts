@@ -20,7 +20,7 @@ import { generateWgsl, LIGHTB, MISC, programKey, XFORM } from "./ffp.ts";
 import type { FogSource, ProgramDesc, StageDesc } from "./ffp.ts";
 import { blendState, colorWriteMask, compareFunc, cullState, samplerDescriptor, samplerKey, stencilOp, topology, vertexCountFor } from "./pipeline-state.ts";
 import { Direct3DIndexBuffer9, Direct3DSurface9, Direct3DTexture9, Direct3DVertexBuffer9, Direct3DVertexDeclaration9 } from "./resources.ts";
-import type { ResourceHost } from "./resources.ts";
+import type { D3DRect, ResourceHost } from "./resources.ts";
 import { TransientArena } from "./arena.ts";
 import type { ArenaAlloc } from "./arena.ts";
 import { D3DERR_INVALIDCALL, D3DERR_NOTAVAILABLE, D3D_OK } from "./hresult.ts";
@@ -39,6 +39,8 @@ export interface DeviceOptions {
   /** called by Present() after the frame was submitted, with the back buffer */
   onPresent?: (backBuffer: GPUTexture) => void;
   warn?: (message: string) => void;
+  /** decode DXT textures on the CPU even when the GPU could sample them compressed (tests both paths) */
+  disableBc?: boolean;
   /** debugging aid: receives the program key and the WGSL of every shader generated */
   dumpWgsl?: (key: string, code: string) => void;
 }
@@ -51,7 +53,7 @@ export class Direct3DDevice9 implements ResourceHost {
   readonly gpu: GPUDevice;
   epoch = 0;
   readonly hasBC: boolean;
-  readonly state: FixedFunctionState;
+  state: FixedFunctionState;
   readonly opts: DeviceOptions;
 
   private fvf = 0;
@@ -59,10 +61,18 @@ export class Direct3DDevice9 implements ResourceHost {
   private streams: (StreamBinding | null)[] = new Array(16).fill(null);
   private indices: Direct3DIndexBuffer9 | null = null;
   private textures: (Direct3DTexture9 | null)[] = new Array(NUM_SAMPLER_SLOTS).fill(null);
-  private renderTarget: Direct3DSurface9;
-  private depthStencil: Direct3DSurface9 | null;
-  readonly backBuffer: Direct3DSurface9;
-  private autoDepth: Direct3DSurface9 | null;
+  private renderTarget!: Direct3DSurface9;
+  private depthStencil: Direct3DSurface9 | null = null;
+  /** the depth buffer as far as WebGPU can use it: it must have exactly the size of the render target (D3D9 only needs it to be >=) */
+  private get ds(): Direct3DSurface9 | null {
+    const d = this.depthStencil;
+    if (!d) return null;
+    if (d.width === this.renderTarget.width && d.height === this.renderTarget.height) return d;
+    this.warn("ds-size", `depth-stencil surface ${d.width}x${d.height} does not match the ${this.renderTarget.width}x${this.renderTarget.height} render target: depth testing disabled`);
+    return null;
+  }
+  backBuffer!: Direct3DSurface9;
+  private autoDepth: Direct3DSurface9 | null = null;
 
   // ---- command recording
   private encoder: GPUCommandEncoder | null = null;
@@ -97,23 +107,14 @@ export class Direct3DDevice9 implements ResourceHost {
   private scratch = new Float32Array(Math.max(XFORM.size, LIGHTB.size, MISC.size));
 
   constructor(opts: DeviceOptions) {
-    this.opts = opts;
+    this.opts = { ...opts };
     this.gpu = opts.gpu;
-    this.hasBC = opts.gpu.features.has("texture-compression-bc");
+    this.hasBC = !opts.disableBc && opts.gpu.features.has("texture-compression-bc");
     this.state = new FixedFunctionState(opts.autoDepthStencil !== false);
     this.arena = new TransientArena(opts.gpu);
     opts.gpu.addEventListener("uncapturederror", (e) => { this.gpuErrors.push((e as GPUUncapturedErrorEvent).error.message); });
 
-    const fmt = opts.backBufferFormat ?? D3DFMT.X8R8G8B8;
-    const gpuFmt = opts.backBufferGpuFormat ?? "rgba8unorm";
-    const bbTex = this.gpu.createTexture({ size: [opts.width, opts.height], format: gpuFmt, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST });
-    this.backBuffer = new Direct3DSurface9(this, opts.width, opts.height, fmt, D3DUSAGE.RENDERTARGET, D3DPOOL.DEFAULT, null, 0, bbTex);
-    this.renderTarget = this.backBuffer;
-    if (opts.autoDepthStencil !== false) {
-      const dTex = this.gpu.createTexture({ size: [opts.width, opts.height], format: "depth24plus-stencil8", usage: GPUTextureUsage.RENDER_ATTACHMENT });
-      this.autoDepth = new Direct3DSurface9(this, opts.width, opts.height, D3DFMT.D24S8, D3DUSAGE.DEPTHSTENCIL, D3DPOOL.DEFAULT, null, 0, dTex);
-      this.depthStencil = this.autoDepth;
-    } else { this.autoDepth = null; this.depthStencil = null; }
+    this.createBackBuffers();
     this.state.viewport = { x: 0, y: 0, width: opts.width, height: opts.height, minZ: 0, maxZ: 1 };
     this.state.scissor = { left: 0, top: 0, right: opts.width, bottom: opts.height };
 
@@ -147,6 +148,21 @@ export class Direct3DDevice9 implements ResourceHost {
     await this.gpu.queue.onSubmittedWorkDone();
     await new Promise((r) => setTimeout(r, 0));
     return this.takeErrors();
+  }
+
+
+  private createBackBuffers(): void {
+    const opts = this.opts;
+    const fmt = opts.backBufferFormat ?? D3DFMT.X8R8G8B8;
+    const gpuFmt = opts.backBufferGpuFormat ?? "rgba8unorm";
+    const bbTex = this.gpu.createTexture({ size: [opts.width, opts.height], format: gpuFmt, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST });
+    this.backBuffer = new Direct3DSurface9(this, opts.width, opts.height, fmt, D3DUSAGE.RENDERTARGET, D3DPOOL.DEFAULT, null, 0, bbTex);
+    this.renderTarget = this.backBuffer;
+    if (opts.autoDepthStencil !== false) {
+      const dTex = this.gpu.createTexture({ size: [opts.width, opts.height], format: "depth24plus-stencil8", usage: GPUTextureUsage.RENDER_ATTACHMENT });
+      this.autoDepth = new Direct3DSurface9(this, opts.width, opts.height, D3DFMT.D24S8, D3DUSAGE.DEPTHSTENCIL, D3DPOOL.DEFAULT, null, 0, dTex);
+      this.depthStencil = this.autoDepth;
+    } else { this.autoDepth = null; this.depthStencil = null; }
   }
 
   // ========================================================================================== state accessors
@@ -276,7 +292,10 @@ export class Direct3DDevice9 implements ResourceHost {
   }
   CreateTexture(width: number, height: number, levels: number, usage: number, format: number, pool: number): { hr: number; tex: Direct3DTexture9 | null } {
     if (!formatInfo(format) || width <= 0 || height <= 0) return { hr: D3DERR_NOTAVAILABLE, tex: null };
-    if (usage & D3DUSAGE.RENDERTARGET && formatInfo(format)!.compressed) return { hr: D3DERR_INVALIDCALL, tex: null };
+    const fi = formatInfo(format)!;
+    if (usage & D3DUSAGE.RENDERTARGET && fi.compressed) return { hr: D3DERR_INVALIDCALL, tex: null };
+    // floating point formats exist only as render targets here (the CPU side conversions are 8-bit)
+    if (!(usage & D3DUSAGE.RENDERTARGET) && fi.gpu !== null && fi.gpu !== "rgba8unorm" && !fi.compressed && !fi.depth) return { hr: D3DERR_NOTAVAILABLE, tex: null };
     return { hr: D3D_OK, tex: new Direct3DTexture9(this, width, height, levels, usage, format, pool) };
   }
   CreateDepthStencilSurface(width: number, height: number, format: number): { hr: number; surface: Direct3DSurface9 | null } {
@@ -304,6 +323,106 @@ export class Direct3DDevice9 implements ResourceHost {
     return D3D_OK;
   }
   GetDepthStencilSurface(): Direct3DSurface9 | null { return this.depthStencil; }
+
+  private blitPipelines = new Map<string, GPURenderPipeline>();
+  private blitLayout: GPUBindGroupLayout | null = null;
+
+  /**
+   * `IDirect3DDevice9::StretchRect` between render targets / render-target texture levels: a copy when the rectangles have the same
+   * size and format, otherwise a textured quad with point or linear filtering (pixel centres line up, so equal sizes are exact).
+   */
+  StretchRect(src: Direct3DSurface9, srcRect: D3DRect | null, dst: Direct3DSurface9, dstRect: D3DRect | null, filter: number): number {
+    if (src === dst || src.isDepth || dst.isDepth) return D3DERR_INVALIDCALL;
+    const sr = srcRect ?? { left: 0, top: 0, right: src.width, bottom: src.height };
+    const dr = dstRect ?? { left: 0, top: 0, right: dst.width, bottom: dst.height };
+    const inside = (r: D3DRect, w: number, h: number): boolean => r.left >= 0 && r.top >= 0 && r.right <= w && r.bottom <= h && r.right > r.left && r.bottom > r.top;
+    if (!inside(sr, src.width, src.height) || !inside(dr, dst.width, dst.height)) return D3DERR_INVALIDCALL;
+    this.endPass(true);
+    const enc = this.ensureEncoder();
+    const sw = sr.right - sr.left, sh = sr.bottom - sr.top, dw = dr.right - dr.left, dh = dr.bottom - dr.top;
+    const srcAlpha = this.targetHasAlpha(src), dstAlpha = this.targetHasAlpha(dst);
+    if (sw === dw && sh === dh && src.gpuFormat === dst.gpuFormat && (dstAlpha || !srcAlpha)) {
+      enc.copyTextureToTexture({ texture: src.texture, mipLevel: src.level, origin: [sr.left, sr.top] }, { texture: dst.texture, mipLevel: dst.level, origin: [dr.left, dr.top] }, [sw, sh]);
+      return D3D_OK;
+    }
+    const linear = filter === D3DTEXF.LINEAR || filter === D3DTEXF.ANISOTROPIC;
+    const format = dst.gpuFormat;
+    const key = `${format}|${linear ? 1 : 0}|${dstAlpha ? 1 : 0}`;
+    let pipe = this.blitPipelines.get(key);
+    if (!pipe) {
+      this.blitLayout ??= this.gpu.createBindGroupLayout({ entries: [
+        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: 32 } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+      ] });
+      const module = this.gpu.createShaderModule({ code: /* wgsl */ `
+struct U { src: vec4f, flags: vec4f }
+@group(0) @binding(0) var<uniform> u: U;
+@group(0) @binding(1) var t: texture_2d<f32>;
+@group(0) @binding(2) var s: sampler;
+struct O { @builtin(position) pos: vec4f, @location(0) uv: vec2f }
+@vertex fn vs(@builtin(vertex_index) i: u32) -> O {
+  var q = array<vec2f, 4>(vec2f(0, 0), vec2f(1, 0), vec2f(0, 1), vec2f(1, 1));
+  let p = q[i];
+  var o: O;
+  o.pos = vec4f(p.x * 2.0 - 1.0, 1.0 - p.y * 2.0, 0.0, 1.0);
+  o.uv = vec2f(mix(u.src.x, u.src.z, p.x), mix(u.src.y, u.src.w, p.y));
+  return o;
+}
+@fragment fn fs(i: O) -> @location(0) vec4f {
+  let c = textureSampleLevel(t, s, i.uv, 0.0);
+  return vec4f(c.rgb, select(1.0, c.a, u.flags.x > 0.5));
+}` });
+      pipe = this.gpu.createRenderPipeline({
+        layout: this.gpu.createPipelineLayout({ bindGroupLayouts: [this.blitLayout] }),
+        vertex: { module, entryPoint: "vs" },
+        fragment: { module, entryPoint: "fs", targets: [{ format, writeMask: dstAlpha ? GPUColorWrite.ALL : GPUColorWrite.RED | GPUColorWrite.GREEN | GPUColorWrite.BLUE }] },
+        primitive: { topology: "triangle-strip" },
+      });
+      this.blitPipelines.set(key, pipe);
+    }
+    const al = this.arena.alloc(32, BLOCK_ALIGN);
+    new Float32Array(al.chunk.cpu.buffer, al.chunk.cpu.byteOffset + al.offset, 8).set([sr.left / src.width, sr.top / src.height, sr.right / src.width, sr.bottom / src.height, srcAlpha ? 1 : 0, 0, 0, 0]);
+    const sampler = this.gpu.createSampler({ magFilter: linear ? "linear" : "nearest", minFilter: linear ? "linear" : "nearest", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
+    const group = this.gpu.createBindGroup({ layout: this.blitLayout!, entries: [
+      { binding: 0, resource: { buffer: al.chunk.gpu, offset: 0, size: 32 } },
+      { binding: 1, resource: src.texture.createView({ baseMipLevel: src.level, mipLevelCount: 1, dimension: "2d" }) },
+      { binding: 2, resource: sampler },
+    ] });
+    const pass = enc.beginRenderPass({ colorAttachments: [{ view: dst.renderView(), loadOp: "load", storeOp: "store" }] });
+    pass.setPipeline(pipe);
+    pass.setViewport(dr.left, dr.top, dw, dh, 0, 1);
+    pass.setScissorRect(dr.left, dr.top, dw, dh);
+    pass.setBindGroup(0, group, [al.offset]);
+    pass.draw(4);
+    pass.end();
+    return D3D_OK;
+  }
+
+  /** `UpdateTexture`: copy the levels of a system-memory texture into a default-pool texture of the same format and size. */
+  UpdateTexture(src: Direct3DTexture9, dst: Direct3DTexture9): number {
+    return dst.copyFrom(src) ? D3D_OK : D3DERR_INVALIDCALL;
+  }
+
+  /**
+   * `IDirect3DDevice9::Reset` for a windowed device: new back buffer (and automatic depth buffer), every state back to its default and all
+   * bindings dropped, like the real thing.  Callers release their default-pool resources first (the exe does in OnLostDevice).
+   */
+  Reset(width: number, height: number, format?: number): number {
+    if (width <= 0 || height <= 0) return D3DERR_INVALIDCALL;
+    this.flush();
+    this.backBuffer.destroyNow();
+    this.autoDepth?.destroyNow();
+    this.opts.width = width; this.opts.height = height;
+    if (format !== undefined) this.opts.backBufferFormat = format;
+    this.createBackBuffers();
+    this.state = new FixedFunctionState(this.opts.autoDepthStencil !== false);
+    this.state.viewport = { x: 0, y: 0, width, height, minZ: 0, maxZ: 1 };
+    this.state.scissor = { left: 0, top: 0, right: width, bottom: height };
+    this.streams.fill(null); this.indices = null; this.textures.fill(null); this.decl = null; this.fvf = 0;
+    this.xform = null; this.light = null; this.misc = null;
+    return D3D_OK;
+  }
 
   // =================================================================================================== frame control
   BeginScene(): number { if (this.inScene) return D3DERR_INVALIDCALL; this.inScene = true; return D3D_OK; }
@@ -379,7 +498,7 @@ export class Direct3DDevice9 implements ResourceHost {
         clearValue: p?.color ? { r: p.color[0], g: p.color[1], b: p.color[2], a: this.targetHasAlpha(rt) ? p.color[3] : 1 } : undefined,
       }],
     };
-    const ds = this.depthStencil;
+    const ds = this.ds;
     if (ds) {
       const hasStencil = (formatInfo(ds.format)?.stencilBits ?? 0) > 0;
       desc.depthStencilAttachment = {
@@ -400,8 +519,9 @@ export class Direct3DDevice9 implements ResourceHost {
     const vp = this.state.viewport;
     const full = (!rects || rects.length === 0) && vp.x === 0 && vp.y === 0 && vp.width >= rt.width && vp.height >= rt.height && !this.state.renderStates[D3DRS.SCISSORTESTENABLE];
     const doColor = (flags & D3DCLEAR.TARGET) !== 0;
-    const doDepth = (flags & D3DCLEAR.ZBUFFER) !== 0 && !!this.depthStencil;
-    const hasStencil = !!this.depthStencil && (formatInfo(this.depthStencil.format)?.stencilBits ?? 0) > 0;
+    const dsNow = this.ds;
+    const doDepth = (flags & D3DCLEAR.ZBUFFER) !== 0 && !!dsNow;
+    const hasStencil = !!dsNow && (formatInfo(dsNow.format)?.stencilBits ?? 0) > 0;
     const doStencil = (flags & D3DCLEAR.STENCIL) !== 0 && hasStencil;
     if (!doColor && !doDepth && !doStencil) return D3D_OK;
     if (!full) { this.clearRects(rects, doColor, doDepth, doStencil, color, z, stencil); return D3D_OK; }
@@ -420,7 +540,7 @@ export class Direct3DDevice9 implements ResourceHost {
     const rt = this.renderTarget;
     const vp = this.state.viewport;
     const list: Rect[] = rects && rects.length ? [...rects] : [{ left: vp.x, top: vp.y, right: vp.x + vp.width, bottom: vp.y + vp.height }];
-    const ds = this.depthStencil;
+    const ds = this.ds;
     const hasStencilFmt = !!ds && (formatInfo(ds.format)?.stencilBits ?? 0) > 0;
     const key = `${rt.gpuFormat}|${ds ? ds.gpuFormat : ""}|${color ? 1 : 0}${depth ? 1 : 0}${stencil ? 1 : 0}|${this.targetHasAlpha(rt) ? 1 : 0}`;
     let pipe = this.clearPipelines.get(key);
@@ -577,7 +697,7 @@ ${ds ? "struct F { @location(0) c: vec4f, @builtin(frag_depth) d: f32 }\n@fragme
 
     // ---- pipeline
     const rt = this.renderTarget;
-    const ds = this.depthStencil;
+    const ds = this.ds;
     const hasAlpha = this.targetHasAlpha(rt);
     const blend = blendState(rs);
     const writeMask = colorWriteMask(rs[D3DRS.COLORWRITEENABLE]!, hasAlpha);
