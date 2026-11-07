@@ -19,8 +19,10 @@
  * - The alpha test: a pixel whose alpha (after the stage, as a whole number 0..255) fails `ALPHAFUNC` against the low 8 bits of `ALPHAREF`
  *   is not written (nor blended).
  *
- * A quad is an upright rectangle whose strip runs its diagonal from the right-top to the left-bottom corner, with the vertices in any order
- * that keeps that (the two orders above), or a quad without area, which draws nothing; the z buffer is not modelled (the UI turns it off).
+ * A quad is an upright rectangle with one vertex at each corner, in any order whose shared edge of the strip (the vertices 1 and 2) is a
+ * diagonal: the controls' and `Draw`'s orders above run it from the right-top to the left-bottom corner; a picture whose corners the
+ * script wrote upside down or mirrored runs it from the left-top to the right-bottom one (and winds the other way round).  A quad
+ * without area draws nothing; the z buffer is not modelled (the UI turns it off).
  */
 
 export interface RefImage {
@@ -162,9 +164,13 @@ export function drawQuad(target: RefImage, q: RefQuad): void {
     cornerOf.push((Y[i] === yb ? 2 : 0) + (X[i] === xr ? 1 : 0));
   }
   if (new Set(cornerOf).size !== 4) throw new Error(upright);
-  // the strip is the triangles (v0, v1, v2) and (v2, v1, v3): the weights below are those of a diagonal from the right-top to the left-bottom corner
-  if (!((cornerOf[1] === 1 && cornerOf[2] === 2) || (cornerOf[1] === 2 && cornerOf[2] === 1))) {
-    throw new Error("reference: only a strip whose diagonal runs from the right-top to the left-bottom corner is modelled");
+  // the strip is the triangles (v0, v1, v2) and (v2, v1, v3) and shares the edge from v1 to v2: a diagonal from the right-top to the left-bottom
+  // corner (corners 1 and 2) or from the left-top to the right-bottom one (0 and 3); the other two corners lie on its two sides, so both
+  // triangles wind the same way
+  const antiDiagonal = (cornerOf[1] === 1 && cornerOf[2] === 2) || (cornerOf[1] === 2 && cornerOf[2] === 1);
+  const mainDiagonal = (cornerOf[1] === 0 && cornerOf[2] === 3) || (cornerOf[1] === 3 && cornerOf[2] === 0);
+  if (!antiDiagonal && !mainDiagonal) {
+    throw new Error("reference: only a strip whose shared edge is a diagonal of the rectangle (right-top to left-bottom, or left-top to right-bottom) is modelled");
   }
   // the winding of the triangle (v0, v1, v2) on the screen (y down): a positive area is clockwise, and so is the second triangle of the strip
   const area = (X[1]! - X[0]!) * (Y[2]! - Y[0]!) - (X[2]! - X[0]!) * (Y[1]! - Y[0]!);
@@ -190,8 +196,13 @@ export function drawQuad(target: RefImage, q: RefQuad): void {
     const t = (py - yt) / (yb - yt);
     for (let px = x0; px < x1; px++) {
       const s = (px - xl) / (xr - xl);
-      if (s + t <= 1) { w[0] = 1 - s - t; w[1] = s; w[2] = t; w[3] = 0; } // the triangle (v0, v1, v2)
-      else { w[0] = 0; w[1] = 1 - t; w[2] = 1 - s; w[3] = s + t - 1; } // the triangle (v2, v1, v3)
+      // the weights of the corners (left-top, right-top, left-bottom, right-bottom) at (s, t) in the unit square; on the diagonal itself both
+      // triangles give the same weights
+      if (antiDiagonal) {
+        if (s + t <= 1) { w[0] = 1 - s - t; w[1] = s; w[2] = t; w[3] = 0; } // the side of the left-top corner
+        else { w[0] = 0; w[1] = 1 - t; w[2] = 1 - s; w[3] = s + t - 1; } // the side of the right-bottom one
+      } else if (s >= t) { w[0] = 1 - s; w[1] = s - t; w[2] = 0; w[3] = t; } // the side of the right-top corner
+      else { w[0] = 1 - t; w[1] = 0; w[2] = t - s; w[3] = s; } // the side of the left-bottom one
       let u = 0;
       let v = 0;
       const col = [0, 0, 0, 0];

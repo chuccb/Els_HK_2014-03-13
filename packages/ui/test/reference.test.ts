@@ -9,16 +9,18 @@ import type { RefImage, RefQuad } from "../test-gpu/reference.ts";
 /**
  * the four vertices of VertexUI4 for an upright quad; `colors` = left-top, right-top, left-bottom, right-bottom (ARGB), whatever the order of
  * the vertices is.  `order`: "ui" is the controls' strip (left-top, right-top, left-bottom, right-bottom), "draw" the one of
- * `CKTDXDeviceTexture::Draw` (left-top, left-bottom, right-top, right-bottom).
+ * `CKTDXDeviceTexture::Draw` (left-top, left-bottom, right-top, right-bottom), or the corners (0 left-top, 1 right-top, 2 left-bottom,
+ * 3 right-bottom) in the order of the vertices.
  */
-function vertices(xl: number, yt: number, xr: number, yb: number, colors: number[] = [0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff], uv: number[] = [0, 0, 1, 1], order: "ui" | "draw" = "ui"): Uint8Array {
+function vertices(xl: number, yt: number, xr: number, yb: number, colors: number[] = [0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff], uv: number[] = [0, 0, 1, 1], order: "ui" | "draw" | number[] = "ui"): Uint8Array {
   const bytes = new Uint8Array(4 * 28);
   const dv = new DataView(bytes.buffer);
   const lt = [xl, yt, uv[0]!, uv[1]!, colors[0]!];
   const rt = [xr, yt, uv[2]!, uv[1]!, colors[1]!];
   const lb = [xl, yb, uv[0]!, uv[3]!, colors[2]!];
   const rb = [xr, yb, uv[2]!, uv[3]!, colors[3]!];
-  const corners = order === "ui" ? [lt, rt, lb, rb] : [lt, lb, rt, rb];
+  const named = [lt, rt, lb, rb];
+  const corners = order === "ui" ? named : order === "draw" ? [lt, lb, rt, rb] : order.map((i) => named[i]!);
   corners.forEach(([x, y, u, v, color], i) => {
     dv.setFloat32(i * 28, x!, true);
     dv.setFloat32(i * 28 + 4, y!, true);
@@ -179,6 +181,62 @@ describe("the reference compositor: Direct3D 9's rules for a pre-transformed qua
     }
   });
 
+  test("the strip may share the diagonal from the left-top to the right-bottom corner: the weights are those of that diagonal, not of the other one", () => {
+    // corner colours red (left-top), green (right-top), blue (left-bottom), white (right-bottom); 4 x 4 pixels: the centres are (s, t) = (0.125 0.375 0.625 0.875) each way
+    const colors = [0xffff0000, 0xff00ff00, 0xff0000ff, 0xffffffff];
+    const white = texture(1, 1, () => [255, 255, 255, 255]);
+    const drawn = (order: "ui" | number[]): RefImage => {
+      const target = newTarget(4, 4, 0, 0, 0);
+      drawQuad(target, quad(vertices(-0.5, -0.5, 3.5, 3.5, colors, undefined, order), white));
+      return target;
+    };
+    // right-top, left-top, right-bottom, left-bottom: v1 = left-top, v2 = right-bottom.  At (2, 0): s = 0.625 >= t = 0.125, the triangle of the right-top corner holds
+    // (1 - s, s - t, 0, t) = (0.375, 0.5, 0, 0.125) of (red, green, blue, white) = (0.5, 0.625, 0.125) -> 127.5 -> 128, 159.375 -> 159, 31.875 -> 32;
+    // at (0, 2): t > s, the triangle of the left-bottom corner holds (1 - t, 0, t - s, s) = (0.375, 0, 0.5, 0.125) = (0.5, 0.125, 0.625) -> 128, 32, 159
+    const main = drawn([1, 0, 3, 2]);
+    expect(px(main, 2, 0)).toEqual([128, 159, 32]);
+    expect(px(main, 0, 2)).toEqual([128, 32, 159]);
+    // on that diagonal (s = t) the two triangles agree: (1, 1) has (1 - s, 0, 0, s) = (0.625, 0, 0, 0.375) = (1, 0.375, 0.375) -> 255, 96, 96
+    expect(px(main, 1, 1)).toEqual([255, 96, 96]);
+    // the controls' diagonal gives other numbers at the same pixels: (1 - s - t, s, t, 0) = (0.25, 0.625, 0.125, 0) at (2, 0) = (0.25, 0.625, 0.125) -> 64, 159, 32; (0.25, 0.125, 0.625, 0) at (0, 2) -> 64, 32, 159
+    const anti = drawn("ui");
+    expect(px(anti, 2, 0)).toEqual([64, 159, 32]);
+    expect(px(anti, 0, 2)).toEqual([64, 32, 159]);
+    // the corners themselves are still the corners' colours: the centre (0, 0) is s = t = 0.125 -> (0.875, 0, 0, 0.125) = (1, 0.125, 0.125) -> 255, 32, 32 on the main diagonal
+    expect(px(main, 0, 0)).toEqual([255, 32, 32]);
+  });
+
+  test("a picture the script wrote upside down (the left-top vertex at the bottom) keeps its texture coordinates on its vertices: the texture shows upside down, and the controls' CULL_CCW drops it", () => {
+    // vertices (xl, yb, v 0), (xr, yb, v 0), (xl, yt, v 1), (xr, yt, v 1): the strip runs from the right-bottom to the left-top corner
+    const raw = (xl: number, yt: number, xr: number, yb: number): Uint8Array => {
+      const bytes = new Uint8Array(4 * 28);
+      const dv = new DataView(bytes.buffer);
+      [[xl, yb, 0, 0], [xr, yb, 1, 0], [xl, yt, 0, 1], [xr, yt, 1, 1]].forEach(([x, y, u, v], i) => {
+        dv.setFloat32(i * 28, x!, true);
+        dv.setFloat32(i * 28 + 4, y!, true);
+        dv.setFloat32(i * 28 + 8, 1, true);
+        dv.setFloat32(i * 28 + 12, 1, true);
+        dv.setUint32(i * 28 + 16, 0xffffffff, true);
+        dv.setFloat32(i * 28 + 20, u!, true);
+        dv.setFloat32(i * 28 + 24, v!, true);
+      });
+      return bytes;
+    };
+    // a texture of two texels, red above blue; the quad is one pixel wide and two high: (t = 0.25, 0.75) at the centres; the vertex with v = 0 is at the bottom, so v = 1 - t = 0.75, 0.25:
+    // the top pixel samples the centre of the lower texel (blue), the bottom pixel the upper one (red)
+    const tex = texture(1, 2, (_x, y) => (y === 0 ? [200, 0, 0, 255] : [0, 0, 200, 255]));
+    const target = newTarget(1, 2, 0, 0, 0);
+    drawQuad(target, quad(raw(-0.5, -0.5, 0.5, 1.5), tex)); // no cull mode: both windings are drawn
+    expect([px(target, 0, 0), px(target, 0, 1)]).toEqual([[0, 0, 200], [200, 0, 0]]);
+    // the winding of (v0, v1, v2) = (left-bottom, right-bottom, left-top): (xr - xl) * (yt - yb) = -2 < 0: counter-clockwise on the screen (y down)
+    const left = (mode: number): number => {
+      const t = newTarget(1, 2, 0, 0, 0);
+      drawQuad(t, quad(raw(-0.5, -0.5, 0.5, 1.5), tex, { cullMode: mode }));
+      return px(t, 0, 0)[2]! + px(t, 0, 1)[0]!;
+    };
+    expect([1, 2, 3].map(left)).toEqual([400, 400, 0]); // CULL_NONE and CULL_CW draw it, CULL_CCW (the dialogs' state) does not
+  });
+
   test("culling: the strip of the controls winds clockwise on the screen, Draw's counter-clockwise; CULL_CW drops the first, CULL_CCW the second, CULL_NONE neither", () => {
     // (v0, v1, v2) = (0, 0), (4, 0), (0, 4) in the controls' order: area = 4 * 4 - 0 * 0 = 16 > 0 (y down: clockwise); in Draw's order (0, 0), (0, 4), (4, 0): -16
     const tex = texture(1, 1, () => [200, 100, 50, 255]);
@@ -271,7 +329,8 @@ describe("the reference compositor: Direct3D 9's rules for a pre-transformed qua
     new DataView(perspective.buffer).setFloat32(12, 0.5, true);
     expect(() => drawQuad(target, quad(perspective, tex))).toThrow("rhw");
     expect(() => drawQuad(target, quad(new Uint8Array(28), tex))).toThrow("four 28-byte vertices");
-    // the other diagonal (v1 = the right-bottom corner, v2 = the left-bottom one), a quad with two vertices on one corner, an unknown cull mode and alpha function
+    // a strip that shares an edge of the rectangle instead of a diagonal (v1 = the right-bottom corner, v2 = the left-bottom one), a quad with two vertices on one corner,
+    // an unknown cull mode and alpha function
     const bowtie = vertices(0, 0, 2, 2);
     const swap = (a: number, b: number): Uint8Array => { const t = bowtie.slice(a * 28, a * 28 + 28); bowtie.copyWithin(a * 28, b * 28, b * 28 + 28); bowtie.set(t, b * 28); return bowtie; };
     expect(() => drawQuad(target, quad(swap(1, 3), tex))).toThrow("diagonal"); // left-top, right-bottom, left-bottom, right-top
