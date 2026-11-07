@@ -69,6 +69,17 @@ export class CKTDGUIScrollBar extends CKTDGUIControl implements Partial<CKTDGUIS
     }
   }
 
+  /**
+   * The destructor (329859C0, `delete`): the sound it opened is closed.  The six textures are not destroyed (their owner, the list box or
+   * the control list, does that) and neither is the dialog told.
+   */
+  destroy(): void {
+    if (this.m_pSndMouseDown) {
+      this.ctx.devices.closeDevice(this.m_pSndMouseDown.deviceID);
+      this.m_pSndMouseDown = undefined;
+    }
+  }
+
   // ---- the Lua methods (one-line setters the linker folded into the radio button's) ----------------------------------------------
 
   /** `SetEnableTrack(bool)` (328CD4C0): `m_bEnableTrack` */

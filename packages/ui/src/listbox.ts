@@ -494,9 +494,9 @@ export class CKTDGUIListBox extends CKTDGUIControl implements Partial<CKTDGUILis
   // ---- the scroll bar -----------------------------------------------------------------------------------------------------------
 
   /**
-   * `InitScrollBar_LUA()` (32943870): a scroll bar in the box's dialog that draws with the box's six scroll bar textures (the bar takes the
-   * pointers over: it destroys them when it is replaced or destroyed).  The script gets the bar back.  The previous bar, if any, is
-   * forgotten, not freed.
+   * `InitScrollBar_LUA()` (32943870): a scroll bar in the box's dialog that draws with the box's six scroll bar textures (the bar holds the
+   * same pointers: its own setters destroy the pointer they replace, its destructor does not).  The script gets the bar back.  The previous
+   * bar, if any, is forgotten, not freed.
    */
   InitScrollBar(): CKTDGUIScrollBar {
     const bar = new CKTDGUIScrollBar(this.ctx);

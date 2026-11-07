@@ -23,6 +23,11 @@ import { CKTDGUISlot } from "./slot.ts";
 import { CKTDGUIIMEEditBox } from "./imeeditbox.ts";
 import { CKTDGUIComboBox } from "./combobox.ts";
 import { CKTDGUIListBox } from "./listbox.ts";
+import { CMovieData } from "./movie.ts";
+import { CKTDGUIContolList } from "./controllist.ts";
+import { CKTDGUISlider } from "./slider.ts";
+import { CKTDGUIEditBox } from "./editbox.ts";
+import { CKTDGUINavigation } from "./navigation.ts";
 import type { RadioButtonGroupInfo } from "./radiobutton.ts";
 import { WStringMap } from "./stdmap.ts";
 import type { UIContext } from "./control.ts";
@@ -134,6 +139,53 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
     }
   }
 
+  // ---- the order the controls are drawn and ask for the mouse in ------------------------------------------------------------
+
+  /**
+   * `ChangeSequence(pControlToChange, bFront)` (329566E0): the control (the first of that identity in `m_ControlsList`) moves to the end of
+   * the list (`bFront`: it is drawn last, on top) or to its beginning.  False when there is no such control.
+   */
+  changeSequence(control: CKTDGUIControl | undefined, front: boolean): boolean {
+    if (!control) return false;
+    const at = this.m_ControlsList.indexOf(control);
+    if (at < 0) return false;
+    this.m_ControlsList.splice(at, 1);
+    if (front) this.m_ControlsList.push(control);
+    else this.m_ControlsList.unshift(control);
+    return true;
+  }
+
+  /**
+   * `ChangeSequence(pControlToChange, pPivotControl, bFront)` (32956590): both controls must be in the list; the control is taken out and put
+   * right behind the pivot (`bFront`) or in front of it.  A pivot that is the control itself is not in the list any more when it is looked for:
+   * the control is gone from the list (the exe goes on looking for another entry of the control and, finding none, ends).
+   */
+  changeSequenceByPivot(control: CKTDGUIControl | undefined, pivot: CKTDGUIControl | undefined, front: boolean): void {
+    const list = this.m_ControlsList;
+    if (!control || list.length <= 0 || !list.includes(control)) return;
+    if (!pivot || !list.includes(pivot)) return;
+    for (let i = 0; i < list.length; i++) {
+      if (list[i] !== control) continue;
+      list.splice(i, 1);
+      const p = list.indexOf(pivot);
+      if (p < 0) continue; // the entry that moved into place i is not looked at
+      list.splice(front ? p + 1 : p, 0, control);
+      return;
+    }
+  }
+
+  /** `ChangeSequenceByName_LUA(name, bFront)` (32956920) */
+  ChangeSequenceByName(name: string, front: boolean): void {
+    this.changeSequence(this.getControl(name), front);
+  }
+
+  /** `ChangeSequenceByNameAndPivot_LUA(name, pivotName, bFront)` (329567B0): the control is looked up first, then the pivot */
+  ChangeSequenceByNameAndPivot(name: string, pivotName: string, front: boolean): void {
+    const control = this.getControl(name);
+    const pivot = this.getControl(pivotName);
+    this.changeSequenceByPivot(control, pivot, front);
+  }
+
   /** `SetName_LUA(const char*)` (3295B7E0) */
   SetName(name: string): void {
     this.m_Name = name;
@@ -200,6 +252,31 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
   /** `CreateSlot()` (328C1940) */
   CreateSlot(): CKTDGUISlot {
     return new CKTDGUISlot(this.ctx);
+  }
+
+  /** `CreateEditBox()` (328C12E0) */
+  CreateEditBox(): CKTDGUIEditBox {
+    return new CKTDGUIEditBox(this.ctx);
+  }
+
+  /** `CreateSlider()` (328C18D0) */
+  CreateSlider(): CKTDGUISlider {
+    return new CKTDGUISlider(this.ctx);
+  }
+
+  /** `CreateControlList()` (328C1270) */
+  CreateControlList(): CKTDGUIContolList {
+    return new CKTDGUIContolList(this.ctx);
+  }
+
+  /** `CreateMovie()` (328C15E0) */
+  CreateMovie(): CMovieData {
+    return new CMovieData(this.ctx);
+  }
+
+  /** `CreateNavigation()` (328C1650) */
+  CreateNavigation(): CKTDGUINavigation {
+    return new CKTDGUINavigation(this.ctx);
   }
 
   /** `CreateListBox()` (328C1570) */

@@ -6,13 +6,14 @@
 import { CKTDGUIControl, UCT, readStringData } from "./control.ts";
 import type { CPictureData, UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceTexture } from "./device.ts";
+import type { CMovieData } from "./movie.ts";
 import type { CKTDGUIItem_Methods, CKTDGUIStatic_Methods } from "@els/host";
 
 export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStatic_Methods> {
   readonly m_PictureDataList: CPictureData[] = [];
   readonly m_StringDataList: UIStringData[] = [];
-  /** the movie data a static plays (`AddMovieData`; the movie classes are not ported) */
-  readonly m_MovieDataList: unknown[] = [];
+  /** the movie data a static plays (`AddMovieData`) */
+  readonly m_MovieDataList: CMovieData[] = [];
   m_CustomMsgMouseDblClk = -1;
   m_CustomMsgMouseUp = -1;
   /** `m_pEdgeTexture`: every static opens `UIEdge.tga` */
@@ -45,7 +46,7 @@ export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStat
   }
 
   /** `AddMovieData_LUA(CMovieData*)` (328C0D80) */
-  AddMovieData(movie: unknown): void {
+  AddMovieData(movie: CMovieData): void {
     this.m_MovieDataList.push(movie);
   }
 

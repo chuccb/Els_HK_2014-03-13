@@ -61,6 +61,15 @@ export function copyRect(dst: Rect, src: Rect): void {
 /** `a * b` of two `int`s (the low 32 bits, as `imul` leaves them) */
 export const imul = (a: number, b: number): number => Math.imul(a, b);
 
+/**
+ * `(int)x` of a `float` / `double` (`cvttss2si`): the fraction is cut off; NaN, an infinity and anything outside the 32-bit range give the
+ * processor's "integer indefinite", 0x80000000
+ */
+export function ftoi(x: number): number {
+  if (!Number.isFinite(x) || x >= 2147483648 || x <= -2147483649) return -2147483648;
+  return Math.trunc(x) | 0;
+}
+
 /** `a / b` of two `int`s: `idiv` truncates toward zero; a zero divisor is the processor's divide error */
 export function idiv(a: number, b: number): number {
   if (b === 0) throw new Error("integer division by zero (the exe faults here: EXCEPTION_INT_DIVIDE_BY_ZERO)");

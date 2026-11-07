@@ -16,6 +16,9 @@
  * `CKTDXDeviceTET_Preprocessing::OpenFile` rejects is error 0x5F (the texture still loads, its UV table stays empty); `m_Info` is the
  * info of the FILE (not of a texture reduced by the detail level).
  * `CloseDevice(id)` (328ED610): upper-case, find, `UnrefDevice`; the last reference removes the device from the map.
+ *
+ * Also here: the render target textures (`OpenRenderTargetTexture` 328EE4C0, which `CKTDGUIControl::CMovieData::SetRect` uses) and
+ * the video player (Bandisoft's `bdvid32.dll`, which `CMovieData` plays its file with) as the interfaces `CMovieData` needs of it.
  */
 import { parseTet } from "@els/assets";
 import type { TetFile } from "@els/assets";
@@ -69,6 +72,104 @@ export class DeviceSound {
   }
 }
 
+/** `D3DFMT_A8R8G8B8` */
+export const D3DFMT_A8R8G8B8 = 21;
+
+/** `E_FAIL`, what the video library answers when it cannot do what it was asked */
+export const E_FAIL = -2147467259;
+
+/**
+ * `CKTDXDeviceRenderTargetTexture` (0x6C bytes): a texture that is drawn into.  Its constructor (32970D60) stores the size and the format
+ * and, when the Direct3D device objects exist (`DXUTGetDeviceObjectsReset`), `OnResetDevice` (32971480) creates the texture, its surface and a
+ * depth surface of the same size (a failing step is error log 0x4C..0x50 and `E_FAIL`).  The Direct3D resources belong to the renderer.
+ */
+export class DeviceRenderTargetTexture {
+  /** `m_DeviceID` (upper case) */
+  readonly deviceID: string;
+  refCount = 0;
+  readonly width: number;
+  readonly height: number;
+  /** `m_D3DFormat` */
+  readonly format: number;
+
+  constructor(deviceID: string, width: number, height: number, format: number) {
+    this.deviceID = deviceID;
+    this.width = width | 0;
+    this.height = height | 0;
+    this.format = format | 0;
+  }
+}
+
+/** `BVL_VIDEO_INFO`: what `CMovieData` takes of it */
+export interface VideoInfo {
+  width: number;
+  height: number;
+}
+
+/**
+ * `CBandiVideoLibrary` (Bandisoft's video player, a wrapper class that loads `bdvid32.dll`; an `IBandiVideo2`) as far as `CMovieData::SetMovieFileName`
+ * uses it.  Every method that returns an `HRESULT` returns a negative number for a failure.
+ */
+export interface BandiVideoLibrary {
+  isCreated(): boolean;
+  /** `Create(dllPath, ...)`: loads the DLL */
+  create(dllPath: string): number;
+  /** `Verify(name, key)` (the licence check) */
+  verify(name: string, key: string): number;
+  /** `Close()` */
+  close(): void;
+  /** `Open(path, flags)` */
+  open(path: string, flags: number): number;
+  /** `GetVideoInfo(&info)` of the file that is open */
+  getVideoInfo(): VideoInfo;
+  /** `Play()` */
+  play(): number;
+}
+
+/** `CBandiVideoTexture_DX9` (0x28 bytes): the Direct3D texture the video's frames are copied into */
+export interface BandiVideoTexture {
+  open(width: number, height: number): number;
+  close(): void;
+}
+
+/** a machine without `bdvid32.dll`: nothing can be created, nothing can be opened (and no movie file is there to play) */
+export class NoVideoLibrary implements BandiVideoLibrary {
+  isCreated(): boolean {
+    return false;
+  }
+
+  create(): number {
+    return E_FAIL;
+  }
+
+  verify(): number {
+    return E_FAIL;
+  }
+
+  close(): void {}
+
+  open(): number {
+    return E_FAIL;
+  }
+
+  getVideoInfo(): VideoInfo {
+    return { width: 0, height: 0 };
+  }
+
+  play(): number {
+    return E_FAIL;
+  }
+}
+
+/** the texture of a video that cannot play (it is only reached with a library that opens files) */
+export class NoVideoTexture implements BandiVideoTexture {
+  open(): number {
+    return E_FAIL;
+  }
+
+  close(): void {}
+}
+
 /** the texture and sound part of `CKTDXDeviceManager` */
 export class DeviceManager {
   /** `m_MassFileManager`: the one the Lua global `KGCMassFileManager` is */
@@ -77,6 +178,14 @@ export class DeviceManager {
   readonly devices = new Map<string, DeviceTexture>();
   /** `m_DeviceMap` (sounds; the exe has one map for every device type, the ids never collide) */
   readonly sounds = new Map<string, DeviceSound>();
+  /** `m_DeviceMap` (render target textures) */
+  readonly renderTargets = new Map<string, DeviceRenderTargetTexture>();
+  /** `GetCurrentDirectoryW`: the folder the game runs in (the movies are in its `movie` folder) */
+  currentDirectory = "";
+  /** the video player a `CMovieData` creates (`CBandiVideoLibrary::CBandiVideoLibrary`); the default is a machine without one */
+  createVideoLibrary: () => BandiVideoLibrary = () => new NoVideoLibrary();
+  /** the texture a movie that opened gets (`new CBandiVideoTexture_DX9`) */
+  createVideoTexture: () => BandiVideoTexture = () => new NoVideoTexture();
   /**
    * `g_pKTDXApp->m_pDSManager->m_bInit`: whether the sound system (FMOD) is up.  `OpenSound` creates a sound device only then; without
    * it `OpenSound` answers null for every sound that is not open yet, as the exe does when FMOD failed to initialise.
@@ -157,6 +266,24 @@ export class DeviceManager {
     return snd;
   }
 
+  /**
+   * `CKTDXDeviceManager::OpenRenderTargetTexture(deviceID, width, height, fmt)` (328EE4C0): an empty id gives null; the id is upper-cased;
+   * a device with that id is referenced once more (and keeps the size it was made with), otherwise one is made (reference count 1).
+   */
+  openRenderTargetTexture(deviceID: string, width: number, height: number, format: number): DeviceRenderTargetTexture | undefined {
+    if (deviceID.length === 0) return undefined;
+    const id = towupperAscii(deviceID);
+    let target = this.renderTargets.get(id);
+    if (target) {
+      target.refCount++;
+      return target;
+    }
+    target = new DeviceRenderTargetTexture(id, width, height, format);
+    target.refCount = 1;
+    this.renderTargets.set(id, target);
+    return target;
+  }
+
   /** `CKTDXDeviceManager::CloseDevice(deviceID)` (328ED610) */
   closeDevice(deviceID: string): void {
     if (deviceID.length === 0) return;
@@ -164,6 +291,11 @@ export class DeviceManager {
     const tex = this.devices.get(id);
     if (tex) {
       if (--tex.refCount <= 0) this.devices.delete(id);
+      return;
+    }
+    const target = this.renderTargets.get(id);
+    if (target) {
+      if (--target.refCount <= 0) this.renderTargets.delete(id);
       return;
     }
     const snd = this.sounds.get(id);

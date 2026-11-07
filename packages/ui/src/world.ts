@@ -18,6 +18,12 @@ import { CKTDGUIIMEEditBox, ImeSystem } from "./imeeditbox.ts";
 import { CKTDGFontManager } from "./fontmanager.ts";
 import { CKTDGUIComboBox } from "./combobox.ts";
 import { CKTDGUIListBox } from "./listbox.ts";
+import { CMovieData } from "./movie.ts";
+import { CKTDGUIContolList } from "./controllist.ts";
+import { CKTDGUISlider } from "./slider.ts";
+import { CKTDGUIEditBox } from "./editbox.ts";
+import { CX2MapSelectWindow } from "./mapselect.ts";
+import { CKTDGUINavigation } from "./navigation.ts";
 import { CKTDGUIScrollBar } from "./scrollbar.ts";
 import { UIFonts } from "./font.ts";
 
@@ -44,6 +50,12 @@ const IMPLEMENTATIONS: [string, object][] = [
   ["CKTDGFontManager", CKTDGFontManager],
   ["CKTDGUIComboBox", CKTDGUIComboBox],
   ["CKTDGUIListBox", CKTDGUIListBox],
+  ["CX2StatePVPRoom::CX2MapSelectWindow", CX2MapSelectWindow],
+  ["CKTDGUIEditBox", CKTDGUIEditBox],
+  ["CKTDGUIContolList", CKTDGUIContolList],
+  ["CKTDGUISlider", CKTDGUISlider],
+  ["CKTDGUIControl::CMovieData", CMovieData],
+  ["CKTDGUINavigation", CKTDGUINavigation],
   ["CKTDGUIItem", CKTDGUIItem],
   ["CKTDGUIScrollBar", CKTDGUIScrollBar],
   ["CX2SlotManager", CX2SlotManager],
@@ -111,16 +123,18 @@ export class UIWorld implements UIContext {
   }
 
   /**
-   * The UI classes whose own global the dialog scripts reach (`g_pPostBoxInventory`, `g_pCouponBox`).  The exe makes each when its UI is
+   * The UI classes whose own global the dialog scripts reach (`g_pPostBoxInventory`, `g_pCouponBox`, `g_pMapSelectWindow`).  The exe makes each when its UI is
    * opened (their constructors or `RegisterLuaBind` publish them) and the dialogs are built by them; a run of one script at a time
    * has them all alive from the start.
    */
-  createOwners(): { postBox: CX2PostBox; couponBox: CX2CouponBox } {
+  createOwners(): { postBox: CX2PostBox; couponBox: CX2CouponBox; mapSelectWindow: CX2MapSelectWindow } {
     const postBox = new CX2PostBox(this);
     const couponBox = new CX2CouponBox(this);
+    const mapSelectWindow = new CX2MapSelectWindow(this);
     postBox.registerLuaBind();
     couponBox.registerLuaBind();
-    return { postBox, couponBox };
+    mapSelectWindow.registerLuaBind();
+    return { postBox, couponBox, mapSelectWindow };
   }
 
   /**

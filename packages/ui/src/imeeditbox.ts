@@ -17,6 +17,7 @@ import { CKTDGUIControl, UCT } from "./control.ts";
 import type { UIContext, UIPointData, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
 import type { UKFont } from "./font.ts";
+import { byte, channel, d3dColor, ONE_OVER_255, packArgb } from "./d3dcolor.ts";
 import { newRect, newVertices } from "./rect.ts";
 import type { Rect, VertexUI } from "./rect.ts";
 import { CKTDGUIUniBuffer } from "./unibuffer.ts";
@@ -50,24 +51,6 @@ export class ImeSystem {
   }
 }
 
-/**
- * The colour the box's setters make of four floats: `(__int64)(float)(c * 255.0)` per channel (a cast to float, then a truncation, no
- * rounding), packed as `A << 24 | R << 16 | G << 8 | B` in 64 bits with only R, G and B cut to a byte: the exe's own expression, kept
- * in `bigint` so that an alpha outside 0..1 behaves as it does there.
- */
-function channel(c: number): bigint {
-  const v = f(f(c) * 255.0);
-  return Number.isFinite(v) && Math.abs(v) < 2 ** 63 ? BigInt(Math.trunc(v)) : -(2n ** 63n); // cvttss2si: the integer indefinite
-}
-const byte = (v: bigint): bigint => BigInt.asUintN(8, v);
-function packArgb(r: number, g: number, b: number, a: number): bigint {
-  const A = channel(a);
-  return BigInt.asUintN(64, (((((A << 8n) | byte(channel(r))) << 8n) | byte(channel(g))) << 8n) | byte(channel(b)));
-}
-/** the DWORD stored in `m_TextColor` and its relatives (the store keeps the low 32 bits) */
-const d3dColor = (r: number, g: number, b: number, a: number): number => Number(BigInt.asUintN(32, packArgb(r, g, b, a)));
-
-const ONE_OVER_255 = f(0.003921569);
 
 export class CKTDGUIIMEEditBox extends CKTDGUIControl implements Partial<CKTDGUIIMEEditBox_Methods> {
   m_pFont: UKFont | null = null;
