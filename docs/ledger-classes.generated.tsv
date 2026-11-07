@@ -28,8 +28,8 @@ CX2StateServerSelect	113	24663	32D94900	todo
 CX2Data	110	4151	32A27F00	todo		
 CX2UIQuestNew	103	17145	32CE0E10	todo		
 CX2CashShop	101	15480	329E6480	todo		
-CKTDGUIDialog	95	5959	328C0CD0	todo		
-CX2PostBox	94	15351	32CA5110	todo		
+CKTDGUIDialog	95	5959	328C0CD0	partial	packages/ui/src/dialog.ts	the constructor, OpenScriptFile (error logs 0x87 / 0x48 / 0x49), AddControl (a taken name becomes name+N from 100), GetControl (log 0x24), all 53 Lua methods, the Create* factories, ChangeSequence*, the custom sound files; not ported: MsgProc, OnFrameMove / OnFrameRender, the move / fade animation, SetFront / SetLayer against the dialog manager
+CX2PostBox	94	15351	32CA5110	partial	packages/ui/src/slot.ts (CX2PostBox)	only what the dialog scripts reach through the global g_pPostBoxInventory (32CA5F80); the post box itself is not ported
 CX2UIManager	93	5546	32B7DE70	todo		
 CX2Unit	92	6747	329BB8A0	todo		
 CX2PET	89	9425	32A27600	todo		
@@ -39,7 +39,7 @@ CX2StateDungeonGame	88	9096	32D7FCB0	todo
 CX2ChatBox	87	23961	3299C580	todo		
 CX2ItemManager	81	9601	32B8AC70	todo		
 CX2GageManager	78	5160	32B38A00	todo		
-CKTDGUIControl	77	2783	328C0AE5	todo		
+CKTDGUIControl	77	2783	328C0AE5	partial	packages/ui/src/control.ts	what the controls share: UI_Control_Sound.lua and the sounds (opened only when FMOD is up), textures + UIPointData (USE_TEXTURE_SIZE), offset positions, the internal events 0x466 / 0x467, all 30 Lua methods; not ported: MsgProc / HandleMouse / OnFrameMove / OnFrameRender / ContainsPoint, the virtual SetMaximize
 CX2SquareUnit	77	8683	329BB820	todo		
 CX2Room	76	4540	3298FF70	todo		
 CX2StateMenu	75	15455	32EC5080	todo		
@@ -53,8 +53,8 @@ CX2DungeonGame	70	5232	32A26E12	todo
 CX2UserSkillTree	68	4649	32A92F30	todo		
 CX2World	67	4893	32A27590	todo		
 CX2DamageEffect::CEffect	67	12252	32A28B20	todo		
-CKTDGUIIMEEditBox	63	5163	328A8420	todo		
-CKTDGUIButton	62	4011	328CD080	todo		
+CKTDGUIIMEEditBox	63	5163	328A8420	partial	packages/ui/src/imeeditbox.ts	constructor (32935240), all 28 Lua methods (the folded setters shared with CKTDGUIEditBox verified by disassembly); not ported: IME input, caret and selection handling, drawing
+CKTDGUIButton	62	4011	328CD080	partial	packages/ui/src/button.ts	constructor (sounds), all 31 Lua methods incl. the folded one-line setters (offsets verified by disassembly); not ported: input handling and drawing
 CX2ServerProtocol	61	3987	329E01B0	todo		
 CX2UISkillTreeNew	58	16940	32CB9E40	todo		
 DXUTState	57	785	3289CBD0	todo		
@@ -72,18 +72,18 @@ CxImage	52	1234	328CFA50	todo
 CX2StateDungeonRoom	52	9030	32F17C10	todo		
 CKTDGLineMap	51	8291	328C0DE0	todo		
 CX2GameEdit	51	5245	32A2B500	todo		
-CKTDGUIComboBox	50	4330	328CD110	todo		
+CKTDGUIComboBox	50	4330	328CD110	partial	packages/ui/src/combobox.ts	constructor, UpdateRects (32940DE0), all 34 Lua methods; not ported: input handling and drawing
 CX2Camera	50	5039	32A28A60	todo		
 CX2BuffFactor	50	4516	32AE3730	todo		
 CX2StateBattleField	50	3506	32D75F80	todo		
-CKTDGUIListBox	49	4721	328CD130	todo		
+CKTDGUIListBox	49	4721	328CD130	partial	packages/ui/src/listbox.ts	constructor (329410D0), UpdateRects (32948240), all 31 Lua methods; not ported: input handling and drawing
 CX2UIPetInfo	45	11150	3319A110	todo		
 CX2TitleManager	44	6628	32D50FF0	todo		
 std::wstring	43	2036	32894240	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CX2Inventory	43	4386	32A99BC0	todo		
 CX2StateCreateUnit	43	9857	32EE3CB0	todo		
 boost::io::detail	42	6523	32895130	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDGUISlot	42	3451	328C2120	todo		
+CKTDGUISlot	42	3451	328C2120	partial	packages/ui/src/slot.ts	constructor, the 18 distinct Lua names (the exe registers SetDraggingSlotColor twice); not ported: drag and drop, drawing
 CKTDXDeviceManager	42	2928	328ECB20	todo		
 CX2BattleFieldGame	42	3350	3318FB60	todo		
 CX2Item::KItemFormatTemplet	41	904	32AACC60	partial	packages/assets/src/kim.ts	every accessor of KItemFormatTemplet / KItemFormatSetItemData (32B85150..32B85FD0) ported; the constructor and the KProxy2 writer are not
@@ -94,13 +94,13 @@ CX2ItemSlotManager	40	11473	3299B330	todo
 CX2PremiumBuffManager	40	3247	32D1C170	todo		
 CX2SMTPMail	39	2292	3298A6F0	todo		
 CX2StateField	39	4115	32F26450	todo		
-CKTDGUIRadioButton	38	3028	328CD020	todo		
+CKTDGUIRadioButton	38	3028	328CD020	partial	packages/ui/src/radiobutton.ts	constructor, all 25 Lua methods, the groups (RadioButtonGroupInfo); not ported: input handling and drawing
 CX2WeddingGame	38	2799	32C2BC70	todo		
 CX2SlideShot	37	2661	32A27550	todo		
 CX2DungeonSubStage	37	2093	32A28AC0	todo		
 boost	35	868	32894E60	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDXApp	35	7871	328BFA50	todo		
-CKTDGUIContolList	35	1919	328CD280	todo		
+CKTDGUIContolList	35	1919	328CD280	partial	packages/ui/src/controllist.ts	constructor (3294F030), all 25 Lua methods, SetIndex / SetShow / UpdateRects / UpdateRenderControlList / UpdateScrollBar (the exe bug that sets the X index on the Y bar kept); not ported: input handling and drawing
 CKTDGUIDialogManager	35	3042	328CDFA0	todo		
 CX2RelationshipManager	35	5773	32B77630	todo		
 CX2GameUnit::Weapon	34	4603	32AC1A00	todo		
@@ -126,8 +126,8 @@ CX2UISocketItem	30	4416	3322F1B0	todo
 CX2Eqip	29	5448	32ABF410	todo		
 CX2UIGuildSkillTree	29	5552	32CD0390	todo		
 std::string	28	1472	328ABB10	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDGUIEditBox	28	2202	328CCF10	todo		
-CX2SlotManager	28	1196	32A26F30	todo		
+CKTDGUIEditBox	28	2202	328CCF10	partial	packages/ui/src/editbox.ts, d3dcolor.ts	constructor (329323E0), all 14 Lua methods (8 folded with the IME box, verified by disassembly); not ported: input, caret and drawing
+CX2SlotManager	28	1196	32A26F30	partial	packages/ui/src/slot.ts	the slot manager (global g_pCX2SlotManager 32E5E840): AddSlot, CreateItemSlot, GetDummyValue, CX2Slot SetSlotData / SetClickable; not ported: everything the game does with slots
 CX2TutorSystem	28	3736	32EB8AE0	todo		
 CX2StateSquareGame	28	1524	32F23E70	todo		
 CX2StateWeddingGame	28	1691	32F44FA0	todo		
@@ -153,7 +153,7 @@ CX2TalkBoxManagerImp	25	3268	332224D0	todo
 CX2PVPGame	25	1919	3325F1D0	todo		
 CKTDGEffectStateManager	24	785	328B2E20	todo	packages/d3d9/src/effect.ts (ID3DXEffectStateManager, DeviceStateManager)	the class is not ported (engine code: 512-entry state stack over CKTDGStateManager, shadow vertex-shader constant array with a dirty range flushed by _CommitChanges); the effect side it plugs into is emulated and tested with recording managers (FINDINGS 12.7)
 CKTDGParticleSystem	24	4671	328C17A0	partial	packages/assets/src/particle.ts (parseParticleScript, ParticleLibrary), effectscript.ts (EFFECT_SYSTEMS)	OpenScriptFile (KOM read by @els/kom), Compile, ProcessParticleSystemBlock, ProcessEventSequenceBlock and the replace-by-name registration ported; CreateSequence, OnFrameMove / OnFrameRender and the Lua thunks are not
-CKTDGUIControl::CPictureData	24	1108	328C2240	todo		
+CKTDGUIControl::CPictureData	24	1108	328C2240	partial	packages/ui/src/control.ts, static.ts	the data classes of the controls: constructors, the texture / point / string setters the scripts reach (all 9 CPictureData Lua methods); not ported: the drawing that reads them
 CKTDGCamera	24	1176	328F0C50	todo		
 CX2Unit::UnitData	24	3639	32A9F110	todo		
 CX2MiniMapUI	24	3558	32D2A290	todo		
@@ -161,14 +161,14 @@ CX2SecurityPad	24	3001	32E79C60	todo
 CX2MyGageUI	24	2076	32F8F6B0	todo		
 CX2TitleSystem	24	2892	33254580	todo		
 CX2BattleFieldNpcAi	24	1716	33281B70	todo		
-CKTDGUIStatic	23	2190	328C0D80	todo		
+CKTDGUIStatic	23	2190	328C0D80	partial	packages/ui/src/static.ts	constructor, the 7 Lua methods (AddPicture, AddString, AddMovieData, ...), the picture / string lists; not ported: drawing
 CX2UIGuild	23	2996	32D09520	todo		
 CX2WorldMissionManager	23	1226	32D19E40	todo		
 CX2UnitManager	23	5111	32DBBDC0	todo		
 CX2TFieldNpcShop	23	4946	3323D8E0	todo		
 CKTDGXMeshPlayer	22	4502	328C13C0	partial	packages/assets/src/xmeshplayer.ts (parseXMeshPlayerScript, XMeshLibrary), effectscript.ts (EFFECT_SYSTEMS)	OpenScriptFile, Compile, ProcessXMeshPlayerBlock, ProcessTempletBlock and the replace-by-name registration ported; instance creation, OnFrameMove / OnFrameRender, collision hooks and the Lua thunks are not
 CKTDIDevice	22	562	329625E0	todo		
-CKTDGUIUniBuffer	22	2056	329639A0	todo		
+CKTDGUIUniBuffer	22	2056	329639A0	partial	packages/ui/src/unibuffer.ts	the buffer state and limits the edit boxes set (capacity, hide char, modes); not ported: the text layout (CPtoX, XtoCP) and the font paths
 CX2Dungeon	21	2492	32984B70	todo		
 CX2WorldObjectMesh	21	1201	32A2AB60	todo		
 CX2BuffTemplet	21	1812	32AAC600	todo		
@@ -183,13 +183,13 @@ CX2AraGageData	20	348	32F8B0F0	todo
 CX2LocalMapUI	20	3782	33229FA0	todo		
 CryptoPP	20	712	333C8BA0	todo	-	crypto primitives of the protocol: WebCrypto or a port, decided with the network layer
 CKTDGMatrix	19	337	328C2880	todo		
-CKTDGUINavigation	19	1256	328CD120	todo		
-CX2CouponBox	19	1549	32EB5670	todo		
+CKTDGUINavigation	19	1256	328CD120	partial	packages/ui/src/navigation.ts	constructor (3294D3A0), all 6 Lua methods; kept exe bug: SetWindowPoint_LUA draws the background texture; not ported: dragging the window and drawing
+CX2CouponBox	19	1549	32EB5670	partial	packages/ui/src/slot.ts (CX2CouponBox)	only what the dialog scripts reach through the global g_pCouponBox (32EB5900); the coupon box itself is not ported
 CX2UIRelationship	19	6531	33235190	todo		
 CKTDGSkyDome	18	527	328CDB00	todo		
 CxIOFile	18	193	328CF990	todo		
 CBandiVideoLibrary	18	260	329840C0	partial	packages/assets/src/movie.ts (Mpeg1Movie), mpeg1.ts, avi.ts	wrapper of the closed bdvid32.dll (Create / Verify / Open / GetVideoInfo / Play / Stop / Pause / Seek / GetStatus / IsNextFrame / GetFrame); the decoding half is replaced by Mpeg1Movie (AVI demux + MPEG-1 decoder of the standard, FINDINGS 13); the player (24 fps wall-clock, PLAYEND, Seek) and the colour conversion of GetFrame (BT.601 assumed) are Phase 4
-CKTDGUIScrollBar	18	1179	32984D70	todo		
+CKTDGUIScrollBar	18	1179	32984D70	partial	packages/ui/src/scrollbar.ts	constructor (32984D70), destructor (329859C0: closes its sound), the setters the owners call, SetTrackPos / SetTrackRange / Cap / UpdateRects / UpdateThumbRect; not ported: input handling and drawing
 CX2Item	18	913	32AACE10	todo		
 CX2SocketItem::SocketData	18	6733	32AE48D0	todo		
 KLuaManagerProxy	18	2586	32C26B60	partial	packages/lua/src/proxy.ts (LuaManagerProxy)	DoMemoryNotEncrypt, LuaParse, LuaKeyword, LuaTableIndex/Key, BeginTable/EndTable, StackGetValue, GetValue (bool / string), GetNumberFromLuaValue<int|float>, LuaCall; boost::lexical_cast formats and UTF-8 handling assumed; the callers (CX2GameOption, CX2InstanceData, CX2TutorSystem, CX2GameEdit) are not ported
@@ -199,14 +199,14 @@ CX2StateAutoChanger	18	869	32D8E480	todo
 CX2StatePVPResult	18	4832	32F2C780	todo		
 CX2UIHeroMatch	18	3842	331DA2E0	todo		
 CX2PVPResultTable	18	846	3325DDC0	todo		
-CKTDGUICheckBox	17	1388	328CD010	todo		
+CKTDGUICheckBox	17	1388	328CD010	partial	packages/ui/src/checkbox.ts	constructor, all 10 Lua methods; SetChecked from input sends 0 / 1 or the custom message and plays the sound; not ported: input handling and drawing
 CX2UIWatch	17	4658	328CF610	todo		
 CxMemFile	17	268	328CF9E0	todo		
 CX2User	17	398	32A29610	todo		
 CX2AdditionalStatByBuff	17	864	32AE1800	todo		
 dbg::logfile	17	1241	32C21C60	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CX2EmblemManager	17	1866	32D8F4C0	todo		
-CX2SlotManager::CX2Slot	17	373	32E5D7B0	todo		
+CX2SlotManager::CX2Slot	17	373	32E5D7B0	partial	packages/ui/src/slot.ts	the slot manager (global g_pCX2SlotManager 32E5E840): AddSlot, CreateItemSlot, GetDummyValue, CX2Slot SetSlotData / SetClickable; not ported: everything the game does with slots
 CX2StateLogin	17	3224	32EDA170	todo		
 CX2UnitLoader	17	1220	331C62B0	todo		
 std::filebuf	16	802	328D0750	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -216,8 +216,8 @@ CX2StateTrainingGame	16	1145	32F40590	todo
 CX2WeddingManager	16	2565	32F494E0	todo		
 CX2GUNPCAI	16	3428	3327D740	todo		
 CryptoPP::ByteQueue	16	544	333CB4C0	todo	-	crypto primitives of the protocol: WebCrypto or a port, decided with the network layer
-CKTDGFontManager::CUKFont	15	1915	328B4850	todo		
-CKTDGFreeTypeFont	15	3757	328D9620	todo		
+CKTDGFontManager::CUKFont	15	1915	328B4850	partial	packages/ui/src/font.ts	the constructor (328D9620) and the line height the list and combo boxes use (idiv(size, enlarge) + 1); not ported: Load, glyphs, drawing, measuring
+CKTDGFreeTypeFont	15	3757	328D9620	partial	packages/ui/src/font.ts	the constructor (328D9620) and the line height the list and combo boxes use (idiv(size, enlarge) + 1); not ported: Load, glyphs, drawing, measuring
 CX2WorldLayer	15	501	32A2AB70	todo		
 CX2CubeOpenImageManager	15	1917	32E95290	todo		
 CX2UIComboTree	15	3115	331DF540	todo		
@@ -226,14 +226,14 @@ CryptoPP::Integer	15	715	333CB450	todo	-	crypto primitives of the protocol: WebC
 KncSecurity::KSecureBuffer	15	1202	333CED70	todo		
 boost::detail::shared_count	14	371	32893EB0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 lua_tinker::mem_functor<CKTDGUIDialog,void,void,void,void,void,void,void,void,void,void>	14	434	328BB540	done	packages/host/src/tinker.ts (makeMethod, MemVar, registerConstructor)	the marshalling thunk of ONE registration (read<T> of the arguments, the call, push<T> of the result): one data-driven binder instead of one C++ template instance per signature; the registered function itself is its own row
-CKTDGUISlider	14	507	328CCEC0	todo		
+CKTDGUISlider	14	507	328CCEC0	partial	packages/ui/src/slider.ts	constructor (3294C6B0), UpdateRects (3294D290, float arithmetic checked against the disassembly), SetRange / SetValue / SetValueInternal, all 8 Lua methods; not ported: dragging and drawing
 std::wfilebuf	14	642	328D0C70	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CWordLineHandler	14	4376	32C27560	todo		
 KBenchMark_LINPACK	14	1014	32C340A0	todo		
 CX2BattleFieldManager	14	1134	32D32F40	todo		
 CX2InformerManager	14	693	32D59A80	todo		
 CX2DungeonStage	14	731	32E9D940	todo		
-CX2StatePVPRoom::CX2MapSelectWindow	14	1539	32EF9EA0	todo		
+CX2StatePVPRoom::CX2MapSelectWindow	14	1539	32EF9EA0	partial	packages/ui/src/mapselect.ts	OpenScript (32EFAC20) and AddMapInfo_LUA (32EFA710, the one registered method); not ported: the window and the rest of the PVP room state
 CX2NPCUnitViewerUI	14	1784	3324ED50	todo		
 namespace'::_Find_meow_of::_Bitmap_impl	14	1177	3329DBD0	todo		
 CKTDIManager	13	321	328CF0E0	todo		
@@ -304,7 +304,7 @@ CX2SubEquip	10	381	3327B450	todo
 CX2TalkBoxManagerUI	10	142	3328D6A0	todo		
 CryptoPP::CipherModeBase	10	138	333CB430	todo	-	crypto primitives of the protocol: WebCrypto or a port, decided with the network layer
 KncSecurity::KSecurityAssociation	10	627	333CC8F0	todo		
-CKTDGFontManager	9	972	328B45A0	todo		
+CKTDGFontManager	9	972	328B45A0	partial	packages/ui/src/fontmanager.ts	CreateNewUIFont (328B5100, a no-op), CreateNewUIUKFont (328B5110), MapUIFontToUKFont (328B7800), GetUKFont; not ported: InstallFont (328B71A0), FreeType loading, glyph cache, drawing and measuring
 KFileSerializer	9	319	328E5DB0	todo		
 CKTDXDeviceRenderTargetTexture	9	509	32970D60	todo	packages/d3d9 (device side)	the class is not ported; the D3D calls it makes (D3DXCreateTexture RENDERTARGET, depth surface, SetRenderTarget / SetDepthStencilSurface, StretchRect LINEAR) are implemented and tested (packages/d3d9/test/rendertarget.test.ts)
 CX2Stat::Stat	9	523	3299B0E0	todo		
@@ -335,7 +335,7 @@ CxImageJPG::CxExifInfo	9	1343	33362150	todo
 CBandiVideoTexture_DX9	8	421	3289C7D0	todo	packages/d3d9 (texture side)	D3D9 texture the library draws into (Open(w, h), CalcTexSize, Lock + GetFrame rows, Draw); needs the engine-side movie player; yuv420ToBgra in packages/assets/src/mpeg1.ts produces the rows
 CKTDXDeviceXET_Preprocessing	8	668	328B4CE0	partial	packages/assets/src/xet.ts	reader (OpenFile, FindAniDataIndex, GetString) ported with the exe-exact binary search (16 shipped files defeat it, kept)
 lua_tinker::mem_functor<CKTDGUIDialog,char const *,void,void,void,void,void,void,void,void,void>	8	264	328BB4C0	done	packages/host/src/tinker.ts (makeMethod, MemVar, registerConstructor)	the marshalling thunk of ONE registration (read<T> of the arguments, the call, push<T> of the result): one data-driven binder instead of one C++ template instance per signature; the registered function itself is its own row
-CKTDGUIControl::CMovieData	8	294	328CD8B0	todo	packages/assets/src/movie.ts (decoder only)	UI control that owns the Bandi library + texture (OnFrameMove / OnFrameRender / SetMovieFileName[_LUA] / SetLoop / SetRect_LUA); Phase 4 (UI framework); the 30 movies it plays decode exactly (FINDINGS 13)
+CKTDGUIControl::CMovieData	8	294	328CD8B0	partial	packages/ui/src/movie.ts, device.ts (video hooks)	the constructor (329231E0), SetLoop, SetShow, SetRect_LUA (the render target "MoveData" through OpenRenderTargetTexture 328EE4C0), SetMovieFileName_LUA (create / verify / close / open / texture / play against a BandiVideoLibrary hook; none by default); not ported: OnFrameMove / OnFrameRender and the Bandi playback itself
 std::_Hash<std::_Umap_traits<std::wstring,KGCMassFileManager::SMassFileIndex,std::_Uhash_compare<std::wstring,std::hash<std::wstring>,std::equal_to<std::wstring>>,std::allocator<std::pair<std::wstring const,KGCMassFileManager::SMassFileIndex>>,0>>	8	522	328D3270	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDXDeviceXET	8	844	32968DA0	todo		
 CKTDXDeviceXMesh	8	751	32969CE0	partial	packages/engine/src/xmesh.ts (loadXMesh), packages/d3d9/src/d3dx-mesh.ts (D3DX side)	_Load (3296B780) up to the mesh and its culling info is ported (loadXMesh: LoadKMEMesh / LoadD3DXMesh; GetMesh / GetCenter / GetRadius are fields of its result); Render (3296B3D0), the texture and XET part of _Load, PreLoad, _UnLoad and the constructor / destructors are not (the D3DX calls Render makes are emulated and tested in packages/d3d9)
@@ -593,7 +593,7 @@ std::vector<boost::io::detail::format_item<char,std::char_traits<char>,std::allo
 std::map<std::wstring,std::wstring>	4	328	328E7250	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 KJohnThread	4	58	328ED050	todo		
 kog::indexed_list<CKTDGParticleSystem::KSequenceHandleInfo>	4	149	32905320	todo		
-CKTDGUIControl::UITextureData	4	104	329234D0	todo		
+CKTDGUIControl::UITextureData	4	104	329234D0	partial	packages/ui/src/control.ts, static.ts	the data classes of the controls: constructors, the texture / point / string setters the scripts reach (all 9 CPictureData Lua methods); not ported: the drawing that reads them
 CKTDXDeviceXMesh::XMeshProxy	4	1255	32969E60	partial	packages/engine/src/xmesh.ts (loadXMesh), packages/assets/src/ksm.ts (parseKme), packages/d3d9/src/d3dx-mesh.ts	LoadKMEMesh (3296A880) and LoadD3DXMesh (3296A130) ported: one FVF 338 mesh, Weld(0), Optimize(0x6000220), the attribute table, a bounding sphere per range (FINDINGS 16.1); LoadXET (3296B210, the XET texture-change table) and the destructor are not
 CKTDXDeviceXSkinMesh::CMultiAnimAllocateHierarchy	4	428	3296DE80	done	packages/engine/src/multianim.ts (CMultiAnimAllocateHierarchy)	CreateFrame (3296DE80: null name -> <no_name>, m_bDraw / m_bMoveBone), CreateMeshContainer (3296E0F0: no materials -> one grey 0.5, a skin info with 0 bones is an error, palette = min(bones, 20)), DestroyFrame, DestroyMeshContainer; the D3DX loader calls it as D3DX does (packages/d3d9)
 std::vector<KGamePlayStatus>	4	251	32996270	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -871,7 +871,7 @@ lua_tinker::mem_functor<CKTDGXMeshPlayer,KHandleType<int,CKTDGXMeshPlayer_CXMesh
 KGCMassFileManager::CMassFile::MASSFILE_MEMBERFILEINFO_POINTER	2	56	328C04F0	done	packages/kom (archive.ts)	CMassFile / MASSFILE_MEMBERFILEINFO*: the archive container (CRC, adler32, MSZIP / KOM v1-v4, per-entry encryption variants)
 std::deque<CX2NoticeManager::NoticeData *>	2	165	328C0580	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 boost::intrusive_ptr<KGCMassFileBuffer>	2	29	328C0630	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDGUIControl::UIStringData	2	35	328CD920	todo		
+CKTDGUIControl::UIStringData	2	35	328CD920	partial	packages/ui/src/control.ts, static.ts	the data classes of the controls: constructors, the texture / point / string setters the scripts reach (all 9 CPictureData Lua methods); not ported: the drawing that reads them
 CKTDXTimer	2	15	328CE840	todo		
 lua_tinker::mem_var<CKTDGXRenderer::RenderParam,D3DXCOLOR>	2	51	328CE9D0	done	packages/host/src/tinker.ts (makeMethod, MemVar, registerConstructor)	the marshalling thunk of ONE registration (read<T> of the arguments, the call, push<T> of the result): one data-driven binder instead of one C++ template instance per signature; the registered function itself is its own row
 lua_tinker::mem_var<CKTDGXRenderer::RenderParam,D3DXVECTOR2>	2	63	328CEA40	done	packages/host/src/tinker.ts (makeMethod, MemVar, registerConstructor)	the marshalling thunk of ONE registration (read<T> of the arguments, the call, push<T> of the result): one data-driven binder instead of one C++ template instance per signature; the registered function itself is its own row
@@ -945,8 +945,8 @@ CKTDGXMeshPlayer::CXMeshEvent_Tex0UV	2	83	3291B170	partial	packages/assets/src/x
 CKTDGXMeshPlayer::CXMeshEvent_Tex1UV	2	83	3291B2F0	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
 CKTDGXMeshPlayer::CXMeshEvent_Tex2UV	2	83	3291B470	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
 CKTDGXMeshPlayer::CXMeshEvent_Velocity	2	157	3291B5F0	partial	packages/assets/src/xmeshplayer.ts (parseXMeshEvent)	ProcessTokenStream and the EventFactory ported (kind, value shape, final flag, which kinds may fade); OnFrameMove is not
-CKTDGUIControl::TexChangeData	2	55	329233B0	todo		
-CKTDGUIControl::UIPointData	2	63	32923430	todo		
+CKTDGUIControl::TexChangeData	2	55	329233B0	partial	packages/ui/src/control.ts, static.ts	the data classes of the controls: constructors, the texture / point / string setters the scripts reach (all 9 CPictureData Lua methods); not ported: the drawing that reads them
+CKTDGUIControl::UIPointData	2	63	32923430	partial	packages/ui/src/control.ts, static.ts	the data classes of the controls: constructors, the texture / point / string setters the scripts reach (all 9 CPictureData Lua methods); not ported: the drawing that reads them
 std::deque<CKTDGUIDialog::DialogMoveItem>	2	165	32923550	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<CKTDGUIContolList::ControlInfo>	2	100	3294EE50	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::map<std::wstring,CKTDGUIControl *>	2	159	32954BA0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -1510,9 +1510,9 @@ std::vector<CX2UIQuestNew::QuestListSlot>	1	22	32923610	n/a	-	C++ runtime librar
 std::queue<CKTDGUIDialog::DialogMoveItem>	1	21	32928880	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::map<int,CKTDGUIControl::TexChangeData *>	1	37	32930930	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CGrowableArray<CKTDGUIIMEEditBox::CInputLocale>	1	48	3293AB50	todo		
-CKTDGUIItem	1	10	3293B600	todo		
-CKTDGUIListBox::ListBoxItem	1	32	32942000	todo		
-CKTDGUIRadioButton::RadioButtonGroupInfo	1	81	3294B950	todo		
+CKTDGUIItem	1	10	3293B600	partial	packages/ui/src/listbox.ts	the list box item (32942000) and CKTDGUIItem (3293B600) constructors and the item helpers the list box needs
+CKTDGUIListBox::ListBoxItem	1	32	32942000	partial	packages/ui/src/listbox.ts	the list box item (32942000) and CKTDGUIItem (3293B600) constructors and the item helpers the list box needs
+CKTDGUIRadioButton::RadioButtonGroupInfo	1	81	3294B950	partial	packages/ui/src/radiobutton.ts	constructor, all 25 Lua methods, the groups (RadioButtonGroupInfo); not ported: input handling and drawing
 std::_Tree_val<std::_Tree_simple_types<std::pair<std::pair<int,int> const,std::vector<CKTDGUIContolList::ControlInfo>>>>	1	24	3294EF80	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::map<std::pair<int,int>,std::vector<CKTDGUIContolList::ControlInfo>>	1	41	3294EFD0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::pair<std::pair<int,int>,std::vector<CKTDGUIContolList::ControlInfo>>	1	7	3294F1E0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library

@@ -84,10 +84,12 @@ for (let i = 0; i < Math.min(show, next.order.length); i++) {
   const k = next.order[i]!;
   console.log(`${String(i + 1).padStart(4)} ${String(next.ported[i]!).padStart(5)}  ${k}  (${calledBy.get(k)} scripts)`);
 }
-console.log("curve:", [5, 10, 20, 30, 40, 60, 100, 140, 200, next.order.length].filter((n) => n <= next.order.length).map((n) => `${n} -> ${next.ported[n - 1]!}`).join(", "));
+if (next.order.length === 0) console.log("  (none: every script that runs on the stubs is fully ported)");
+else console.log("curve:", [5, 10, 20, 30, 40, 60, 100, 140, 200, next.order.length].filter((n) => n <= next.order.length).map((n) => `${n} -> ${next.ported[n - 1]!}`).join(", "));
 
 // per class
-const registered = new Map(HOST_CLASSES.map((c) => [c.cpp, { lua: c.lua, total: c.methods.length, done: 0 }]));
+// distinct Lua names: the exe registers CKTDGUISlot's SetDraggingSlotColor twice (the same function), and a name is one method
+const registered = new Map(HOST_CLASSES.map((c) => [c.cpp, { lua: c.lua, total: new Set(c.methods.map((m) => m.name)).size, done: 0 }]));
 for (const k of implemented) {
   const cls = k.slice(0, k.lastIndexOf("."));
   const e = registered.get(cls);

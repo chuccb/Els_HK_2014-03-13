@@ -5,7 +5,7 @@ import { StringTable } from "@els/assets";
 import { LuaError, LuaTable } from "@els/lua";
 import {
   CKTDGUIContolList, CKTDGUIEditBox, CKTDGUINavigation, CKTDGUIScrollBar, CKTDGUISlider, CKTDGUIStatic, CMovieData, CX2MapSelectWindow,
-  CX2SlotManager, D3DFMT_A8R8G8B8, E_FAIL, IntPairMap, NoVideoLibrary, UCT, UIM, UIWorld, ftoi,
+  CX2SlotManager, D3DFMT_A8R8G8B8, E_FAIL, IntPairMap, NoVideoLibrary, UCT, UIM, UIWorld, ftoi, setRect,
 } from "../src/index.ts";
 import type { BandiVideoLibrary, BandiVideoTexture, Rect } from "../src/index.ts";
 import { indexAllKoms, KomMassFileSource } from "../../../tools/komindex.ts";
@@ -16,6 +16,11 @@ const haveData = existsSync(join(dataDir, "x2.exe")) && existsSync(join(dataDir,
 const t = test.skipIf(!haveData);
 
 const rc = (r: Rect) => [r.left, r.top, r.right, r.bottom];
+// Controls, textures and dialogs each hold the whole world: a failing comparison of two of them would print all of it (and a mutation run
+// would run out of memory).  They are compared by identity, as booleans, or by name.
+const is = (a: unknown, b: unknown): boolean => a === b;
+const names = (list: readonly { m_Name: string }[]): string[] => list.map((c) => c.m_Name);
+const some = (...xs: unknown[]): string[] => xs.map((x) => (x === null || x === undefined ? "none" : "some"));
 const corners = (p: { leftTopPoint: { x: number; y: number }; rightTopPoint: { x: number; y: number }; leftBottomPoint: { x: number; y: number }; rightBottomPoint: { x: number; y: number } }) => [
   p.leftTopPoint.x, p.leftTopPoint.y, p.rightTopPoint.x, p.rightTopPoint.y, p.leftBottomPoint.x, p.leftBottomPoint.y, p.rightBottomPoint.x, p.rightBottomPoint.y,
 ];
@@ -79,7 +84,7 @@ describe("CKTDGUINavigation", () => {
     const { w, b } = nav();
     expect(b.m_ControlType).toBe(UCT.NAVIGATION);
     expect([b.m_CustomMsgLButtonDown, b.m_CustomMsgMouseDragging, b.m_bDraggingWindow]).toEqual([-1, -1, false]);
-    expect([b.m_pBGTex, b.m_pWindowTex, b.m_pBGPoint, b.m_pWindowPoint, b.m_pSndMouseDown]).toEqual([null, null, null, null, undefined]);
+    expect(some(b.m_pBGTex, b.m_pWindowTex, b.m_pBGPoint, b.m_pWindowPoint, b.m_pSndMouseDown)).toEqual(new Array(5).fill("none"));
     expect([b.m_ptLastMouse.x, b.m_ptLastMouse.y, ...rc(b.m_rcBG), ...rc(b.m_rcWindow)]).toEqual(new Array(10).fill(0));
     expect(w.devices.massFiles.log.entries).toEqual([{ id: 0x87, text: "UI_CONTROL_SOUND.LUA" }, { id: 0x48, text: "UI_Control_Sound.lua" }]);
   });
@@ -90,16 +95,16 @@ describe("CKTDGUINavigation", () => {
     const first = b.m_pBGTex!;
     expect([first.texName, first.keyName]).toEqual(["BG.TGA", "A"]);
     m(ud, "SetBGPoint_LUA", point(10, 20));
-    expect(b.m_pBGPoint!.pUITextureData).toBe(first);
+    expect(is(b.m_pBGPoint!.pUITextureData, first)).toBe(true);
     m(ud, "SetBGTex_LUA", "BG.TGA", "B");
     expect(first.pTexture).toBeNull();
-    expect([b.m_pBGTex!.keyName, b.m_pBGPoint!.pUITextureData]).toEqual(["B", b.m_pBGTex]);
+    expect([b.m_pBGTex!.keyName, is(b.m_pBGPoint!.pUITextureData, b.m_pBGTex)]).toEqual(["B", true]);
     m(ud, "SetWindowTex_LUA", "W.TGA", "C");
     const win = b.m_pWindowTex!;
     m(ud, "SetWindowPoint_LUA", point(1, 2));
     m(ud, "SetWindowTex_LUA", "W.TGA", "D");
     expect(win.pTexture).toBeNull();
-    expect(b.m_pWindowPoint!.pUITextureData).toBe(b.m_pWindowTex);
+    expect(is(b.m_pWindowPoint!.pUITextureData, b.m_pWindowTex)).toBe(true);
     const all: unknown[] = [];
     b.textureData(all as never);
     expect(all.length).toBe(2);
@@ -163,7 +168,7 @@ describe("CMovieData", () => {
 
   test("the constructor's defaults (329231E0): a player of its own that is not created, no texture, an empty name, hidden, not looping", () => {
     const { mv } = movie();
-    expect([mv.m_wstrMovieFileName, mv.m_bShow, mv.m_bLoop, mv.m_pBvt, mv.m_pRenderTargetTexture]).toEqual(["", false, false, null, null]);
+    expect([mv.m_wstrMovieFileName, mv.m_bShow, mv.m_bLoop, ...some(mv.m_pBvt, mv.m_pRenderTargetTexture)]).toEqual(["", false, false, "none", "none"]);
     expect([mv.m_vSize.x, mv.m_vSize.y, mv.m_vOriginPos.x, mv.m_vOriginPos.y, mv.m_vPos.x, mv.m_vPos.y]).toEqual([0, 0, 0, 0, 0, 0]);
     expect(mv.m_Bvl.isCreated()).toBe(false);
   });
@@ -184,7 +189,7 @@ describe("CMovieData", () => {
     const target = mv.m_pRenderTargetTexture!;
     expect([target.deviceID, target.width, target.height, target.format, target.refCount]).toEqual(["MOVEDATA", 640, 480, D3DFMT_A8R8G8B8, 1]);
     m(ud, "SetRect", 0, 0, 100, 50);
-    expect([mv.m_pRenderTargetTexture, target.width, target.height, target.refCount, w.devices.renderTargets.size]).toEqual([target, 640, 480, 2, 1]);
+    expect([is(mv.m_pRenderTargetTexture, target), target.width, target.height, target.refCount, w.devices.renderTargets.size]).toEqual([true, 640, 480, 2, 1]);
     expect([mv.m_vSize.x, mv.m_vSize.y]).toEqual([100, 50]);
   });
 
@@ -193,7 +198,7 @@ describe("CMovieData", () => {
     w.devices.currentDirectory = "C:\\Els";
     expect(new NoVideoLibrary().open()).toBe(E_FAIL);
     m(ud, "SetMovieFileName", "intro.avi");
-    expect([mv.m_wstrMovieFileName, mv.m_pBvt, mv.m_Bvl.isCreated()]).toEqual(["C:\\Els\\movie\\intro.avi", null, false]);
+    expect([mv.m_wstrMovieFileName, ...some(mv.m_pBvt), mv.m_Bvl.isCreated()]).toEqual(["C:\\Els\\movie\\intro.avi", "none", false]);
   });
 
   test("SetMovieFileName with a player that opens the file: create (once), verify, close, open, the video's size to the texture (made once), play", () => {
@@ -207,7 +212,7 @@ describe("CMovieData", () => {
     expect(calls).toEqual([
       "create bdvid32.dll", "verify KOG_ELSWORD_20131203 1b9b533c", "close", "open C:\\Els\\movie\\a.avi 0", "info", "play",
     ]);
-    expect([mv.m_pBvt, texture.opens, texture.closes, mv.m_Info.width, mv.m_Info.height]).toEqual([texture, [[640, 360]], 0, 640, 360]);
+    expect([is(mv.m_pBvt, texture), texture.opens, texture.closes, mv.m_Info.width, mv.m_Info.height]).toEqual([true, [[640, 360]], 0, 640, 360]);
     calls.length = 0;
     mv.SetMovieFileName("b.avi");
     expect(calls).toEqual(["verify KOG_ELSWORD_20131203 1b9b533c", "close", "open C:\\Els\\movie\\b.avi 0", "info", "play"]);
@@ -221,16 +226,16 @@ describe("CMovieData", () => {
     const mv = new CMovieData(s.w);
     mv.SetMovieFileName("missing.avi");
     expect(calls.slice(-1)).toEqual(["open \\movie\\missing.avi 0"]);
-    expect(mv.m_pBvt).toBeNull();
+    expect(some(mv.m_pBvt)).toEqual(["none"]);
   });
 
   test("CreateMovie makes one; a static keeps the movies it is given (AddMovieData)", () => {
     const { w, dialog, wrap, m } = setup();
     const mv = dialog().CreateMovie();
-    expect(mv).toBeInstanceOf(CMovieData);
+    expect(mv instanceof CMovieData).toBe(true);
     const st = new CKTDGUIStatic(w);
     m(wrap(st, "CKTDGUIStatic"), "AddMovieData", wrap(mv, "CKTDGUIControl::CMovieData"));
-    expect(st.m_MovieDataList).toEqual([mv]);
+    expect(st.m_MovieDataList.map((x) => is(x, mv))).toEqual([true]);
   });
 });
 
@@ -251,7 +256,7 @@ describe("CKTDGUISlider", () => {
     const b = new CKTDGUISlider(w);
     expect(b.m_ControlType).toBe(UCT.SLIDER);
     expect([b.m_nMin, b.m_nMax, b.m_nValue, b.m_nDragOffset, b.m_nDragX, b.m_bPressed, b.m_CustomMsgValueChanged]).toEqual([0, 100, 50, 0, 0, false, -1]);
-    expect([b.m_x, b.m_y, b.m_width, b.m_height, b.m_iButtonWidth, b.m_iButtonHeight, b.m_pBGTex, b.m_pButtonTex]).toEqual([0, 0, 0, 0, 0, 0, null, null]);
+    expect([b.m_x, b.m_y, b.m_width, b.m_height, b.m_iButtonWidth, b.m_iButtonHeight, ...some(b.m_pBGTex, b.m_pButtonTex)]).toEqual([0, 0, 0, 0, 0, 0, "none", "none"]);
     expect([rc(b.m_rcButton), rc(b.m_rcBoundingBox)]).toEqual([[0, 0, 0, 0], [0, 0, 0, 0]]);
     expect([b.m_TempPoint.bUseTextureSize, b.m_TempPoint.color.a, b.m_TempPoint.kResize.x]).toEqual([true, 1, 1]);
     expect(w.devices.massFiles.log.entries).toEqual([]);
@@ -261,6 +266,10 @@ describe("CKTDGUISlider", () => {
     const { b, ud, m } = slider();
     m(ud, "SetPos", 10, 20);
     expect(rc(b.m_rcBoundingBox)).toEqual([0, 0, 0, 0]); // no size yet
+    m(ud, "SetSize", 100, 0); // a width without a height
+    expect(rc(b.m_rcBoundingBox)).toEqual([0, 0, 0, 0]);
+    m(ud, "SetSize", 0, 20); // a height without a width
+    expect(rc(b.m_rcBoundingBox)).toEqual([0, 0, 0, 0]);
     m(ud, "SetSize", 100, 20);
     expect([b.m_iButtonWidth, b.m_iButtonHeight]).toEqual([20, 20]);
     expect(rc(b.m_rcBoundingBox)).toEqual([10, 20, 110, 40]);
@@ -310,6 +319,20 @@ describe("CKTDGUISlider", () => {
     expect([e.b.m_nValue, e.b.m_nButtonX]).toEqual([5, -2147483648]);
   });
 
+  test("the range starts anywhere: (value - min) * width / (max - min), cut to whole pixels (the sound option of the options window)", () => {
+    const { b, ud, m } = slider();
+    m(ud, "SetPos", 395, 352);
+    m(ud, "SetSize", 228, 12);
+    m(ud, "SetButtonSize", 12, 12);
+    m(ud, "SetRange", -3000, -500);
+    m(ud, "SetValue", -1500);
+    expect([b.m_nButtonX, ...rc(b.m_rcButton)]).toEqual([136, 525, 352, 537, 364]); // 1500 * 228 / 2500 = 136.8
+    m(ud, "SetValue", -500);
+    expect([b.m_nButtonX, ...rc(b.m_rcButton)]).toEqual([228, 617, 352, 629, 364]);
+    m(ud, "SetValue", -3000);
+    expect([b.m_nButtonX, ...rc(b.m_rcButton)]).toEqual([0, 389, 352, 401, 364]);
+  });
+
   test("SetCustomMsgValueChanged makes the message a custom one", () => {
     const { b, ud, m, stageLog } = slider();
     m(ud, "SetCustomMsgValueChanged", 33);
@@ -352,7 +375,7 @@ describe("CKTDGUIEditBox", () => {
     expect([b.m_bCaretOn, b.m_bInsertMode, b.m_bMouseDrag, b.m_nCaret, b.m_nSelStart, b.m_nFirstVisible, b.m_bEnableInput]).toEqual([true, true, false, 0, 0, 0, true]);
     expect([b.m_bPasswordEditBox, b.m_HideChar, b.m_bOutlineCheck, b.m_bBGCheck]).toEqual([false, 42, false, false]);
     expect([b.m_CustomMsgEditBoxChange, b.m_CustomMsgEditBoxEnter, b.m_CustomMsgEditBoxFocusOut]).toEqual([-1, -1, -1]);
-    expect([b.m_pFont, b.m_pNormalTex, b.m_pDisableTex, b.m_pNormalPoint, b.m_pDisablePoint, b.m_pTextPoint, b.m_pSndKeyDown]).toEqual([null, null, null, null, null, null, undefined]);
+    expect(some(b.m_pFont, b.m_pNormalTex, b.m_pDisableTex, b.m_pNormalPoint, b.m_pDisablePoint, b.m_pTextPoint, b.m_pSndKeyDown)).toEqual(new Array(7).fill("none"));
     expect([b.m_NowFontColor.r, b.m_NowFontColor.a, b.m_OutlineColor.r, b.m_OutlineColor.a]).toEqual([0, 1, 1, 1]);
     expect(b.m_dfBlink).toBe(Math.fround(Math.fround(530) * Math.fround(0.0005)));
     expect([b.m_Buffer.GetTextSize(), rc(b.m_rcText)]).toEqual([0, [0, 0, 0, 0]]);
@@ -367,11 +390,11 @@ describe("CKTDGUIEditBox", () => {
     expect(corners(b.m_pNormalPoint!)).toEqual([3, 4, 67, 4, 3, 36, 67, 36]); // the texture is 64 x 32
     const first = b.m_pNormalTex!;
     m(ud, "SetNormalTex", "E.TGA", "N2");
-    expect([first.pTexture, b.m_pNormalPoint!.pUITextureData]).toEqual([null, b.m_pNormalTex]);
+    expect([first.pTexture, is(b.m_pNormalPoint!.pUITextureData, b.m_pNormalTex)]).toEqual([null, true]);
     m(ud, "SetDisablePoint", point(7, 8)); // no disable texture yet: no size
-    expect(b.m_pDisablePoint!.pUITextureData).toBeNull();
+    expect(some(b.m_pDisablePoint!.pUITextureData)).toEqual(["none"]);
     m(ud, "SetDisableTex", "E.TGA", "D");
-    expect([b.m_pDisableTex!.keyName, b.m_pDisablePoint!.pUITextureData]).toEqual(["D", b.m_pDisableTex]);
+    expect([b.m_pDisableTex!.keyName, is(b.m_pDisablePoint!.pUITextureData, b.m_pDisableTex)]).toEqual(["D", true]);
     const all: unknown[] = [];
     b.textureData(all as never);
     expect(all.length).toBe(2);
@@ -387,11 +410,11 @@ describe("CKTDGUIEditBox", () => {
   test("SetFont looks the index up in the dialog manager's maps; the custom messages", () => {
     const { w, b, ud, m } = edit();
     m(ud, "SetFont", 4);
-    expect(b.m_pFont).toBeNull();
+    expect(some(b.m_pFont)).toEqual(["none"]);
     const font = w.fonts.addUKFont(2);
     w.fonts.mapUIFontToUKFont(4, 2);
     m(ud, "SetFont", 4);
-    expect(b.m_pFont).toBe(font);
+    expect(is(b.m_pFont, font)).toBe(true);
     m(ud, "SetCustomMsgChange", 21);
     m(ud, "SetCustomMsgEnter", 22);
     expect([b.m_CustomMsgEditBoxChange, b.m_CustomMsgEditBoxEnter, b.m_CustomMsgEditBoxFocusOut]).toEqual([21, 22, -1]);
@@ -439,7 +462,7 @@ describe("CKTDGUIContolList", () => {
     const { w } = setup();
     const b = new CKTDGUIContolList(w);
     expect(b.m_ControlType).toBe(UCT.CONTROLLIST);
-    expect([b.m_mapControls.size, b.m_vecNowControls.length, b.m_pScrollBarX, b.m_pScrollBarY]).toEqual([0, 0, null, null]);
+    expect([b.m_mapControls.size, b.m_vecNowControls.length, ...some(b.m_pScrollBarX, b.m_pScrollBarY)]).toEqual([0, 0, "none", "none"]);
     expect([b.m_iTopIndexX, b.m_iTopIndexY, b.m_iMaxIndexX, b.m_iMaxIndexY, b.m_iViewSizeX, b.m_iViewSizeY, b.m_iScrollOffsetX, b.m_iScrollOffsetY]).toEqual([0, 0, 0, 0, 1, 1, 1, 1]);
     expect([b.m_CustomMsgScroll, b.m_Pos.x, b.m_Pos.y, rc(b.m_rcBoundingBox)]).toEqual([-1, 0, 0, [0, 0, 0, 0]]);
     expect(w.devices.massFiles.log.entries).toEqual([]);
@@ -474,20 +497,20 @@ describe("CKTDGUIContolList", () => {
     const [retX] = m(ud, "InitXScrollBar");
     const [retY] = m(ud, "InitYScrollBar");
     const [bx, by] = [b.m_pScrollBarX!, b.m_pScrollBarY!];
-    expect([(retX as { data: unknown }).data, (retY as { data: unknown }).data]).toEqual([bx, by]);
-    expect([bx.m_pDialog, by.m_pDialog]).toEqual([d, d]);
+    expect([is((retX as { data: unknown }).data, bx), is((retY as { data: unknown }).data, by)]).toEqual([true, true]);
+    expect([is(bx.m_pDialog, d), is(by.m_pDialog, d)]).toEqual([true, true]);
     expect([bx.m_pUpButtonTex!.keyName, bx.m_pUpButtonDownTex!.keyName, bx.m_pDownButtonTex!.keyName, bx.m_pDownButtonDownTex!.keyName, bx.m_pTrackTex!.keyName, bx.m_pThumbTex!.keyName]).toEqual([
       "xUpButton", "xUpButtonDown", "xDownButton", "xDownButtonDown", "xTrack", "xThumb",
     ]);
     expect(by.m_pThumbTex!.keyName).toBe("yThumb");
-    expect(bx.m_pThumbTex).toBe(b.xTex.thumb);
+    expect(is(bx.m_pThumbTex, b.xTex.thumb)).toBe(true);
     // the old bar goes: the sound it had is closed
     w.devices.soundSystemInitialised = true;
     w.devices.massFiles.isValidFile = () => true;
     bx.m_pSndMouseDown = w.devices.openSound("a.wav");
     expect(w.devices.sounds.size).toBe(1);
     const [again] = m(ud, "InitXScrollBar");
-    expect([(again as { data: unknown }).data === bx, b.m_pScrollBarX === bx, w.devices.sounds.size, bx.m_pSndMouseDown]).toEqual([false, false, 0, undefined]);
+    expect([is((again as { data: unknown }).data, bx), is(b.m_pScrollBarX, bx), w.devices.sounds.size, some(bx.m_pSndMouseDown)[0]]).toEqual([false, false, 0, "none"]);
   });
 
   test("the bar setters move and size a bar and update it; without the bar the exe faults (here: an error)", () => {
@@ -497,13 +520,20 @@ describe("CKTDGUIContolList", () => {
     expect(() => m(ud, "SetShowEnableYScroolBar", true, true)).toThrow(/Y scroll bar/);
     m(ud, "InitXScrollBar");
     m(ud, "InitYScrollBar");
-    m(ud, "SetXScrollBarPos", 10, 20);
+    // each call updates the bar: a size with no position yet, the move, a new size
+    const barX = b.m_pScrollBarX!, barY = b.m_pScrollBarY!;
     m(ud, "SetXScrollBarSize", 100, 16);
-    expect([b.m_pScrollBarX!.m_x, b.m_pScrollBarX!.m_y, b.m_pScrollBarX!.m_width, b.m_pScrollBarX!.m_height]).toEqual([10, 20, 100, 16]);
-    expect(rc(b.m_pScrollBarX!.m_rcBoundingBox)).toEqual([10, 20, 110, 36]);
-    m(ud, "SetYScrollBarPos", 300, 40);
+    expect([barX.m_width, barX.m_height, ...rc(barX.m_rcBoundingBox)]).toEqual([100, 16, 0, 0, 100, 16]);
+    m(ud, "SetXScrollBarPos", 10, 20);
+    expect([barX.m_x, barX.m_y, ...rc(barX.m_rcBoundingBox)]).toEqual([10, 20, 10, 20, 110, 36]);
+    m(ud, "SetXScrollBarSize", 50, 8);
+    expect(rc(barX.m_rcBoundingBox)).toEqual([10, 20, 60, 28]);
     m(ud, "SetYScrollBarSize", 16, 120);
-    expect(rc(b.m_pScrollBarY!.m_rcBoundingBox)).toEqual([300, 40, 316, 160]);
+    expect([barY.m_width, barY.m_height, ...rc(barY.m_rcBoundingBox)]).toEqual([16, 120, 0, 0, 16, 120]);
+    m(ud, "SetYScrollBarPos", 300, 40);
+    expect([barY.m_x, barY.m_y, ...rc(barY.m_rcBoundingBox)]).toEqual([300, 40, 300, 40, 316, 160]);
+    m(ud, "SetYScrollBarSize", 8, 60);
+    expect(rc(barY.m_rcBoundingBox)).toEqual([300, 40, 308, 100]);
     m(ud, "SetShowEnableYScroolBar", false, false);
     expect([b.m_pScrollBarY!.m_bShow, b.m_pScrollBarY!.m_bEnable]).toEqual([false, false]);
     m(ud, "SetShowEnableXScroolBar", true, false);
@@ -519,34 +549,41 @@ describe("CKTDGUIContolList", () => {
     m(ud, "SetViewSize", 3, 4);
     expect([b.m_iViewSizeX, b.m_iViewSizeY, b.m_iScrollOffsetX, b.m_iScrollOffsetY]).toEqual([3, 4, 40, 30]);
     expect(rc(b.m_rcBoundingBox)).toEqual([10, 20, 130, 140]); // 3 * 40 + 10.7 = 130.7; 4 * 30 + 20.2 = 140.2
+    setRect(b.m_rcBoundingBox, 0, 0, 0, 0);
     b.updateRects();
     expect(rc(b.m_rcBoundingBox)).toEqual([10, 20, 130, 140]);
+    m(ud, "SetScrollOffset", 10, 20); // smaller cells: 3 * 10 + 10.7 = 40.7, 4 * 20 + 20.2 = 100.2
+    expect(rc(b.m_rcBoundingBox)).toEqual([10, 20, 40, 100]);
     m(ud, "SetCustomMsgScroll", 77);
     expect(b.m_CustomMsgScroll).toBe(77);
   });
 
   test("InsertItem puts the control in its cell (row, column), grows the largest index, adds a control without a dialog to the list's dialog; the answer is false", () => {
     const { b, ud, m, d, w, wrap, dialog } = list();
-    const make = () => new CKTDGUIStatic(w);
-    const [a, c, e] = [make(), make(), make()];
+    const make = (name: string) => {
+      const x = new CKTDGUIStatic(w);
+      x.SetName(name);
+      return x;
+    };
+    const [a, c, e] = [make("a"), make("c"), make("e")];
     expect(m(ud, "InsertItem", wrap(a, "CKTDGUIStatic"), 2, 5, false)).toEqual([false]);
     m(ud, "InsertItem", wrap(c, "CKTDGUIStatic"), 2, 5, true);
     m(ud, "InsertItem", wrap(e, "CKTDGUIStatic"), 0, 1, false);
-    expect([...b.m_mapControls].map(([r, col, infos]) => [r, col, infos.map((i) => [i.m_pControl, i.m_bUseAbsolutePos])])).toEqual([
-      [0, 1, [[e, false]]], [2, 5, [[a, false], [c, true]]],
+    expect([...b.m_mapControls].map(([r, col, infos]) => [r, col, infos.map((i) => [i.m_pControl.m_Name, i.m_bUseAbsolutePos])])).toEqual([
+      [0, 1, [["e", false]]], [2, 5, [["a", false], ["c", true]]],
     ]);
     expect([b.m_iMaxIndexX, b.m_iMaxIndexY]).toEqual([5, 2]);
-    expect([a.m_pDialog, c.m_pDialog, e.m_pDialog]).toEqual([d, d, d]);
-    expect(d.m_ControlsList.slice(-3)).toEqual([a, c, e]);
+    expect([a, c, e].map((x) => is(x.m_pDialog, d))).toEqual([true, true, true]);
+    expect(names(d.m_ControlsList.slice(-3))).toEqual(["a", "c", "e"]);
     // a control that is in a dialog already is not added again
-    const other = new CKTDGUIStatic(w);
+    const other = make("other");
     dialog().AddControl(other);
     const before = d.m_ControlsList.length;
     b.InsertItem(other, 0, 0, false);
-    expect([d.m_ControlsList.length, other.m_pDialog === d]).toEqual([before, false]);
+    expect([d.m_ControlsList.length, is(other.m_pDialog, d)]).toEqual([before, false]);
     // neither the list nor the control in a dialog: the exe dereferences a null handle
     const lonely = new CKTDGUIContolList(w);
-    expect(() => lonely.InsertItem(make(), 0, 0, false)).toThrow(/dialog/);
+    expect(() => lonely.InsertItem(make("x"), 0, 0, false)).toThrow(/dialog/);
   });
 
   test("UpdateRenderControlList places the controls inside the window (absolute ones from the list's position less the scroll) and marks the others out of the list", () => {
@@ -556,22 +593,31 @@ describe("CKTDGUIContolList", () => {
     m(ud, "SetViewSize", 2, 2);
     const cell = (row: number, col: number, abs = false) => {
       const c = new CKTDGUIStatic(w);
+      c.SetName(`c${row}${col}`);
       m(ud, "InsertItem", wrap(c, "CKTDGUIStatic"), row, col, abs);
       return c;
     };
     const [c00, c01, c02, c10, c11, c12] = [cell(0, 0), cell(0, 1), cell(0, 2), cell(1, 0), cell(1, 1), cell(1, 2, true)];
+    // the first cells beyond the window in each direction
+    const [c03, c14, c21, c32] = [cell(0, 3), cell(1, 4), cell(2, 1), cell(3, 2)];
     b.setIndex(1, 0, true, false);
     const at = (c: CKTDGUIStatic) => [c.m_OffsetPos.x, c.m_OffsetPos.y];
     // columns 1..2 and rows 0..1 are in the window
-    expect(b.m_vecNowControls).toEqual([c01, c02, c11, c12]);
-    expect([c00.m_bOutofList, c10.m_bOutofList, c01.m_bOutofList, c12.m_bOutofList]).toEqual([true, true, false, false]);
+    expect(names(b.m_vecNowControls)).toEqual(["c01", "c02", "c11", "c12"]);
+    expect([c00, c10, c03, c14, c21, c32].map((c) => c.m_bOutofList)).toEqual([true, true, true, true, true, true]);
+    expect([c01, c02, c11, c12].map((c) => c.m_bOutofList)).toEqual([false, false, false, false]);
     expect([at(c01), at(c02), at(c11)]).toEqual([[100, 200], [150, 200], [100, 230]]);
     expect(at(c12)).toEqual([100 - 1 * 50, 200 - 0 * 30]); // absolute: the list's position less the scroll
-    // scrolled on: the first column is out, the one beyond the view comes in
+    // scrolled on: columns 2..3 and rows 1..2; (1, 4) is the first column and (3, 2) the first row beyond
     b.setIndex(2, 1, true, false);
-    expect(b.m_vecNowControls).toEqual([c12]);
-    expect([c01.m_bOutofList, c12.m_bOutofList, c10.m_bOutofList]).toEqual([true, false, true]);
+    expect(names(b.m_vecNowControls)).toEqual(["c12"]);
+    expect([c01, c12, c10, c14, c32, c21].map((c) => c.m_bOutofList)).toEqual([true, false, true, true, true, true]);
     expect(at(c12)).toEqual([100 - 2 * 50, 200 - 1 * 30]);
+    // columns 1..2 and rows 1..2: the cells are placed from the top cell, not from the first
+    b.setIndex(1, 1, true, false);
+    expect(names(b.m_vecNowControls)).toEqual(["c11", "c12", "c21"]);
+    expect([at(c11), at(c21)]).toEqual([[100, 200], [100, 230]]);
+    expect(at(c12)).toEqual([100 - 1 * 50, 200 - 1 * 30]);
   });
 
   test("setIndex sends the custom scroll message when there is one and it is asked to; setShowAt shows or hides the cells that match (-1 matches all)", () => {
@@ -605,16 +651,21 @@ describe("CKTDGUIContolList", () => {
     bar.SetShowEnable(false, false);
     m(ud, "SetViewSize", 1, 4);
     expect([bar.m_bShow, bar.m_bEnable, bar.m_nStart, bar.m_nEnd]).toEqual([true, true, 0, 7]); // 9 - 4 + 2
-    // the view as big as the list: the bar is left alone
+    // a view that holds all ten rows: the bar is left alone; one row fewer (the largest index 9 is not less than the view): it is there
     bar.SetShowEnable(false, false);
-    m(ud, "SetViewSize", 1, 20);
+    m(ud, "SetViewSize", 1, 10);
     expect([bar.m_bShow, bar.m_nEnd]).toEqual([false, 7]);
+    m(ud, "SetViewSize", 1, 9);
+    expect([bar.m_bShow, bar.m_bEnable, bar.m_nEnd]).toEqual([true, true, 2]); // 9 - 9 + 2
   });
 
   test("UpdateScrollBar's bug: the X bar's position is set on the Y bar (and an X bar without a Y bar faults)", () => {
     const { b, ud, m, w, wrap } = list();
     m(ud, "InitXScrollBar");
-    for (let col = 0; col < 6; col++) m(ud, "InsertItem", wrap(new CKTDGUIStatic(w), "CKTDGUIStatic"), 0, col, false);
+    for (let col = 0; col < 2; col++) m(ud, "InsertItem", wrap(new CKTDGUIStatic(w), "CKTDGUIStatic"), 0, col, false);
+    m(ud, "SetViewSize", 2, 2); // the view holds both columns (the largest index 1 is less than 2): the X bar is left alone
+    expect(() => m(ud, "SetViewSize", 1, 2)).toThrow(/Y scroll bar/); // the largest index is not less than the view: the X bar is looked after, and with it the Y bar
+    for (let col = 2; col < 6; col++) m(ud, "InsertItem", wrap(new CKTDGUIStatic(w), "CKTDGUIStatic"), 0, col, false);
     expect(() => m(ud, "SetViewSize", 2, 2)).toThrow(/Y scroll bar/);
     m(ud, "InitYScrollBar");
     const [bx, by] = [b.m_pScrollBarX!, b.m_pScrollBarY!];
@@ -674,7 +725,7 @@ describe("CX2MapSelectWindow", () => {
     m(ud, "AddMapInfo_LUA", info({ m_WorldID: 1 }));
     expect(win.openScript("NOT_THERE.lua")).toBe(false);
     expect(win.m_vecpMapInfo.length).toBe(0);
-    expect((w.world.G.globals.getStr("g_pMapSelectWindow") as { data: unknown }).data).toBe(win);
+    expect(is((w.world.G.globals.getStr("g_pMapSelectWindow") as { data: unknown }).data, win)).toBe(true);
     expect(w.devices.massFiles.log.entries).toEqual([
       { id: 0x87, text: "NOT_THERE.LUA" }, { id: 0x48, text: "NOT_THERE.lua" }, { id: 0x2793, text: "NOT_THERE.lua" },
     ]);
@@ -709,46 +760,46 @@ describe("CKTDGUIDialog.ChangeSequence*", () => {
       d.AddControl(x);
       return x;
     }) as [CKTDGUIStatic, CKTDGUIStatic, CKTDGUIStatic, CKTDGUIStatic];
-    return { ...s, d, a, b, c, e };
+    return { ...s, d, a, b, c, e, order: () => names(d.m_ControlsList).join("") };
   }
 
   test("changeSequence (329566E0): to the end (bFront: drawn last) or to the beginning; false for a control that is not in the list", () => {
-    const { w, d, a, b, c, e } = four();
+    const { w, d, b, order } = four();
     expect(d.changeSequence(b, true)).toBe(true);
-    expect(d.m_ControlsList).toEqual([a, c, e, b]);
+    expect(order()).toBe("ACEB");
     expect(d.changeSequence(b, false)).toBe(true);
-    expect(d.m_ControlsList).toEqual([b, a, c, e]);
+    expect(order()).toBe("BACE");
     expect([d.changeSequence(undefined, true), d.changeSequence(new CKTDGUIStatic(w), true)]).toEqual([false, false]);
-    expect(d.m_ControlsList).toEqual([b, a, c, e]);
+    expect(order()).toBe("BACE");
   });
 
   test("changeSequenceByPivot (32956590): right behind the pivot (bFront) or in front of it; nothing when either is missing; a control that is its own pivot disappears", () => {
-    const { w, d, a, b, c, e } = four();
+    const { w, d, a, b, c, e, order } = four();
     d.changeSequenceByPivot(a, c, true);
-    expect(d.m_ControlsList).toEqual([b, c, a, e]);
+    expect(order()).toBe("BCAE");
     d.changeSequenceByPivot(e, b, false);
-    expect(d.m_ControlsList).toEqual([e, b, c, a]);
+    expect(order()).toBe("EBCA");
     const stranger = new CKTDGUIStatic(w);
     d.changeSequenceByPivot(stranger, b, true);
     d.changeSequenceByPivot(a, stranger, true);
     d.changeSequenceByPivot(undefined, b, true);
     d.changeSequenceByPivot(a, undefined, true);
-    expect(d.m_ControlsList).toEqual([e, b, c, a]);
+    expect(order()).toBe("EBCA");
     d.changeSequenceByPivot(b, b, true);
-    expect(d.m_ControlsList).toEqual([e, c, a]);
+    expect(order()).toBe("ECA");
   });
 
   test("the Lua methods look the control up first, then the pivot (a name that is not there is error 0x24 and the order stays)", () => {
-    const { w, d, a, b, c, e } = four();
+    const { w, d, order } = four();
     d.ChangeSequenceByName("B", true);
-    expect(d.m_ControlsList).toEqual([a, c, e, b]);
+    expect(order()).toBe("ACEB");
     d.ChangeSequenceByNameAndPivot("A", "C", true);
-    expect(d.m_ControlsList).toEqual([c, a, e, b]);
+    expect(order()).toBe("CAEB");
     w.devices.massFiles.log.entries.length = 0;
     d.ChangeSequenceByNameAndPivot("A", "NOPE", true);
     d.ChangeSequenceByNameAndPivot("NOPE1", "NOPE2", false);
     d.ChangeSequenceByName("NOPE3", false);
-    expect(d.m_ControlsList).toEqual([c, a, e, b]);
+    expect(order()).toBe("CAEB");
     expect(w.devices.massFiles.log.entries.map((x) => [x.id, x.text.split(" ")[0]])).toEqual([[0x24, "NOPE"], [0x24, "NOPE1"], [0x24, "NOPE2"], [0x24, "NOPE3"]]);
   });
 });
@@ -790,7 +841,7 @@ describe("the controls of the real scripts", () => {
       const [bg, win] = [n.m_pBGPoint!, n.m_pWindowPoint!];
       expect([bg.leftTopPoint.x, bg.leftTopPoint.y, bg.rightBottomPoint.x, bg.rightBottomPoint.y]).toEqual([398, 95, 421, 221]);
       expect([win.leftTopPoint.x, win.leftTopPoint.y, win.rightBottomPoint.x, win.rightBottomPoint.y]).toEqual([398, 95, 421, 135]);
-      expect(win.pUITextureData).toBe(n.m_pBGTex); // the exe's bug, in the data that shows it
+      expect(is(win.pUITextureData, n.m_pBGTex)).toBe(true); // the exe's bug, in the data that shows it
     });
   }, 60_000);
 
@@ -864,6 +915,28 @@ describe("the controls of the real scripts", () => {
       const missing = w.devices.massFiles.log.entries.filter((e) => e.id === 0x24);
       expect(missing.length).toBe(1);
       expect(missing[0]!.text.startsWith("CommonBlackUpDownBG")).toBe(true);
+    });
+  }, 60_000);
+});
+
+describe("the sounds of the new controls", () => {
+  t("the navigation opens Button_Mouse_Up and the edit box EditBox_KeyDown (UI_Control_Sound.lua); a slider and a control list have none", async () => {
+    await source.settle(() => {
+      const w = new UIWorld({ source, strings, notPorted: "throw" });
+      w.boot();
+      w.devices.soundSystemInitialised = true;
+      w.devices.massFiles.isValidFile = () => true;
+      const g = (name: string) => String(w.world.G.globals.getStr(name)).toUpperCase();
+      const nav = new CKTDGUINavigation(w);
+      const edit = new CKTDGUIEditBox(w);
+      expect([nav.m_pSndMouseDown?.deviceID, edit.m_pSndKeyDown?.deviceID]).toEqual([g("Button_Mouse_Up"), g("EditBox_KeyDown")]);
+      expect(g("Button_Mouse_Up")).not.toBe(g("EditBox_KeyDown"));
+      expect(g("Button_Mouse_Up")).not.toBe("UNDEFINED");
+      expect(w.devices.sounds.size).toBe(2);
+      new CKTDGUISlider(w);
+      new CKTDGUIContolList(w);
+      expect(w.devices.sounds.size).toBe(2);
+      return 0;
     });
   }, 60_000);
 });

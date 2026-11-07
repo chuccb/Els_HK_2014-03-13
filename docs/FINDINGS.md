@@ -1076,3 +1076,95 @@ The same method fits any other pure function of the exe whose imports are few; `
 
 GPU-skinning preparation of `_Load` (`EstimateDrawFrameWorkingPaletteSizeAndBoneNum`, `OptimizeDrawFrameMesh`, `ConvertDrawFrameToSkinnedMesh`: the viewer uses CPU skinning), the XET / texture part of `_Load`, the sort of 16.2 for more than 32 unsorted keys,
 the exact stack garbage of the scale accumulators (it depends on the loader's frames below `OptimizeKeys`, which the oracle does not run).
+
+## 17. The UI classes (`@els/ui`) and the dialog census (Phase 4)
+
+`packages/ui` ports the classes that the `DLG_*.lua` scripts of the client talk to: `CKTDGUIDialog`, the `CKTDGUI*` controls, the slot manager, the three UI classes that own dialogs
+(`CX2PostBox`, `CX2CouponBox`, `CX2MapSelectWindow`) and the font manager. A class is a TS class whose methods carry the **registered Lua names** (`SetBGTex_LUA` where the registry keeps the suffix; a lower camel name is a C++ member
+that the registered functions call: `updateRects`, `addItem`), and it is registered with the binder of `@els/host` (`registerImpl(cppClass, TsClass)`). The real scripts therefore run unmodified in the one Lua state, and a registered
+method that nobody ported fails the script in strict mode (record mode only counts it, `docs/HOST_CENSUS.md`). The header of every `packages/ui/src/*.ts` lists the addresses, the struct size and the quirks of its class.
+Everything is ported from the decompile: **there is no oracle for the UI** (its code needs D3D, fonts and a window, so `tools/peemu.py` cannot run it, section 16.3); what is checked is the strict run of the scripts, unit tests that pin
+the behaviour read from the decompile, and a mutation check of those tests (17.5).
+
+### 17.1 How far it goes: the dialog census
+
+`tools/ui-census.ts` (`bun run census:ui` -> `docs/UI_COVERAGE.md`) runs every DLG script on the host layer with typed stubs to find the registered methods it calls, then runs the scripts whose methods are all ported in **strict** mode (one world,
+a new `CKTDGUIDialog` per script, the owners alive, the start-up config booted). **1,024 `DLG_*.lua` scripts: 992 run to the end, 992 are fully ported and 992 run strictly without an error** (0 failed, 0 waiting for a sibling script).
+Every registered method of these classes is implemented, called by a script or not (`implemented = registered` on every row of the class table in UI_COVERAGE.md; for example `CKTDGUIDialog` 53, `CKTDGUIComboBox` 34, `CKTDGUIButton` 31,
+`CKTDGUIListBox` 31, `CKTDGUIControl` 30, `CKTDGUIIMEEditBox` 28, `CKTDGUIRadioButton` 25, `CKTDGUIContolList` 25, `CKTDGUISlot` 18). In the strict runs 27,804 texture references resolve (the image opens and the key is in the `.tet` next to it), no reference names a file that does not open, and 522 more (267 distinct
+keys, e.g. `DLG_BossState.TGA:Boss_HP3_YG`) name a key that the `.tet` does not have, which the exe tolerates (the UV stays 0) and so does the port.
+
+**The other 32 scripts never run on stubs.** Each dies at its first line on `attempt to index global 'X' (nil)`: X is a table or an object that a *game state* puts into Lua when it starts, and no state is ported yet.
+`STATE_VILLAGE_MAP_UI_CUSTOM_MSG` 13 scripts (the village maps, the square rooms), `STATE_LOCAL_MAP_UI_CUSTOM_MSG` 6, `STATE_WORLD_MAP_UI_CUSTOM_MSG` 2, `SHOP_UI_CUSTOM_MSG` 3, `STATE_SHOP_UI_CUSTOM_MSG` 2,
+`g_pShopCharStatus` 2, `g_pShopInventory` 2, `UI_RECORD_VIDEO_CUSTOM_MSG` 1, `WORLD_MISSION_UI_MSG` 1. They belong to the states (Phase 5 remainder / 6), not to the UI classes. *(Not checked: that the state classes are what
+registers these names; grep `data/x2.exe.c` for the global before porting a state.)* `packages/ui/test/census.test.ts` keeps the numbers from going down (the bound on the 32 goes down when a state is ported).
+
+### 17.2 The world around the controls (`UIWorld`)
+
+* **Boot.** `UIWorld.boot()` = `publishStubObjects`, `loadEnums` and `loadConfig` = the start-up script `CONFIG_HK_SERVICE.LUA`: it makes seven UK fonts (`g_pFontManager:CreateNewUIUKFont`, 328B5110) and maps two UI font ids to them
+  (`MapUIFontToUKFont`, 328B7800); what it asks of `g_pMain` (client version, server addresses, `InstallFont`, `DeleteFile`) is recorded, not run. `CreateNewUIFont` is registered but is `ret 0x10`: the old UI font is gone and the script still asks for it.
+* **Owners.** A DLG script finds the UI class that owns its dialog in a global: `g_pCX2SlotManager` (`CX2SlotManager::RegisterLuaBind` 32E5E840), `g_pPostBoxInventory` (32CA5F80), `g_pCouponBox` (32EB5900), `g_pMapSelectWindow`
+  (`OpenScript` 32EFAC20). The exe makes each global when its own UI opens; one script at a time has them all alive from the start (`createOwners()`, `openDialog(script, layer, owner)`).
+* **Devices are headless.** `CKTDXDeviceManager::OpenTexture` (328EE8E0): the id is upper-cased, an open device is referenced again, a missing file is no device, the load reads the image header (`m_Info`, the size of the FILE) and the `.tet` next to it
+  (`id` minus its last three letters + `TET`); a failed load leaves the device in the map and keeps answering null. A control only reads the size and the UV table, so a texture is that; the GPU texture would be made from the bytes when something draws.
+  `OpenSound`, `OpenRenderTargetTexture` (328EE4C0) and the Bandi video player (`CMovieData`) are hooks of the same kind (`createVideoLibrary`, `createVideoTexture`; the default `NoVideoLibrary` fails to open).
+* **A run that touched a member that is not resident is void.** The VM and the UI are synchronous and a KOM read is not, so `KomMassFileSource.settle(run)` loads what a run asked for and runs again in a fresh world (callbacks can run twice).
+  Image files are cut to their first 64 KB (`D3DXGetImageInfoFromFileInMemory` reads a header); the full bytes of the textures that the dialogs name are 1.3 GB. Such bytes must never be drawn.
+
+### 17.3 What the decompile says (rules the port follows)
+
+* **Scripts and the log.** A script that cannot be opened: `LoadDataFile` logs 0x87 for a missing file, then the dialog (or the control that wants `UI_Control_Sound.lua`) logs 0x48; a Lua error while it runs is 0x49 and `m_bSuccessInitOpenScript` stays false.
+  `CX2MapSelectWindow::OpenScript` logs 0x48 / 0x49 and in both cases 0x2793 with the file name. `_GetControl` of a name the dialog does not have logs 0x24 (the control's name, two Korean fragments, the dialog's name), but only when the dialog has controls at all.
+* **Names.** `AddControl` with a name that is taken stores `name100`, `name101`, ... (`StringCchPrintfW(buff, 0x100, L"%s%d")`, at most 255 characters); `ReNameControl` does the same for `SetName`. The dialog's control map is a `std::map<std::wstring, ...>` and the exe walks
+  it in `MsgProc` and `OnFrameMove`, so the order is behaviour: `WStringMap` and `IntPairMap` (the cells of a control list, `std::pair<int,int>` order) are sorted maps, a JS `Map` would give the order of insertion. `ChangeSequence*` moves a control to the front =
+  the END of `m_ControlsList`; with a pivot it goes behind (front) or before the pivot; a pivot equal to the control removes it; a name that is not found is error 0x24 and the order stays.
+* **Textures.** The `.tet` record stores the corners as left-top, right-bottom, left-bottom, right-top; the quad of a control is drawn left-top, right-top, left-bottom, right-bottom (`setTexureData`, 32927A60), the UVs are the rectangle in texels / (float)
+  the file's width and height, the key is looked up upper-cased and an unknown key leaves everything 0. `USE_TEXTURE_SIZE` of a point table defaults to true; then the reader ignores RIGHT_TOP, LEFT_BOTTOM and RIGHT_BOTTOM and the point is as big as
+  the texture rectangle: scripts that give corners say `USE_TEXTURE_SIZE = 0`. `KLuaManager::GetValue(bool)` reads **numbers only** (a Lua `true` reads as "not there"; the scripts use the numeric globals `TRUE` / `FALSE`).
+* **`const char*` that is NULL.** `lua_tinker::read<const char*>` is `lua_tostring`: a table, nil or a missing argument is NULL, and scripts do pass them by mistake. The exe survives it in 144 registered methods because `ConvertUtf8ToWCHAR` (328C1010)
+  tests the pointer and leaves its destination as it was (a local destination reads as the empty string, a member stays what it was), or the function tests it itself. `tools/null-cstr.py` finds these from the decompile into `docs/host_null_cstr.tsv`
+  (one mask character per parameter: `L` empty string, `U` undefined, `.` not tolerant: the exe would crash and the binder raises a Lua error); `tools/cstr-uses.py ADDR` prints the uses of one method's pointers.
+* **Sounds.** Every control constructor runs `UI_Control_Sound.lua` in the one Lua state (a missing script is 0x48, a failing one 0x49) and opens the sounds that its globals name (`Button_Mouse_Over` / `Button_Mouse_Up`, `RadioButton_Check`,
+  `RadioButton_MouseOver`, `EditBox_KeyDown`, ...) with `OpenSound(name, 10, true, -1.0)`: only with the sound system initialised and `KGCMassFileManager::IsValidFile` true; otherwise the sound is null and the control stays silent.
+  A navigation opens `Button_Mouse_Up`; a slider and a control list have no sound.
+* **Fonts.** `CKTDGUIComboBox` and `CKTDGUIListBox` ask `GetUKFont(id)` (32929D80) for their font, directly; the edit boxes' `SetFont` goes through the UI-font -> UK-font map first (`MapUIFontToUKFont`). The row height of a list is the font's
+  line height `idiv(size, enlarge) + 1`. A non-static combo box with string data and a bar but no UK font dereferences null in the exe; a list box with no UK font shows a message box (strings 954 / 955) and returns.
+* **Virtual functions.** The setters that move something end in `UpdateRects` (vtable slot 42, overridden by the combo box, list box, scroll bar, slider and control list); the other slots a script reaches are 9 `OnFocusIn`, 10 `OnFocusOut`, 14 `CanHaveFocus`,
+  15 `SetDialog`, 23 `SetEnable`, 25 `SetShow`, 27 `GetPos`, 31 `SetColor`. `tools/vtbl.py CTOR BASE_CTOR` lists a class's overrides (the function a Lua call to a base-class method really reaches), `tools/vtstr.py CTOR N` reads the strings Hex-Rays
+  shows as `vftable[N]` (a literal that sits behind the table), `tools/layout.py CLASS [--find OFF]` rebuilds the MSVC member layout from `x2.exe.h` for the `*((_DWORD *)this + 202)` expressions (checked against the `operator new` sizes of the
+  IME edit box 0x560, combo box 0x424, list box 0x3DC and against the offsets that setters write).
+* **Identical code folding.** One-line setters of different classes share one address (the radio button's field setters 328CD1B0 .. 328CD4C0; the X bar's Thumb, Track and DownDown setters of the control list are the list box's) and the decompile
+  shows the name and the member of one of the twins: the arguments and the Lua name say what the function is, `tools/disasm.py ADDR +0x10` says which offset it writes.
+* **Radio buttons.** The dialog keeps one `RadioButtonGroupInfo` per group id (`m_mapRadioButtonGroupInfo`): the order in which the group's buttons were checked, and when more than `m_iMaxCheckCount` (default 1) would be checked the oldest are unchecked.
+* **Slots.** `CX2SlotManager::CreateItemSlot` (32E5E540) makes a `CX2SlotItem` (0x128 bytes), `AddSlot` hands it back, `CX2Slot::SetSlotData_LUA` (32E5DAE0) reads SLOT_ID, ENABLE, SHOW, SLOT_TYPE (`CX2Slot::LuaGetValue`), SORT_TYPE, FASHION, EQUIP_POS,
+  SLOT_DESC (`CX2SlotItem::LuaGetValue`), then POS and SIZE; an item picture that does not open becomes `HQ_Shop_Ui_Noimage.dds`. No script has `SLOT_BACK_DLG_FILE`, which would open a second dialog (reported as not ported).
+* **Movies.** `CMovieData::SetMovieFileName_LUA` creates the Bandi library once (`bdvid32.dll`, `Verify("KOG_ELSWORD_20131203", ...)`), opens `<current directory>\movie\<name>`, makes the video texture from the file's size and plays; `SetRect_LUA` opens
+  the render target `MoveData` (id upper-cased; an open one is referenced again and keeps its first size). The 30 shipped movies are MPEG-1 (section 13); there is no library to play them with yet.
+
+### 17.4 Exe bugs and quirks that the port keeps
+
+* `CKTDGUINavigation::SetWindowPoint_LUA` gives the window's point the *background* texture (`m_pBGTex`), not the window texture (`DLG_UI_QUEST.LUA` has two navigations that show it).
+* `CKTDGUIContolList::UpdateScrollBar` (329506E0): when the X bar needs showing it sets the **Y** bar's track position to the X index (and faults without a Y bar); the bar setters (`SetXScrollBarPos`, ...) are not checked for a missing bar
+  either (the port throws); `InsertItem` always returns false; `SetPos_LUA` stores `m_Pos` and updates no rectangle.
+* `CKTDGUISlider`: `UpdateRects` does nothing until width and height are non-zero; an empty range divides by zero and `(int)NaN` is 0x80000000 (`ftoi`, the `cvttss2si` result); the events are 0x466 (control) and 0x467 (custom message).
+* `CKTDGUIEditBox`: `SetTextPoint` stores the point and nothing else; `SetHideChar` sets password mode with the first character; eight of its setters are the same machine code as the IME edit box's.
+* `CKTDGUISlot` registers `SetDraggingSlotColor` **twice** (the same function, 328CD390): 19 registrations, 18 names. The census counts names.
+* The list box and the combo box share the scroll-bar textures, and a bar setter destroys the old bar: the textures are set on the box BEFORE `InitScrollBar`.
+* The base `CKTDGUIControl::GetPos` (32924850) leaves its out parameter as it was; `CKTDGUIListBox::GetPos` (32942E20) is the one that writes.
+
+### 17.5 Tests, mutation check, tools
+
+* `packages/ui/test` (194 tests): `dialog` 14, `controls` 26, `slot` 15, `imeeditbox` 20, `combobox` 33, `listbox` 30, `widgets` 55 (Navigation, CMovieData, Slider, ControlList, EditBox, CX2MapSelectWindow, `ChangeSequence*`, the render-target
+  devices, `ftoi`: cases on live Lua, and real scripts: `DLG_UI_QUEST`, `DLG_OPTION_WINDOW_SOUND`, `DLG_LOGIN_BACK`, `DLG_UNIT_SELECT_BACK_NEW`, `DLG_MEMOLIST`, `DLG_UI_SKILL_TREE`, `DLG_PVP_MAP_LIST`, `DLG_PVP_LOBBY_CHARBG`), `census` 1 (the ratchet of 17.1, 25 s, 1.2 GB). With `packages/host` (35): **229 tests, 1,588 expects, 0 failures**. Never compare live controls, textures or dialogs with `toEqual` / `toBe`:
+  a failure prints the whole world graph and bun is killed for memory (exit 137, no summary); the tests compare through `is`, `names` and `some`.
+* **Mutation check** `tools/mutate-ui.py` (`bun run mutate:ui`): 99 small changes to 12 files of `packages/ui/src` (`controllist.ts` 29, `slider.ts` 14, `editbox.ts` 14, `movie.ts` 9, `mapselect.ts` 8, `navigation.ts` 5, `dialog.ts` 5, `stdmap.ts` 4, `device.ts` 4,
+  `rect.ts` 3, `d3dcolor.ts` 3, `scrollbar.ts` 1) against `widgets.test.ts`, one at a time, the source restored after each (also on Ctrl-C; each run has 90 s and 8 GB). **97 killed, 2 survive and both are equivalent**: `ftoi` with `>=` -> `>` at 2^31
+  (`2147483648 | 0` is -2^31 as well) and `changeSequenceByPivot` without the control-is-in-the-list test (the loop below it finds nothing to move). The first run (96 mutants) had 5 survivors; three were real gaps (the placement of the cells at the top index,
+  the X bar boundary, the order of the bar setters) and got tests.
+* **One bun process per half of the suite.** `bun test` keeps what the files load: the GPU tests (Dawn + SwiftShader) peak at 3.1 GB, host + ui at 2.1 GB, and in one process the kernel killed bun on this 4 GB machine (`dmesg`: out of memory at 3.8 GB resident; no summary line, after nearly ten minutes). `tools/test-packages.sh` (`bun run test:packages`) runs the two halves in two processes.
+* The ledger (`docs/ledger-classes.tsv`) has a `partial` row for each of the 24 UI classes; CKTDGUIDialogManager, CKTDGUIDialogHandle, CX2PostBox::MailListSlot, CKTDGFontManager::FontArticle, CKTDGUIDialog::DialogMoveItem and CX2SlotItem stay `todo`.
+
+### 17.6 Not done
+
+The run-time of the controls: `MsgProc`, `HandleMouse`, `OnFrameMove`, `OnFrameRender`, `ContainsPoint`, focus and the dialog manager (`CKTDGUIDialogManager`, which a dialog is built without); drawing a dialog through `@els/d3d9`; the text path of the
+font manager (FreeType `Load`, the glyph cache, `Draw2DText` and the measuring, `InstallFont` 328B71A0) and `CKTDGUIUniBuffer`'s font paths; IME input; `CMovieData` playback with the Bandi library; the game states behind the 32 scripts of 17.1.

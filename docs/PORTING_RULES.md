@@ -62,6 +62,22 @@ the Hex-Rays export `data/x2.exe.c` / `data/x2.exe.h`, and verify it - not "make
   `D3D9_TEST_OUT` is set, so the suite never writes into the repository.
 * Reference screenshots / videos of the real client would turn the assumptions into checks; none are in the repository.
 
+## 2c. Rules for the host classes and the UI classes (`packages/host`, `packages/ui`)
+
+* **A host class is a TS class whose methods carry the registered Lua names** (keep a `_LUA` suffix where the registry has it; a lower camel name is a C++ member that registered functions call), `implements Partial<Class_Methods>`, and is
+  registered with `registerImpl(cppClass, TsClass)`. It implements *all* the methods the exe registers for the class, called by a script or not, and nothing else. Method totals count distinct Lua names (the exe registers
+  `CKTDGUISlot::SetDraggingSlotColor` twice).
+* **A script counts as ported only when every method it calls is ported, and that is shown by running the real script in strict mode** (`tools/ui-census.ts`, `packages/ui/test/census.test.ts`). Record mode counts a stub's inherited-method call
+  as ported, so it is a census, not a proof. One manager at a time, each checked by the real scripts it serves.
+* **Per method:** `python3 tools/decomp.py ADDR --clean` (addresses are in `docs/host_api.tsv`); `tools/structs.py OUTER_CLASS` and `tools/layout.py CLASS --find OFF` for the member behind a `*((_DWORD *)this + N)`; `tools/cstr-uses.py ADDR` for a
+  `const char*` that may be NULL; `tools/vtstr.py CTOR N` for a `vftable[N]` literal; `tools/vtbl.py CTOR BASE_CTOR` for the overrides; `tools/disasm.py ADDR +0x10` for a one-line setter that identical code folding shares between classes (the decompile names
+  the other class: check the offset it writes) and for float code that Hex-Rays gets wrong.
+* **Hex-Rays pitfalls:** it duplicates tail code, reuses variables, leaks stack arguments into the next call, and shows `_LUA` methods that take a table with no parameters (they read `KLuaManager(L, 1, false)` from the stack). Exe bugs are kept, named in
+  the class header and listed in FINDINGS 17.4; where the exe would dereference NULL the port throws a plain `Error` instead of reading garbage.
+* **Tests:** one file per class (`widgets.test.ts`, `listbox.test.ts` are the model); real-data tests behind `test.skipIf(!haveData)`; live controls, textures and dialogs are compared through `is()` / `names()` / `some()`, never with `toEqual` /
+  `toBe` (a failing comparison prints the whole world graph and bun is killed for memory). The whole suite runs through `tools/test-packages.sh`: `bun test` keeps everything its files load, and one process does not fit 4 GB.
+* **Behaviour that has no oracle gets a mutation check** (`tools/mutate-ui.py` is the shape: anchors that must match exactly once, a stated reason for every expected survivor, the source restored after each mutant).
+
 ## 3. How to port a function (checklist)
 
 1. Find it: `grep -n "<name>" /home/user/work/analysis/functions.tsv` (regenerate with `python3 tools/index_decomp.py

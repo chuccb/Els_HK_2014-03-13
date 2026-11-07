@@ -19,11 +19,11 @@
 | 1a | `@els/kom`：KOM 封存檔讀取（173 個檔、97,891 個項目，大小與 Adler-32 全數正確） | 完成 |
 | 1a | `@els/lua`：LuaJIT 2.0.2 位元碼載入器 + 直譯器 + 標準函式庫 | 部分完成（見下） |
 | 1b | Lua 載入器與文字設定檔。**更正**：x2.exe 沒有 Lua 原始碼編譯器（`lj_parse` 未連結，`cpparser` 對任何非位元碼的內容直接丟出 `cannot load malformed bytecode`），所以不做編譯器；改為 ① `loadChunk`／`luaL_loadfilex(iEncoding)`／`dofile_UTF8` 與 exe 一致；② 移植 KOG 自製的文字設定檔直譯器 `KLuaManagerProxy`（`GameOption*.txt`、伺服器群組檔、教學系統檔、控制台指令） | 完成（`KLuaManagerProxy` 沒有原生 oracle，只能以反組譯碼手算驗證） |
-| 2 | 資產解碼器（TGA/DDS/X/Y/XET/TET/粒子腳本/KIM/ESS/MPEG-1） | **完成（解碼端）**：圖片（TGA/DDS/BMP/PNG）、XET/TET、字串表（ESS）、物品資料庫（KIM）、X 檔容器（MSZIP）與通用 X 讀取器、KME/KSM/KAC、粒子與 XMeshPlayer 腳本（解析端，37 個檔案、13,882 個區塊與獨立讀取器逐欄位一致）、**AVI + MPEG-1 影片**（30 個 `data/movie/*.avi`、18,514 張畫面與 FFmpeg 逐取樣點完全相同）都已完成並以全部資產驗證；粒子／XMeshPlayer 執行期與播放影片的 Bandi 式播放器（`CMovieData`）需要繪圖與 UI，留給後續階段；網格語意由階段 3 的 D3DX 實作承接 |
+| 2 | 資產解碼器（TGA/DDS/X/Y/XET/TET/粒子腳本/KIM/ESS/MPEG-1） | **完成（解碼端）**：圖片（TGA/DDS/BMP/PNG）、XET/TET、字串表（ESS）、物品資料庫（KIM）、X 檔容器（MSZIP）與通用 X 讀取器、KME/KSM/KAC、粒子與 XMeshPlayer 腳本（解析端，37 個檔案、13,882 個區塊與獨立讀取器逐欄位一致）、**AVI + MPEG-1 影片**（30 個 `data/movie/*.avi`、18,514 張畫面與 FFmpeg 逐取樣點完全相同）都已完成並以全部資產驗證；粒子／XMeshPlayer 執行期與播放影片的 Bandi 式播放器需要繪圖，留給後續階段（`CMovieData` 的腳本端——檔名與 render target——已在階段 4 移植，播放本身尚無播放器）；網格語意由階段 3 的 D3DX 實作承接 |
 | 3 | WebGPU 的 D3D9 相容層（`packages/d3d9`） | **進行中，核心已完成**：`IDirect3DDevice9`（固定管線、全部狀態、貼圖格式、render target、可程式化的頂點階段）、D3DX 數學／貼圖／網格／骨架／動畫／影格階層載入器、`XRenderer.fx` 的 effect 模擬（19 個 technique、80 個 `vs_1_1` 著色器 → WGSL）；153 個測試在 Dawn + SwiftShader 上執行（`docs/img/d3d9-demo.png`）。引擎載入器已移植（`packages/engine`：`CKTDXDeviceXSkinMesh` 的影格清單與 KSM／KAC 載入器、`CKTDXDeviceXMesh` 的 KME／X 載入器、KAC 的 `OptimizeKeys`——**與 exe 逐位元相同**，見下）；`CKTDGXRenderer`／`CKTDGEffectStateManager` 尚未移植，也沒有真正的 D3D9／D3DX 可比對（假設列在 `docs/FINDINGS.md` 12.5） |
 | 3＋ | **瀏覽器實測**（`apps/client` + `apps/server` + `tools/browser-test.ts`） | **完成（作為測試台）**：無頭 Chromium 153 + WebGPU（SwiftShader）可在沙箱執行；整個流程（HTTP Range 掛載 KOM → 解碼 → D3D9 層 → WebGPU canvas）有 22 項自動檢查：TGA 與 MPEG-1 畫面與 Bun 端解碼逐像素相同、蒙皮動畫網格會隨動畫時間改變、RGBA 與 BGRA 後緩衝逐像素相同（桌機瀏覽器偏好 BGRA）。**這證明瀏覽器端與 Bun 端一致，不證明畫面等同原版**（沒有參考截圖）；艾爾索德等角色（KSM + KAC）與 109 個 KME 靜態網格已能繪製並播放動畫 |
-| 4 | UI 框架（`DLG_*.lua`） | 進行中（前置工作完成）：1,024 支 DLG 腳本在 host 層上有 992 支跑到結尾，其餘 32 支需要執行檔與腳本都沒有定義的全域名稱；UI 類別需要實作的方法清單在 `docs/HOST_CENSUS.md`（UI 類別 259 個方法）。UI 類別本體尚未移植 |
-| 5 | `lua_tinker` 等價的 host API（`packages/host`） | **進行中，基礎完成**：binder（照反編譯讀出的 `lua_tinker` 語意：類別表當 metatable、`meta_get`／`meta_set`、`__parent`、`read<T>`／`push<T>`、原版的錯誤訊息）、由 `docs/host_api.tsv` 產生的型別化 API（128 個類別、1,418 個方法）、`KLuaManager`、`HostWorld`（`IncludeLua`、`LoadLuaEnum` 的腳本）、第一個真實的 host 類別 `KGCMassFileManager`。全部 4,498 支腳本在型別化 stub 上跑一遍（`docs/HOST_CENSUS.md`）：4,422 支跑到結尾，其餘 76 支需要 23 個連 `x2.exe` 字串表都沒有的名稱。各類別的本體尚未移植 |
+| 4 | UI 框架（`DLG_*.lua`，`packages/ui`） | **進行中，腳本端完成**：`CKTDGUIDialog` 與全部控制項（Static、Button、RadioButton、CheckBox、Slot、IME／一般 EditBox、ComboBox、ListBox、ScrollBar、Navigation、Slider、ControlList、`CMovieData`）、slot 管理器與擁有對話框的類別（`CX2PostBox`、`CX2CouponBox`、`CX2MapSelectWindow`）、字型管理器——`docs/UI_COVERAGE.md` 列的 22 個類別、**346 個已註冊的方法全部實作**，註冊在 host binder 上，原版 `DLG_*.lua` 不經修改地執行。普查（`tools/ui-census.ts`）：1,024 支 DLG 腳本中有 992 支能在 host 層跑到結尾，**這 992 支全部完整移植，並在嚴格模式（註冊了卻沒人移植的方法就是錯誤）下無錯誤執行**；其餘 32 支屬於遊戲狀態（村莊／區域／世界地圖、商店、錄影、防禦副本獎勵），需要該狀態啟動時放進 Lua 的表或物件。194 個 UI 測試（含 host 共 229 個）、保證普查數字不會倒退的測試，以及 99 個變異的檢查（97 個被測試抓到，2 個等價；`python3 tools/mutate-ui.py`）。UI 沒有 exe oracle，行為來自反編譯，靠嚴格執行真腳本、單元測試與變異測試把關（`docs/FINDINGS.md` 17）。**尚未移植**：控制項的執行期行為（`MsgProc`／`HandleMouse`／`OnFrame*`）、對話框管理器、繪製、字型的文字路徑（FreeType）、IME 輸入、影片播放 |
+| 5 | `lua_tinker` 等價的 host API（`packages/host`） | **進行中，基礎完成**：binder（照反編譯讀出的 `lua_tinker` 語意：類別表當 metatable、`meta_get`／`meta_set`、`__parent`、`read<T>`／`push<T>`、原版的錯誤訊息）、由 `docs/host_api.tsv` 產生的型別化 API（128 個類別、1,418 個方法）、`KLuaManager`、`HostWorld`（`IncludeLua`、`LoadLuaEnum` 的腳本）、第一個真實的 host 類別 `KGCMassFileManager`。全部 4,498 支腳本在型別化 stub 上跑一遍（`docs/HOST_CENSUS.md`）：4,422 支跑到結尾，其餘 76 支需要 23 個連 `x2.exe` 字串表都沒有的名稱。UI 類別（階段 4）與 `KGCMassFileManager` 已移植：4,422 支腳本呼叫的 440 個方法中 263 個已實作，剩下 177 個分屬 42 個類別（`CX2World` 19、`CX2ItemManager` 14、`CX2WorldObjectSkinMesh` 12、`CX2Main` 12、`CKTDGSkyDome` 11⋯），一次移植一個管理器 |
 | 6 | 開機／登入／角色選擇 + `apps/server` | 未開始 |
 
 ![資產檢視器：Sonogong 寵物（`Motion_PET_SONOGONG_STEB_1.X`，蒙皮動畫「Walk」）由原版 KOM 資產經 D3D9 層畫在 WebGPU canvas（無頭 Chromium + SwiftShader 截圖）](docs/img/web-viewer-pet.png)
@@ -74,6 +74,7 @@ packages/lua      @els/lua   LuaJIT 2.0.2 位元碼 VM 與標準函式庫（對�
 packages/assets   @els/assets  圖片（TGA/DDS/BMP/PNG）、XET/TET、字串表（general.ess）、物品資料庫（item.kim）、MSZIP、DirectX X 讀取器、KME/KSM/KAC 解碼器、粒子／XMeshPlayer 腳本解析器、AVI 解封裝與 MPEG-1 影片解碼器
 packages/d3d9     @els/d3d9  Direct3D 9 + D3DX 建立在 WebGPU 上（裝置、固定管線、D3DX 數學／貼圖／網格／骨架／動畫、XRenderer.fx effect 模擬）
 packages/host     @els/host  `lua_tinker` 等價層：binder、型別化 API（由 docs/host_api.tsv 產生）、`KLuaManager`、`HostWorld`（一個 Lua state + `IncludeLua`）、腳本普查
+packages/ui       @els/ui    UI 類別（`CKTDGUIDialog` 與各控制項、slot 管理器、字型管理器），註冊在 host binder 上讓原版 `DLG_*.lua` 不經修改地執行；`census` 為 1,024 支 DLG 腳本的普查
 packages/engine   @els/engine  引擎類別（CKTDX*／CKTDG*）建立在 d3d9 之上，逐函式移植；目前有 CKTDXDeviceXSkinMesh（影格清單、KSM／KAC 載入器、`OptimizeKeys`）與 CKTDXDeviceXMesh（KME／X 載入器）
 tests/lua         差異測試（兩個 VM 執行同一份 luajit -b -s 位元碼）
 tools             驗證、分析與產生文件的工具（見 docs/ARCHITECTURE.md）
@@ -93,8 +94,10 @@ npm install --no-audit --no-fund --prefix /home/user/work/boot bun@1.4.4   # npm
 ./tools/setup-oracle.sh                 # 建置 LuaJIT 2.0.2 oracle 到 /home/user/work/luajit-2.0
 python3 tools/kom_extract.py /home/user/work/ex lua,LUA  # 取出 4,498 個腳本
 ./tools/lua-difftest.sh                 # 15 個差異測試（t10–t14 為模糊測試、t15 為載入器）
-./node_modules/.bin/bun test packages   # 不需要 GPU 的單元測試（389 個通過，139 個需要 GPU 而自行略過）
-./tools/gpu.sh ./node_modules/.bin/bun test packages   # 全部 562 個測試（含 154 個 d3d9 測試，在 Dawn + SwiftShader 上執行）
+ELS_GPU_NATIVE=1 ./tools/test-packages.sh   # 不需要 GPU 的單元測試（618 個通過，139 個需要 GPU 而自行略過）
+./tools/test-packages.sh   # 全部 757 個測試（含 154 個 d3d9 測試，在 Dawn + SwiftShader 上執行）；分兩個 bun 行程執行，因為單一行程在 4 GB 的機器上會被 OOM 殺掉
+./node_modules/.bin/bun run tools/ui-census.ts --md docs/UI_COVERAGE.md   # 1,024 支 DLG 腳本：992 支跑到結尾、全部完整移植並嚴格執行（約 30 秒）
+python3 tools/mutate-ui.py   # UI 類別的變異測試：99 個變異（約 8 分鐘；97 個被抓到，2 個等價）
 ./node_modules/.bin/bun run tools/verify-ksm.ts   # KME/KSM/KAC 全部資產驗證（約 45 秒）；其餘見 package.json 的 verify:*
 ./tools/gpu.sh ./node_modules/.bin/bun run tools/verify-ksm-load.ts   # 1,031 個 KSM 全部經引擎載入器載入（約 90 秒）
 pip install --target /home/user/work/pycap unicorn pefile capstone   # CPU 模擬器與 PE／反組譯函式庫（`ELS_PYLIBS` 可改目錄）
@@ -119,6 +122,8 @@ PYTHONPATH=/home/user/work/pyav python3 tools/oracle-mpeg1.py --out /tmp/oracle.
 | `docs/FINDINGS.md` | 逆向發現（KOM、Lua、LuaJIT 行為、corpus 結果、host API 與腳本載入） |
 | `docs/PORTING_RULES.md` | 移植規則（真相來源順序、移植規則、逐函式檢查表、平台邊界 stub） |
 | `docs/HOST_API.md`、`docs/host_api.tsv` | 由反編譯結果產生的 `lua_tinker` 綁定目錄（122 個類別、1,418 個方法，含 IDA 位址） |
+| `docs/HOST_CENSUS.md` | 4,498 支腳本在 host 層（型別化 stub）上的普查：哪些跑到結尾、各缺哪些方法 |
+| `docs/UI_COVERAGE.md` | DLG 腳本的普查：1,024 支中 992 支完整移植並嚴格執行、其餘 32 支為遊戲狀態的腳本；各 UI 類別的方法數 |
 | `docs/SCRIPT_API_USAGE.md` | 4,498 個腳本實際用到的 host API |
 | `docs/SCRIPT_GRAPH.md` | exe 載入哪些腳本（載入圖） |
 | `docs/LEDGER.md` | 涵蓋帳本，以 IDA 位址為鍵（內嵌 LuaJIT 函式逐一列出；C++ 類別另有完整清單） |

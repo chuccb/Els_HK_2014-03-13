@@ -322,7 +322,7 @@ Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM i
 
 ## C++ engine classes
 
-2879 classes / 26233 methods. Status by class: done 332, n/a 1338, partial 61, todo 1148; by method: done 468, n/a 4225, partial 831, todo 20709.
+2879 classes / 26233 methods. Status by class: done 332, n/a 1338, partial 94, todo 1115; by method: done 468, n/a 4225, partial 1739, todo 19801.
 
 The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes:
 
@@ -357,8 +357,8 @@ The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes
 | `CX2Data` | 110 | 32A27F00 | todo |   |
 | `CX2UIQuestNew` | 103 | 32CE0E10 | todo |   |
 | `CX2CashShop` | 101 | 329E6480 | todo |   |
-| `CKTDGUIDialog` | 95 | 328C0CD0 | todo |   |
-| `CX2PostBox` | 94 | 32CA5110 | todo |   |
+| `CKTDGUIDialog` | 95 | 328C0CD0 | partial | packages/ui/src/dialog.ts the constructor, OpenScriptFile (error logs 0x87 / 0x48 / 0x49), AddControl (a taken name becomes name+N from 100), GetControl (log 0x24), all 53 Lua methods, the Create* factories, ChangeSequence*, the custom sound files; not ported: MsgProc, OnFrameMove / OnFrameRender, the move / fade animation, SetFront / SetLayer against the dialog manager |
+| `CX2PostBox` | 94 | 32CA5110 | partial | packages/ui/src/slot.ts (CX2PostBox) only what the dialog scripts reach through the global g_pPostBoxInventory (32CA5F80); the post box itself is not ported |
 | `CX2UIManager` | 93 | 32B7DE70 | todo |   |
 | `CX2Unit` | 92 | 329BB8A0 | todo |   |
 | `CX2PET` | 89 | 32A27600 | todo |   |
@@ -368,7 +368,7 @@ The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes
 | `CX2ChatBox` | 87 | 3299C580 | todo |   |
 | `CX2ItemManager` | 81 | 32B8AC70 | todo |   |
 | `CX2GageManager` | 78 | 32B38A00 | todo |   |
-| `CKTDGUIControl` | 77 | 328C0AE5 | todo |   |
+| `CKTDGUIControl` | 77 | 328C0AE5 | partial | packages/ui/src/control.ts what the controls share: UI_Control_Sound.lua and the sounds (opened only when FMOD is up), textures + UIPointData (USE_TEXTURE_SIZE), offset positions, the internal events 0x466 / 0x467, all 30 Lua methods; not ported: MsgProc / HandleMouse / OnFrameMove / OnFrameRender / ContainsPoint, the virtual SetMaximize |
 | `CX2SquareUnit` | 77 | 329BB820 | todo |   |
 | `CX2Room` | 76 | 3298FF70 | todo |   |
 | `CX2StateMenu` | 75 | 32EC5080 | todo |   |
@@ -382,8 +382,8 @@ The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes
 | `CX2UserSkillTree` | 68 | 32A92F30 | todo |   |
 | `CX2World` | 67 | 32A27590 | todo |   |
 | `CX2DamageEffect::CEffect` | 67 | 32A28B20 | todo |   |
-| `CKTDGUIIMEEditBox` | 63 | 328A8420 | todo |   |
-| `CKTDGUIButton` | 62 | 328CD080 | todo |   |
+| `CKTDGUIIMEEditBox` | 63 | 328A8420 | partial | packages/ui/src/imeeditbox.ts constructor (32935240), all 28 Lua methods (the folded setters shared with CKTDGUIEditBox verified by disassembly); not ported: IME input, caret and selection handling, drawing |
+| `CKTDGUIButton` | 62 | 328CD080 | partial | packages/ui/src/button.ts constructor (sounds), all 31 Lua methods incl. the folded one-line setters (offsets verified by disassembly); not ported: input handling and drawing |
 | `CX2ServerProtocol` | 61 | 329E01B0 | todo |   |
 | `CX2UISkillTreeNew` | 58 | 32CB9E40 | todo |   |
 | `DXUTState` | 57 | 3289CBD0 | todo |   |

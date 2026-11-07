@@ -72,6 +72,14 @@ the client asks of Direct3D and every flagged assumption are in FINDINGS section
 the original resolutions. Includes `CKTDGUIControl::CMovieData`: a Bandi-like movie player over `Mpeg1Movie` (Open / GetVideoInfo /
 Play / Stop / Pause / Seek / GetStatus with PLAYEND / IsNextFrame at 24 fps wall-clock / GetFrame into a texture; FINDINGS section 13.5).
 
+**Status** (`packages/ui`, FINDINGS section 17). The script-visible side is done and verified by the real scripts: `CKTDGUIDialog` (+ `ChangeSequence*`), every control (`CKTDGUIControl`, Static, Button, RadioButton, CheckBox,
+Slot, IME edit box, EditBox, ComboBox, ListBox, ScrollBar, Navigation, Slider, ControlList), `CPictureData`, `CMovieData` (the file name and the render target; the Bandi library is a device hook with no player behind it yet), the slot manager and the
+three dialog owners (`CX2PostBox`, `CX2CouponBox`, `CX2MapSelectWindow`), the font manager (`g_pFontManager` and the start-up config) - **all 346 registered methods of the 22 classes in `docs/UI_COVERAGE.md`**. Census (`tools/ui-census.ts`): of the 1,024
+`DLG_*.lua`, 992 run on the host layer, **all 992 are fully ported and run in strict mode without an error**; the other 32 belong to game states (village / local / world map, shop, video recorder, defence-dungeon reward: each reads a table or an
+object that its state puts into Lua). 194 UI tests (229 with `packages/host`), a ratchet over the census (`census.test.ts`) and a 99-mutant check of the later classes (97 killed, 2 equivalent; `bun run mutate:ui`).
+Not done: the run time of the controls (`MsgProc`, `HandleMouse`, `OnFrameMove`, `OnFrameRender`, `ContainsPoint`, focus, `CKTDGUIDialogManager`), drawing a dialog through `@els/d3d9`, the text path of the font manager (FreeType `Load`, the glyph
+cache, `Draw2DText`, the measuring), IME input, movie playback, and the 32 state scripts.
+
 ## Phase 5 - `lua_tinker`-equivalent host API
 
 Ground truth, extracted from the decompile by `tools/bindings.py` (`docs/HOST_API.md`, `docs/host_api.tsv`): the exe registers
@@ -99,8 +107,10 @@ Plan: generate typed TS stubs from `docs/host_api.tsv`, then implement the manag
 **Status.** Done: the binder (`packages/host`: `lua_tinker` semantics read off the decompile, 34 tests with the script tests), the
 generated typed API (`tools/gen-host-api.ts`), `KLuaManager` (the getters the `_LUA` functions use), the typed-stub record mode and the
 census (`docs/HOST_CENSUS.md`): 4,422 of the 4,498 scripts run to the end on the registered API in one shared state (the 76 others need
-23 names that are not strings of `x2.exe`); the first real host class, `KGCMassFileManager` (`AddMappingList` / `AddMappingTime`). Next: the classes themselves, in the order the census gives (dialogs and controls first: 261 of the
-442 methods the scripts call belong to the UI classes: `CKTDGUI*`, the slot manager, the mass-file manager), each ported from its decompile and checked by running the real scripts.
+23 names that are not strings of `x2.exe`); the first real host class, `KGCMassFileManager` (`AddMappingList` / `AddMappingTime`); the UI classes of Phase 4. The 4,422 runnable scripts call 440 distinct registered methods:
+**263 are implemented** (the UI classes and the mass-file manager), **177 are left in 42 classes** - `CX2World` 19, `CX2ItemManager` 14, `CX2WorldObjectSkinMesh` 12, `CX2Main` 12, `CKTDGSkyDome` 11, `CX2WorldObject` 9, `CX2WorldObjectMesh` 8,
+`CX2WorldLayer` 8, `CX2WorldObjectParticle` 7, `CX2WorldObjectLightFlow` 7, `CKTDGLineMap` 6, `CX2GuildManager` 6, `CX2SkillTree` 6, `CX2PVPResultTable` 6, then 28 classes with 4 or fewer (the item, NPC, quest, title, buff, socket, enchant and
+dungeon managers among them). Next: those managers, one at a time, each ported from its decompile and checked by running the real scripts (FINDINGS section 8: `item.kim` is the ground truth for what an `AddItemTemplet` manager fed by `Item.lua` makes).
 
 ## Phase 6 - Boot, login, character select (the slice)
 
