@@ -31,11 +31,22 @@ export const SLOT_NO_IMAGE = "HQ_Shop_Ui_Noimage.dds";
 /** `CKTDGUISlotData` (the data a slot shows; only the flag the slot sets is modelled) */
 export interface UISlotData {
   m_bDataUpdated: boolean;
+  /** the virtual `UpdateUI(slot)` of the game's data class: puts what the data holds into the slot's textures and strings */
+  UpdateUI(slot: CKTDGUISlot): void;
 }
 
 export class CKTDGUISlot extends CKTDGUIControl implements Partial<CKTDGUISlot_Methods> {
   /** `CKTDGUISlot::s_pDragSlot`: the slot that is being dragged */
   static s_pDragSlot: CKTDGUISlot | null = null;
+
+  /** `ReturnDraggingItem()` (329534A0): the slot being dragged goes back to the normal state (forced) and nobody is dragging */
+  static returnDraggingItem(): void {
+    const dragged = CKTDGUISlot.s_pDragSlot;
+    if (dragged !== null) {
+      dragged.ChangeState(SCS.NORMAL, true);
+      CKTDGUISlot.s_pDragSlot = null;
+    }
+  }
 
   m_pItemTex: UITextureData | null = null;
   m_pMouseOverTex: UITextureData | null = null;
@@ -71,6 +82,69 @@ export class CKTDGUISlot extends CKTDGUIControl implements Partial<CKTDGUISlot_M
     super(ctx);
     this.m_ControlType = UCT.SLOT;
     this.m_pEdgeTexture = ctx.devices.openTexture("UIEdge.tga");
+  }
+
+  /**
+   * `OnFrameMove` (32952430): a shown slot runs the control's, moves its current point towards its end point, loses `m_bMouseOver` when a
+   * dialog in front of it is not modal, lets updated slot data refresh the slot (`UpdateUI`), and follows the mouse: normal goes to mouse over (with
+   * the over sound), mouse down and mouse over go back to normal (mouse over sets `m_bMouseOut` and asks for the guide text), a dragged slot that does
+   * not have the focus any more is returned (`ReturnDraggingItem`) and goes to normal, a disabled one goes to normal once enabled again, and one that
+   * is not enabled becomes disabled.  Last, the additional pictures (`m_mapAdditionalPictureDataList`, in key order) that are shown move.
+   */
+  override onFrameMove(fTime: number, fElapsedTime: number): number {
+    if (!this.m_bShow) return 0;
+    super.onFrameMove(fTime, fElapsedTime);
+    this.m_fElapsedTime = Math.fround(fElapsedTime);
+    if (this.m_EndPoint.fChangeTime !== this.m_NowPoint.fChangeTime) this.changePoint(this.m_NowPoint, this.m_EndPoint);
+    if (this.m_pDialog !== null && this.m_bMouseOver && this.ctx.dialogManager.checkFrontModalDlg(this.m_pDialog)) this.m_bMouseOver = false;
+    const data = this.m_pSlotData;
+    if (data !== null && data.m_bDataUpdated) {
+      data.UpdateUI(this);
+      data.m_bDataUpdated = false;
+    }
+    const disableIfNotEnabled = (): void => {
+      if (!this.m_bEnable) this.ChangeState(SCS.DISABLE, false);
+    };
+    const normal = (): void => this.ChangeState(SCS.NORMAL, false);
+    switch (this.m_eControlState) {
+      case SCS.NORMAL:
+        if (!this.m_bMouseOver) disableIfNotEnabled();
+        else {
+          this.ChangeState(SCS.MOUSEOVER, false);
+          this.playSound(this.m_pSndMouseOver);
+        }
+        break;
+      case SCS.DOWN:
+        if (!this.m_bMouseOver) normal();
+        else disableIfNotEnabled();
+        break;
+      case SCS.MOUSEOVER:
+        this.showGuideDesc();
+        if (this.m_bMouseOver) disableIfNotEnabled();
+        else {
+          this.m_bMouseOut = true;
+          normal();
+        }
+        break;
+      case SCS.ONDRAG:
+        disableIfNotEnabled();
+        if (!this.m_bHasFocus) {
+          CKTDGUISlot.returnDraggingItem();
+          normal();
+        }
+        break;
+      case SCS.DISABLE:
+        if (this.m_bShowDescriptionWhenDisable && this.m_bMouseOver) this.showGuideDesc();
+        if (this.m_bEnable) normal();
+        break;
+      default:
+        break;
+    }
+    for (const key of [...this.m_mapAdditionalPictureDataList.keys()].sort((a, b) => a - b)) {
+      const picture = this.m_mapAdditionalPictureDataList.get(key);
+      if (picture && picture.bShow) picture.onFrameMove(fTime, fElapsedTime);
+    }
+    return 0;
   }
 
   override textureData(out: UITextureData[]): void {

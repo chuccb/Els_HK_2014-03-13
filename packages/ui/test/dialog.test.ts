@@ -5,7 +5,7 @@ import { StringTable, decodeTga, parseTet } from "@els/assets";
 import { HostNotPortedError } from "@els/host";
 import { LuaError } from "@els/lua";
 import type { MassFileSource } from "@els/host";
-import { CKTDGUIDialog, CKTDGUIStatic, CPictureData, UIWorld } from "../src/index.ts";
+import { CKTDGUIDialog, CKTDGUIDialogManager, CKTDGUIStatic, CPictureData, UIWorld } from "../src/index.ts";
 import { indexAllKoms, KomMassFileSource } from "../../../tools/komindex.ts";
 
 const dataDir = join(import.meta.dir, "..", "..", "..", "data");
@@ -115,7 +115,7 @@ describe("CKTDGUIDialog: controls and names", () => {
     d.SetFront(true);
     d.SetLayer(7);
     expect([d.m_bFront, d.m_iLayer]).toEqual([true, 7]);
-    d.m_pkUIDialogManager = {};
+    d.m_pkUIDialogManager = new CKTDGUIDialogManager();
     d.SetFront(true); // no change: the manager is not asked
     d.SetLayer(7);
     expect(() => d.SetFront(false)).toThrow("not ported");

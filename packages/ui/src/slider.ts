@@ -54,6 +54,21 @@ export class CKTDGUISlider extends CKTDGUIControl implements Partial<CKTDGUISlid
     this.m_ControlType = UCT.SLIDER;
   }
 
+  /**
+   * `OnFrameMove` (3294CC50): a shown slider runs the control's and takes the corners of its bounding box (ints) as its current point.
+   */
+  override onFrameMove(fTime: number, fElapsedTime: number): number {
+    if (this.m_bShow) {
+      super.onFrameMove(fTime, fElapsedTime);
+      const b = this.m_rcBoundingBox, p = this.m_NowPoint;
+      p.leftTopPoint.set(b.left, b.top);
+      p.rightTopPoint.set(b.right, b.top);
+      p.leftBottomPoint.set(b.left, b.bottom);
+      p.rightBottomPoint.set(b.right, b.bottom);
+    }
+    return 0;
+  }
+
   override textureData(out: UITextureData[]): void {
     if (this.m_pBGTex) out.push(this.m_pBGTex);
     if (this.m_pButtonTex) out.push(this.m_pButtonTex);

@@ -22,6 +22,9 @@ import type { CKTDGUIStatic } from "./static.ts";
 
 const f = Math.fround;
 
+/** the DirectInput scan code of the Enter key (`DIK_RETURN`) that a focused button answers */
+const KEY_ENTER = 0x1c;
+
 /** `CKTDGUIButton::BUTTON_CONTROL_STATE` */
 export const BCS = { NORMAL: 0, MOUSEOVER: 1, MOUSEDOWN: 2, DISABLE: 3, END: 4 } as const;
 
@@ -107,6 +110,83 @@ export class CKTDGUIButton extends CKTDGUIControl implements Partial<CKTDGUIButt
     if (edge) this.drawEdge(false);
     if (this.m_pStringData) render?.noteUndrawn("CKTDGUIButton string");
     return 0;
+  }
+
+  /**
+   * `OnFrameMove` (3292EA10): a shown button runs the control's, answers the Enter key when it has the focus and an edge (`LButtonMouseUp`:
+   * not ported, it throws), moves its current point towards its end point (`ChangePoint`), loses `m_bMouseOver` when a dialog in front of it is not
+   * modal (`CheckFrontModalDlg`), runs the texture animation of the state it is in (`UpdateTexChangeData` with the step of the sequence id; a step
+   * with another texture gives the state's point that texture, sized from it, and the state is entered again), and then follows the mouse:
+   * normal goes to mouse over (or mouse down with `m_bDownStateAtNormal`: both play the over sound) or, when it is disabled, to disable; mouse over
+   * goes back to normal (`m_bMouseOut`) when the mouse left, or to disable, and asks for the guide text; mouse down goes to normal or disable;
+   * disable goes to normal once it is enabled again.  Returns 0.
+   */
+  override onFrameMove(fTime: number, fElapsedTime: number): number {
+    if (!this.m_bShow) return 0;
+    super.onFrameMove(fTime, fElapsedTime);
+    const manager = this.ctx.dialogManager;
+    if (this.m_bHasFocus && this.m_EdgeWidth > 0 && !manager.checkFrontModalDlg(this.m_pDialog) && this.ctx.keyboard.getKeyState(KEY_ENTER) === 1) {
+      throw new Error("CKTDGUIButton::LButtonMouseUp (3292E6D0: the click messages of the Enter key) is not ported");
+    }
+    this.m_fElapsedTime = f(fElapsedTime);
+    if (this.m_EndPoint.fChangeTime !== this.m_NowPoint.fChangeTime) this.changePoint(this.m_NowPoint, this.m_EndPoint);
+    if (this.m_pDialog !== null && this.m_bMouseOver && manager.checkFrontModalDlg(this.m_pDialog)) this.m_bMouseOver = false;
+    let point: UIPointData | null = null;
+    let steps: Map<number, TexChangeData> | null = null;
+    switch (this.m_ButtonState) {
+      case BCS.NORMAL: point = this.m_pNormalPoint; steps = this.m_mapMouseNormalTex; break;
+      case BCS.MOUSEOVER: point = this.m_pMouseOverPoint; steps = this.m_mapMouseOverTex; break;
+      case BCS.MOUSEDOWN: point = this.m_pMouseDownPoint; steps = this.m_mapMouseDownTex; break;
+      default: break;
+    }
+    if (steps && steps.size !== 0 && !this.m_NowTexChangeData.m_bEndTexChange) {
+      const step = steps.get(this.m_NowTexChangeData.m_SequenceID) ?? null;
+      this.updateTexChangeData(step);
+      const texture = step?.m_pTexData ?? null;
+      if (texture && point && point.pUITextureData !== texture) {
+        point.pUITextureData = texture;
+        point.applyTextureSize();
+        this.ChangeState(this.m_ButtonState, true);
+      }
+    }
+    switch (this.m_ButtonState) {
+      case BCS.NORMAL:
+        if (this.m_bOverStateAtNormal) {
+          this.ChangeState(BCS.MOUSEOVER, false);
+          this.playSound(this.m_pSndMouseOver);
+        } else if (this.m_bDownStateAtNormal) {
+          this.ChangeState(BCS.MOUSEDOWN, false);
+          this.playSound(this.m_pSndMouseOver);
+        } else if (this.m_bMouseOver) {
+          this.ChangeState(BCS.MOUSEOVER, false);
+          this.playSound(this.m_pSndMouseOver);
+        } else if (!this.m_bEnable) this.ChangeState(BCS.DISABLE, false);
+        return 0;
+      case BCS.MOUSEOVER:
+        if (this.m_bOverStateAtNormal) {
+          if (!this.m_bEnable) this.ChangeState(BCS.DISABLE, false);
+        } else if (this.m_bDownStateAtNormal) {
+          this.ChangeState(this.m_bEnable ? BCS.NORMAL : BCS.DISABLE, false);
+        } else if (this.m_bMouseOver) {
+          if (!this.m_bEnable) this.ChangeState(BCS.DISABLE, false);
+        } else {
+          this.m_bMouseOut = true;
+          this.ChangeState(BCS.NORMAL, false);
+        }
+        this.showGuideDesc();
+        return 0;
+      case BCS.MOUSEDOWN:
+        if (this.m_bDownStateAtNormal || this.m_bMouseOver) {
+          if (!this.m_bEnable) this.ChangeState(BCS.DISABLE, false);
+        } else this.ChangeState(BCS.NORMAL, false);
+        return 0;
+      case BCS.DISABLE:
+        if (this.m_bShowDescriptionWhenDisable && this.m_bMouseOver) this.showGuideDesc();
+        if (this.m_bEnable) this.ChangeState(BCS.NORMAL, false);
+        return 0;
+      default:
+        return 0;
+    }
   }
 
   /**

@@ -71,6 +71,8 @@ export interface Drawn {
   reference: RefImage;
   /** why the CPU composition gave up (a quad it has no rule for, a texture it cannot decode); `reference` is then only what was composed before */
   referenceError?: string;
+  /** the message of the exception a frame (`OnFrameMove`) ended in (the exe's code that is not ported yet); the dialog is drawn as the frame left it */
+  frameError?: string;
 }
 
 /**
@@ -86,14 +88,26 @@ export async function newWorld(): Promise<UIWorld> {
 }
 
 /**
- * Open a dialog script (in `world`, or in a new one), draw it once on a cleared back buffer, and compose the same quads on the CPU.  A
- * world that draws several dialogs one after the other must `releaseTextures` between them.
+ * Open a dialog script (in `world`, or in a new one), run `frames` frames of it, draw it once on a cleared back buffer, and compose the
+ * same quads on the CPU.  A world that draws several dialogs one after the other must `releaseTextures` between them.
+ *
+ * The client calls `OnFrameMove` before every `OnFrameRender`; one frame of no time (`OnFrameMove(0, 0)`: nothing moves, the first
+ * `ChangeState` of the buttons that wait for it is made) is what a dialog looks like when it is first drawn.  An exception in a frame
+ * (what the frame does that is not ported) is kept in `frameError` and the dialog is drawn as it was left.
  */
-export async function drawDialog(script: string, savedAs?: string, world?: UIWorld): Promise<Drawn> {
+export async function drawDialog(script: string, savedAs?: string, world?: UIWorld, frames = 1): Promise<Drawn> {
   const { dev } = await getFixture();
   const w = world ?? (await newWorld());
   const dlg = w.openDialog(script, 0, new CX2SlotManager(w));
   try {
+    let frameError: string | undefined;
+    for (let i = 0; i < frames && frameError === undefined; i++) {
+      try {
+        dlg.onFrameMove(0, 0);
+      } catch (e) {
+        frameError = e instanceof Error ? e.message : String(e);
+      }
+    }
     const render = w.render!;
 
     const draws: Draw[] = [];
@@ -153,7 +167,7 @@ export async function drawDialog(script: string, savedAs?: string, world?: UIWor
     } catch (e) {
       referenceError = e instanceof Error ? e.message : String(e);
     }
-    return { w, dlg, ret, draws, image, reference, referenceError };
+    return { w, dlg, ret, draws, image, reference, referenceError, frameError };
   } catch (e) {
     releaseTextures(w); // the textures of a dialog that failed half way
     throw e;

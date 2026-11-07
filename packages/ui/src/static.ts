@@ -15,6 +15,19 @@ import type { CKTDGUIItem_Methods, CKTDGUIStatic_Methods } from "@els/host";
 
 const f = Math.fround;
 
+/**
+ * `std::wstring::find(const wchar_t* ptr, size_type off)` (328EFEC0): the index of the first `ptr` at or after `off`, or -1 (`npos`); an empty
+ * `ptr` is found at `off` when `off` is not past the end.  `off` is unsigned: a negative one is past the end.
+ */
+export function wstringFind(msg: string, ptr: string, off: number): number {
+  const n = ptr.length;
+  const size = msg.length;
+  const o = off >>> 0;
+  if (n > size || o > size - n) return -1;
+  if (n === 0) return o;
+  return msg.indexOf(ptr, o);
+}
+
 export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStatic_Methods> {
   readonly m_PictureDataList: CPictureData[] = [];
   readonly m_StringDataList: UIStringData[] = [];
@@ -68,6 +81,52 @@ export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStat
     }
     for (const text of this.m_StringDataList) if (text.msg.length !== 0) render?.noteUndrawn("CKTDGUIStatic string");
     for (let i = 0; i < this.m_MovieDataList.length; i++) render?.noteUndrawn("CMovieData::OnFrameRender");
+    return 0;
+  }
+
+  /**
+   * `OnFrameMove` (3292A120): a shown static runs the control's, then spreads its strings (`bSpread`: `iSpreadCount`, the number of characters shown,
+   * goes up by one each `fSpreadTimeGap` seconds and the string stops spreading when it has shown all), runs the animations of the pictures that
+   * have one on (`CPictureData::OnFrameMove`) and of the movies (`CMovieData::OnFrameMove`, 32924DE0: the Bandi library is not ported, so it
+   * is counted in `render.undrawn`), and keeps the frame's time.
+   *
+   * The exe skips colour codes while spreading with two `find` calls whose result it compares with 0 (not with the offset): a message that
+   * starts with `#CX` while the count was 0 advances the count by 2 more, one that starts with `#C` (count - 1 = 0) by 7 more, and no other
+   * spreading step ever finds either at 0 (kept).
+   */
+  override onFrameMove(fTime: number, fElapsedTime: number): number {
+    if (!this.m_bShow) return 0;
+    super.onFrameMove(fTime, fElapsedTime);
+    const dt = f(fElapsedTime);
+    for (let i = 0; i < this.m_StringDataList.length; i++) {
+      const text = this.m_StringDataList[i];
+      if (!text || !text.bSpread) continue;
+      const count = text.iSpreadCount;
+      if (count >= text.msg.length) {
+        text.bSpread = false;
+        continue;
+      }
+      const t = f(dt + text.fNowSpreadTime);
+      text.fNowSpreadTime = t;
+      if (!(t > text.fSpreadTimeGap)) continue;
+      text.fNowSpreadTime = 0;
+      text.iSpreadCount = (count + 1) | 0;
+      if (count + 1 > 0) {
+        if (wstringFind(text.msg, "#CX", count) !== 0) {
+          if (wstringFind(text.msg, "#C", (text.iSpreadCount - 1) | 0) === 0) text.iSpreadCount = (text.iSpreadCount + 7) | 0;
+        } else {
+          text.iSpreadCount = (text.iSpreadCount + 2) | 0;
+        }
+      }
+    }
+    for (let i = 0; i < this.m_PictureDataList.length; i++) {
+      const picture = this.m_PictureDataList[i];
+      if (picture && (picture.m_bTwinkle || picture.m_bFlicker || picture.m_bFadeIn || picture.m_bFadeOut || picture.m_VibrateData.m_fMaxTime !== 0)) {
+        picture.onFrameMove(fTime, fElapsedTime);
+      }
+    }
+    for (let i = 0; i < this.m_MovieDataList.length; i++) this.ctx.render?.noteUndrawn("CMovieData::OnFrameMove");
+    this.m_fElapsedTime = dt;
     return 0;
   }
 

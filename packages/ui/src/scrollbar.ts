@@ -66,6 +66,19 @@ export class CKTDGUIScrollBar extends CKTDGUIControl implements Partial<CKTDGUIS
     [this.m_pSndMouseDown] = this.openControlSounds(["ScrollBar_Mouse_Down"]);
   }
 
+  /** `OnFrameMove` (32985E30): a shown scroll bar runs the control's and takes the corners of its track as its current point */
+  override onFrameMove(fTime: number, fElapsedTime: number): number {
+    if (this.m_bShow) {
+      super.onFrameMove(fTime, fElapsedTime);
+      const t = this.m_rcTrack, p = this.m_NowPoint;
+      p.leftTopPoint.set(t.left, t.top);
+      p.rightTopPoint.set(t.right, t.top);
+      p.leftBottomPoint.set(t.left, t.bottom);
+      p.rightBottomPoint.set(t.right, t.bottom);
+    }
+    return 0;
+  }
+
   override textureData(out: UITextureData[]): void {
     for (const t of [this.m_pUpButtonTex, this.m_pDownButtonTex, this.m_pUpButtonDownTex, this.m_pDownButtonDownTex, this.m_pTrackTex, this.m_pThumbTex]) {
       if (t) out.push(t);

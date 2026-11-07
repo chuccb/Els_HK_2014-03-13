@@ -97,6 +97,7 @@ function expectUIQuads(draws: Draw[]): number {
  */
 function expectDrawnLikeDirect3D(name: string, r: Drawn, covers = 200_000): { edgeBars: number } {
   expect(r.dlg.m_bSuccessInitOpenScript).toBe(true);
+  expect(r.frameError).toBeUndefined(); // the frame (OnFrameMove) before the drawing needs nothing that is not ported
   expect(r.ret).toBe(0);
   expect(r.referenceError).toBeUndefined(); // the CPU composition has a rule for every quad
   expect(r.w.devices.massFiles.log.entries).toEqual([]);

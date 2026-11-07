@@ -15,7 +15,7 @@
 import { LuaError } from "@els/lua";
 import { Color, KLuaManager, Vec2, Vec3 } from "@els/host";
 import type { CKTDGUIDialog_Methods } from "@els/host";
-import { CKTDGUIControl, CPictureData } from "./control.ts";
+import { CKTDGUIControl, CPictureData, approach } from "./control.ts";
 import { CKTDGUIButton } from "./button.ts";
 import { CKTDGUICheckBox } from "./checkbox.ts";
 import { CKTDGUIRadioButton } from "./radiobutton.ts";
@@ -30,9 +30,12 @@ import { CKTDGUIEditBox } from "./editbox.ts";
 import { CKTDGUINavigation } from "./navigation.ts";
 import type { RadioButtonGroupInfo } from "./radiobutton.ts";
 import { DIALOG_SAMPLER_STATES, RSI_UI_DIALOG } from "./render.ts";
+import type { CKTDGUIDialogManager } from "./dialogmanager.ts";
 import { WStringMap } from "./stdmap.ts";
 import type { UIContext } from "./control.ts";
 import { CKTDGUIItem, CKTDGUIStatic } from "./static.ts";
+
+const f = Math.fround;
 
 /** `wchar_t buff[256]` of `StringCchPrintfW(buff, 0x100, L"%s%d", name, n)` and the copy in ReNameControl: at most 255 characters */
 const clip255 = (s: string): string => (s.length > 255 ? s.slice(0, 255) : s);
@@ -69,7 +72,12 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
   m_pStage: unknown;
   m_iLayer: number;
   /** the owning CKTDGUIDialogManager (null while the dialog is being built) */
-  m_pkUIDialogManager: unknown = null;
+  m_pkUIDialogManager: CKTDGUIDialogManager | null = null;
+  /** `m_bHasSlot`: set by the game's code for a dialog of slots (the constructor makes it false); `CountModalDialog` leaves such a dialog out */
+  m_bHasSlot = false;
+  /** the guide text's static and dialog (made by `CreateGuideDesc` when a control shows its guide text; the guide text is not ported, so null) */
+  m_pStaticGuideDesc: CKTDGUIStatic | null = null;
+  m_pDialogGuideDesc: CKTDGUIDialog | null = null;
   m_ID = 0;
   readonly m_Pos = new Vec2();
   readonly m_Color = new Color(1, 1, 1, 1);
@@ -125,6 +133,116 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
     const script = opts.scriptFileName ?? "";
     if (script.length !== 0) this.m_bSuccessInitOpenScript = this.openScriptFile(script);
     if ((opts.moveTime ?? 0) > 0) throw new Error("CKTDGUIDialog: the fade-in of fMoveTime > 0 is not ported");
+  }
+
+  /**
+   * `OnFrameMove(fTime, fElapsedTime)` (32958A00).  The guide text's static is hidden and its dialog (when there is one, shown) too, with the
+   * count of the modal dialogs made again; a dragged slot of that dialog is returned.  A dialog that is enabled and shown then
+   * - moves towards its goal position (`m_Pos`, by `(goal - pos) / (changeTime - animateTime) * elapsed`) and, when `m_bFadeInOut`, its colour (without it the
+   *   colour is the goal at once); a move that is over puts it on the goal (an auto-delete dialog is marked);
+   * - is marked for deletion when its self-delete time (`SetTimeForSelfDelete`, counted from its making) is up;
+   * - takes the next item of its move queue when it is not moving;
+   * - moves its controls, **from the last to the first**: a control that is marked for deletion (`m_bCheckAutoDeleteEnd`) and found in the name map is
+   *   taken out of the map, loses the focus if it has it, is destroyed and taken out of the list (its destructor is not ported: it throws); the others that are
+   *   not out of the list are moved (`OnFrameMove`);
+   * - when it can be moved by dragging inside a range, has its position held inside the range (the range's rectangle shrunk by half the dialog's size; the
+   *   goal too while it is moving).
+   * Returns 0.
+   */
+  onFrameMove(fTime: number, fElapsedTime: number): number {
+    const dt = f(fElapsedTime);
+    this.m_pStaticGuideDesc?.SetShow(false);
+    const guide = this.m_pDialogGuideDesc;
+    if (guide !== null) {
+      if (guide.m_bShow) {
+        const inner = guide.m_pDialogGuideDesc;
+        guide.m_bShow = false;
+        if (inner !== null) inner.setShow(false);
+        if (!guide.m_bModal && guide.m_pkUIDialogManager !== null) guide.m_pkUIDialogManager.countModalDialog(null);
+      }
+      if (CKTDGUISlot.s_pDragSlot !== null && CKTDGUISlot.s_pDragSlot.m_pDialog === guide) CKTDGUISlot.returnDraggingItem();
+    }
+    if (!(this.m_bEnable && this.m_bShow)) return 0;
+    if (this.m_fChangeTime > 0) {
+      const at = this.m_fAnimateTime;
+      if (at < this.m_fChangeTime) {
+        const k = f(1 / f(this.m_fChangeTime - at));
+        const p = this.m_Pos, g = this.m_GoalPos;
+        p.x = approach(p.x, g.x, k, dt);
+        p.y = approach(p.y, g.y, k, dt);
+        const c = this.m_Color, gc = this.m_GoalColor;
+        if (!this.m_bFadeInOut) {
+          c.set(gc.r, gc.g, gc.b, gc.a);
+        } else {
+          c.r = approach(c.r, gc.r, k, dt);
+          c.g = approach(c.g, gc.g, k, dt);
+          c.b = approach(c.b, gc.b, k, dt);
+          c.a = approach(c.a, gc.a, k, dt);
+        }
+        this.m_fAnimateTime = f(dt + at);
+      } else {
+        this.m_fAnimateTime = 0;
+        this.m_fChangeTime = 0;
+        this.m_Pos.set(this.m_GoalPos.x, this.m_GoalPos.y);
+        if (this.m_bAutoDelete) this.m_bCheckAutoDeleteEnd = true;
+      }
+    }
+    if (this.m_fTimeForSelfDelete > 0) {
+      if (((this.ctx.clock() - this.m_TimerToSelfDelete._start_time) | 0) / 1000 > this.m_fTimeForSelfDelete) this.m_bCheckAutoDeleteEnd = true;
+    }
+    if (this.m_fChangeTime === 0 && this.m_queMoveItems.length !== 0) {
+      const item = this.m_queMoveItems.shift()!;
+      this.m_GoalPos.set(item.pos.x, item.pos.y);
+      this.m_GoalColor.set(item.color.r, item.color.g, item.color.b, item.color.a);
+      this.m_bAutoDelete = item.bIsAutoDelete;
+      this.m_fChangeTime = item.fChangeTime;
+    }
+    for (let i = this.m_ControlsList.length - 1; i >= 0; i--) {
+      const control = this.m_ControlsList[i]!;
+      if (control.m_bCheckAutoDeleteEnd) {
+        const named = this.m_ControlsMap.get(control.m_Name);
+        if (named !== undefined) {
+          const at = this.m_ControlsList.indexOf(named);
+          if (at >= 0) throw new Error(`CKTDGUIDialog::OnFrameMove: deleting the auto-delete control ${control.m_Name} (the control's destructor) is not ported`);
+          this.m_ControlsMap.erase(control.m_Name); // found in the map but not in the list: the entry goes, the control is moved below
+        }
+      }
+      if (!control.m_bOutofList) control.onFrameMove(fTime, fElapsedTime);
+    }
+    if (this.m_bEnableMoveByDrag && this.m_bEnableDraggingRange) {
+      const halfRangeX = f(this.m_vDraggingRange.x * 0.5), halfRangeY = f(this.m_vDraggingRange.y * 0.5);
+      const halfSizeX = f(this.m_vSize.x * 0.5), halfSizeY = f(this.m_vSize.y * 0.5);
+      const cx = this.m_vDraggingRangeCenter.x, cy = this.m_vDraggingRangeCenter.y;
+      const minX = f(f(cx - halfRangeX) - halfSizeX), maxX = f(f(cx + halfRangeX) - halfSizeX);
+      const minY = f(f(cy - halfRangeY) - halfSizeY), maxY = f(f(cy + halfRangeY) - halfSizeY);
+      const p = this.m_Pos;
+      if (minX > p.x) p.x = minX;
+      if (p.x > maxX) p.x = maxX;
+      if (minY > p.y) p.y = minY;
+      if (p.y > maxY) p.y = maxY;
+      if (!(this.m_fChangeTime <= this.m_fAnimateTime)) this.m_GoalPos.set(p.x, p.y);
+    }
+    return 0;
+  }
+
+  /**
+   * `SetShow(bShow)` (3295B900), the dialog's own: a change of the flag; hiding also hides the guide dialog, and shows/hides count the modal dialogs of the
+   * manager again (a dialog that is not modal); a hidden dialog's dragged slot is returned.  Showing makes the dialog take the mouse position
+   * (`OnMouseMove`: input, not ported: it throws).
+   */
+  setShow(show: boolean): void {
+    if (show !== this.m_bShow) {
+      this.m_bShow = show;
+      if (show) throw new Error("CKTDGUIDialog::SetShow(true): OnMouseMove with the mouse position (input) is not ported");
+      this.m_pDialogGuideDesc?.setShow(false);
+      if (!this.m_bModal && this.m_pkUIDialogManager !== null) this.m_pkUIDialogManager.countModalDialog(null);
+    }
+    if (CKTDGUISlot.s_pDragSlot !== null && CKTDGUISlot.s_pDragSlot.m_pDialog === this && !show) CKTDGUISlot.returnDraggingItem();
+  }
+
+  /** `ShowGuideDesc(pControl)` (3295BA30): makes the guide dialog (`CreateGuideDesc`) and puts the control's guide text in it, measured with a font: not ported */
+  showGuideDesc(control: CKTDGUIControl): void {
+    throw new Error(`CKTDGUIDialog::ShowGuideDesc (3295BA30: the guide dialog, the text of ${control.m_Name} measured with a font) is not ported`);
   }
 
   /**

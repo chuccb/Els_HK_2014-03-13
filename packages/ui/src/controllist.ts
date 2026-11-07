@@ -84,6 +84,49 @@ export class CKTDGUIContolList extends CKTDGUIControl implements Partial<CKTDGUI
     this.m_ControlType = UCT.CONTROLLIST;
   }
 
+  /**
+   * `OnFrameMove` (3294FBF0): a shown and enabled list runs the control's and its two scroll bars'; when a bar's position is not the list's top
+   * index any more the list takes it (`UpdateScrollBar`, `UpdateRenderControlList`) and sends the scroll message (0x467 with `m_CustomMsgScroll`).  Its current
+   * point is its bounding box moved right by the Y bar's width and down by the X bar's (ints).  The cells' own controls are moved by the dialog.
+   */
+  override onFrameMove(fTime: number, fElapsedTime: number): number {
+    if (!(this.m_bShow && this.m_bEnable)) return 0;
+    super.onFrameMove(fTime, fElapsedTime);
+    const barX = this.m_pScrollBarX, barY = this.m_pScrollBarY;
+    let x = 0, y = 0;
+    if (barX) {
+      barX.onFrameMove(fTime, fElapsedTime);
+      x = barX.m_nPosition;
+    }
+    if (barY) {
+      barY.onFrameMove(fTime, fElapsedTime);
+      y = barY.m_nPosition;
+    }
+    if (this.m_iTopIndexX !== x || this.m_iTopIndexY !== y) {
+      this.m_iTopIndexY = y;
+      this.m_iTopIndexX = x;
+      this.updateScrollBar();
+      this.updateRenderControlList();
+      if (this.m_CustomMsgScroll !== -1) this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgScroll);
+    }
+    const b = this.m_rcBoundingBox;
+    let left = b.left, top = b.top, right = b.right, bottom = b.bottom;
+    if (barY) {
+      left = (left + barY.m_width) | 0;
+      right = (right + barY.m_width) | 0;
+    }
+    if (barX) {
+      top = (top + barX.m_width) | 0;
+      bottom = (bottom + barX.m_width) | 0;
+    }
+    const p = this.m_NowPoint;
+    p.leftTopPoint.set(left, top);
+    p.rightTopPoint.set(right, top);
+    p.leftBottomPoint.set(left, bottom);
+    p.rightBottomPoint.set(right, bottom);
+    return 0;
+  }
+
   override textureData(out: UITextureData[]): void {
     for (const set of [this.xTex, this.yTex]) {
       for (const t of [set.upButton, set.upButtonDown, set.downButton, set.downButtonDown, set.track, set.thumb]) if (t) out.push(t);

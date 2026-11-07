@@ -322,7 +322,7 @@ Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM i
 
 ## C++ engine classes
 
-2879 classes / 26233 methods. Status by class: done 333, n/a 1338, partial 99, todo 1109; by method: done 470, n/a 4225, partial 1813, todo 19725.
+2879 classes / 26233 methods. Status by class: done 333, n/a 1338, partial 100, todo 1108; by method: done 470, n/a 4225, partial 1835, todo 19703.
 
 The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes:
 
@@ -357,7 +357,7 @@ The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes
 | `CX2Data` | 110 | 32A27F00 | todo |   |
 | `CX2UIQuestNew` | 103 | 32CE0E10 | todo |   |
 | `CX2CashShop` | 101 | 329E6480 | todo |   |
-| `CKTDGUIDialog` | 95 | 328C0CD0 | partial | packages/ui/src/dialog.ts the constructor, OpenScriptFile (error logs 0x87 / 0x48 / 0x49), AddControl (a taken name becomes name+N from 100), GetControl (log 0x24), all 53 Lua methods, the Create* factories, ChangeSequence*, the custom sound files; OnFrameRender (32958FF0: the dialog manager hides it, the self-delete time, the sampler states and the table of render states pushed around its controls drawn in list order, then OnFrameRenderEnd); not ported: MsgProc, OnFrameMove, the move / fade animation, SetFront / SetLayer against the dialog manager |
+| `CKTDGUIDialog` | 95 | 328C0CD0 | partial | packages/ui/src/dialog.ts the constructor, OpenScriptFile (error logs 0x87 / 0x48 / 0x49), AddControl (a taken name becomes name+N from 100), GetControl (log 0x24), all 53 Lua methods, the Create* factories, ChangeSequence*, the custom sound files; OnFrameRender (32958FF0: the dialog manager hides it, the self-delete time, the sampler states and the table of render states pushed around its controls drawn in list order, then OnFrameRenderEnd); OnFrameMove (32958A00: the guide text's static and dialog hidden and a slot dragged in it sent home, the move to the goal position and colour, the self-delete time, the queue of moves, the controls moved last to first, the drag range) and SetShow(false) (3295B900); not ported: MsgProc, SetShow(true) (OnMouseMove) and ShowGuideDesc (3295BA30: both throw), the destructors, SetFront / SetLayer against the dialog manager |
 | `CX2PostBox` | 94 | 32CA5110 | partial | packages/ui/src/slot.ts (CX2PostBox) only what the dialog scripts reach through the global g_pPostBoxInventory (32CA5F80); the post box itself is not ported |
 | `CX2UIManager` | 93 | 32B7DE70 | todo |   |
 | `CX2Unit` | 92 | 329BB8A0 | todo |   |
@@ -368,7 +368,7 @@ The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes
 | `CX2ChatBox` | 87 | 3299C580 | todo |   |
 | `CX2ItemManager` | 81 | 32B8AC70 | todo |   |
 | `CX2GageManager` | 78 | 32B38A00 | todo |   |
-| `CKTDGUIControl` | 77 | 328C0AE5 | partial | packages/ui/src/control.ts what the controls share: UI_Control_Sound.lua and the sounds (opened only when FMOD is up), textures + UIPointData (USE_TEXTURE_SIZE), offset positions, the internal events 0x466 / 0x467, all 30 Lua methods; the drawing every control shares: UpdateVertex (32927FB0), GetAxisPos (329244F0), UpdateAnimVertex (32927C70), RenderVertex (32925200 / 329252C0), the base OnFrameRender (counted in render.undrawn), the four bars of an edge (the loop the DrawEdge functions of the static, the button and the radio button share); not ported: MsgProc / HandleMouse / OnFrameMove / ContainsPoint, the virtual SetMaximize |
+| `CKTDGUIControl` | 77 | 328C0AE5 | partial | packages/ui/src/control.ts what the controls share: UI_Control_Sound.lua and the sounds (opened only when FMOD is up), textures + UIPointData (USE_TEXTURE_SIZE), offset positions, the internal events 0x466 / 0x467, all 30 Lua methods; the drawing every control shares: UpdateVertex (32927FB0), GetAxisPos (329244F0), UpdateAnimVertex (32927C70), RenderVertex (32925200 / 329252C0), the base OnFrameRender (counted in render.undrawn), the four bars of an edge (the loop the DrawEdge functions of the static, the button and the radio button share); OnFrameMove (32924DB0) with Animate (32923EB0: the move to the goal offset and colour, the queue), ChangePoint (329240D0) and UpdateTexChangeData (32927DE0), ShowGuideDesc (32927C30: it throws as soon as the control has a guide text and a dialog); not ported: MsgProc / HandleMouse / ContainsPoint, the virtual SetMaximize |
 | `CX2SquareUnit` | 77 | 329BB820 | todo |   |
 | `CX2Room` | 76 | 3298FF70 | todo |   |
 | `CX2StateMenu` | 75 | 32EC5080 | todo |   |
@@ -382,8 +382,8 @@ The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes
 | `CX2UserSkillTree` | 68 | 32A92F30 | todo |   |
 | `CX2World` | 67 | 32A27590 | todo |   |
 | `CX2DamageEffect::CEffect` | 67 | 32A28B20 | todo |   |
-| `CKTDGUIIMEEditBox` | 63 | 328A8420 | partial | packages/ui/src/imeeditbox.ts constructor (32935240), all 28 Lua methods (the folded setters shared with CKTDGUIEditBox verified by disassembly); not ported: IME input, caret and selection handling, drawing |
-| `CKTDGUIButton` | 62 | 328CD080 | partial | packages/ui/src/button.ts constructor (sounds), all 31 Lua methods incl. the folded one-line setters (offsets verified by disassembly); OnFrameRender (3292ED40): the quad of the current point, drawn with no blend state of its own (it relies on the baseline akStates), the edge outside before and inside after, only with the focus; DrawEdge (3292D750); not ported: input handling and the string (counted in render.undrawn) |
+| `CKTDGUIIMEEditBox` | 63 | 328A8420 | partial | packages/ui/src/imeeditbox.ts constructor (32935240), all 28 Lua methods (the folded setters shared with CKTDGUIEditBox verified by disassembly); OnFrameMove (32939380: the text rectangle moved with the box and the centring offset of the text; CPtoX with a font throws); not ported: IME input, caret and selection handling, drawing |
+| `CKTDGUIButton` | 62 | 328CD080 | partial | packages/ui/src/button.ts constructor (sounds), all 31 Lua methods incl. the folded one-line setters (offsets verified by disassembly); OnFrameRender (3292ED40): the quad of the current point, drawn with no blend state of its own (it relies on the baseline akStates), the edge outside before and inside after, only with the focus; DrawEdge (3292D750); OnFrameMove (3292EA10: the state machine NORMAL / MOUSEOVER / MOUSEDOWN / DISABLE with the over sound and the mouse-out message, the texture animation of the state, the lock of the Enter key); not ported: input handling (LButtonMouseUp: a button with the focus and an edge that sees Enter throws) and the string (counted in render.undrawn) |
 | `CX2ServerProtocol` | 61 | 329E01B0 | todo |   |
 | `CX2UISkillTreeNew` | 58 | 32CB9E40 | todo |   |
 | `DXUTState` | 57 | 3289CBD0 | todo |   |

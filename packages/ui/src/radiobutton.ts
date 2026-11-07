@@ -105,6 +105,49 @@ export class CKTDGUIRadioButton extends CKTDGUIControl implements Partial<CKTDGU
     [this.m_pSndCheck, this.m_pSndMouseOver] = this.openControlSounds(["RadioButton_Check", "RadioButton_MouseOver"]);
   }
 
+  /**
+   * `OnFrameMove` (3294ACD0): a shown button runs the control's and moves both of its points (the control's and its own background `m_MyNowPoint`)
+   * towards their end points, then follows the mouse.  A button in the normal state that the mouse is over plays the over sound (unless it is
+   * checked), tells the stage (0x467 with `m_CustomMsgMouseOver`) and goes to mouse over; one that is not enabled becomes disabled.  A button in the
+   * mouse over state goes back to normal when the mouse left (telling the stage `m_CustomMsgMouseOut`, but only when `m_CustomMsgMouseOver` is set: the
+   * exe tests the wrong one, kept) and becomes disabled when it is over but not enabled; either way it asks for its guide text.  A disabled one
+   * becomes normal once it is enabled.  **The state a radio button is made in is mouse over, and the background it draws (`m_MyNowPoint`) is set
+   * only by `ChangeState`: the first `OnFrameMove` with the mouse elsewhere is what gives an unchecked radio button its picture.**
+   */
+  override onFrameMove(fTime: number, fElapsedTime: number): number {
+    if (!this.m_bShow) return 0;
+    super.onFrameMove(fTime, fElapsedTime);
+    this.m_fElapsedTime = f(fElapsedTime);
+    if (this.m_EndPoint.fChangeTime !== this.m_NowPoint.fChangeTime) this.changePoint(this.m_NowPoint, this.m_EndPoint);
+    if (this.m_MyEndPoint.fChangeTime !== this.m_MyNowPoint.fChangeTime) this.changePoint(this.m_MyNowPoint, this.m_MyEndPoint);
+    switch (this.m_RadioButtonState) {
+      case RBCS.NORMAL:
+        if (this.m_bMouseOver) {
+          if (!this.m_bChecked) this.playSound(this.m_pSndMouseOver);
+          if (this.m_CustomMsgMouseOver !== -1) this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgMouseOver);
+          this.ChangeState(RBCS.MOUSEOVER);
+          return 0;
+        }
+        if (!this.m_bEnable) this.ChangeState(RBCS.DISABLE);
+        return 0;
+      case RBCS.MOUSEOVER:
+        if (this.m_bMouseOver) {
+          if (!this.m_bEnable) this.ChangeState(RBCS.DISABLE);
+        } else {
+          if (this.m_CustomMsgMouseOver !== -1) this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgMouseOut);
+          this.ChangeState(RBCS.NORMAL);
+        }
+        this.showGuideDesc();
+        return 0;
+      case RBCS.DISABLE:
+        if (this.m_bShowDescriptionWhenDisable && this.m_bMouseOver) this.showGuideDesc();
+        if (this.m_bEnable) this.ChangeState(RBCS.NORMAL);
+        return 0;
+      default:
+        return 0;
+    }
+  }
+
   override textureData(out: UITextureData[]): void {
     for (const t of [this.m_pNormalTex, this.m_pMouseOverTex, this.m_pDisableTex, this.m_pCheckedTex]) if (t) out.push(t);
   }

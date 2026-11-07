@@ -18,7 +18,7 @@ import type { UIContext, UIPointData, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
 import type { UKFont } from "./font.ts";
 import { byte, channel, d3dColor, ONE_OVER_255, packArgb } from "./d3dcolor.ts";
-import { newRect, newVertices } from "./rect.ts";
+import { ftoi, newRect, newVertices } from "./rect.ts";
 import type { Rect, VertexUI } from "./rect.ts";
 import { CKTDGUIUniBuffer } from "./unibuffer.ts";
 import type { UniBufferLog } from "./unibuffer.ts";
@@ -126,6 +126,51 @@ export class CKTDGUIIMEEditBox extends CKTDGUIControl implements Partial<CKTDGUI
     [this.m_pSndKeyDown] = this.openControlSounds(["EditBox_KeyDown"]);
     this.m_bEnablePaste = true;
     this.m_Buffer.Clear();
+  }
+
+  /**
+   * `OnFrameMove` (32939380): a shown IME edit box runs the control's and, with a background (`m_bBGCheck`), makes its normal (or, disabled, its
+   * disabled) point the end point; its current point is that point (or, without a background, its text point).  The text rectangle is the text point's
+   * left-top and right-bottom corners, cut to ints, moved by the box's offset.  `m_ptTextAlignOffset` is centred (`m_DefTextAlign` with bit 0)
+   * on the text that is visible when it fits in the rectangle: `(int)(width of the point / 2 - visible text width / 2)`; the text is measured by
+   * `CKTDGUIUniBuffer::CPtoX`, which needs a font and is not ported (it throws).  Otherwise the offset is 0.
+   */
+  override onFrameMove(fTime: number, fElapsedTime: number): number {
+    if (!this.m_bShow) return 0;
+    super.onFrameMove(fTime, fElapsedTime);
+    this.m_fElapsedTime = Math.fround(fElapsedTime);
+    let point: UIPointData | null;
+    if (this.m_bBGCheck) {
+      point = this.m_bEnable ? this.m_pNormalPoint : this.m_pDisablePoint;
+      if (!point) throw new Error("CKTDGUIIMEEditBox::OnFrameMove: the box has a background but no point for its state; the exe dereferences null");
+      this.m_EndPoint.assign(point);
+    } else {
+      point = this.m_pTextPoint;
+    }
+    const text = this.m_pTextPoint;
+    if (!point || !text) throw new Error("CKTDGUIIMEEditBox::OnFrameMove: the box has no text point (SetTextPoint); the exe dereferences null");
+    this.m_NowPoint.assign(point);
+    const x = ftoi(this.m_OffsetPos.x), y = ftoi(this.m_OffsetPos.y);
+    const rc = this.m_rcText;
+    rc.left = (x + ftoi(text.leftTopPoint.x)) | 0;
+    rc.top = (y + ftoi(text.leftTopPoint.y)) | 0;
+    rc.right = (x + ftoi(text.rightBottomPoint.x)) | 0;
+    rc.bottom = (y + ftoi(text.rightBottomPoint.y)) | 0;
+    let offset = 0;
+    const align = this.m_DefTextAlign;
+    if (align !== 0xffffffff && (align & 1) !== 0) {
+      const b = this.m_Buffer;
+      const whole = b.CPtoX(b.GetTextSize(), false);
+      if (!(whole > ((rc.right - rc.left) | 0))) {
+        const end = b.CPtoX(b.GetTextSize(), false);
+        const first = b.CPtoX(this.m_nFirstVisible, false);
+        const n = this.m_NowPoint;
+        offset = ftoi(Math.fround(Math.fround(Math.fround(n.rightTopPoint.x - n.leftTopPoint.x) * 0.5) - Math.fround(Math.fround((end - first) | 0) * 0.5)));
+      }
+    }
+    this.m_ptTextAlignOffset.x = offset;
+    this.m_ptTextAlignOffset.y = 0;
+    return 0;
   }
 
   override textureData(out: UITextureData[]): void {

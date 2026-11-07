@@ -23,6 +23,7 @@ import { DVB_TYPE } from "@els/engine";
 import type { DeviceManager, DeviceSound, DeviceTexture } from "./device.ts";
 import type { CKTDGUIDialog } from "./dialog.ts";
 import type { CKTDGUIDialogManager } from "./dialogmanager.ts";
+import type { UIKeyboard } from "./input.ts";
 import type { UIRender, VertexUI4 } from "./render.ts";
 import { ftoi } from "./rect.ts";
 import type { UIFonts } from "./font.ts";
@@ -78,6 +79,8 @@ export interface UIContext {
   readonly dialogManager: CKTDGUIDialogManager;
   /** `_clock()` in milliseconds: the CRT's clock the `boost::timer` of a dialog counts from */
   clock(): number;
+  /** `g_pKTDXApp->m_pDIManager->m_KTDIKeyboard`: the keys the controls ask for (a focused button answers the Enter key) */
+  readonly keyboard: UIKeyboard;
 }
 
 const f = Math.fround;
@@ -526,6 +529,99 @@ export class CPictureData implements Partial<CKTDGUIControl__CPictureData_Method
     p.rightBottomPoint.set(w + x, h + y);
   }
 
+  /**
+   * `OnFrameMove(fTime, fElapsedTime)` (32924E80), the animations a picture can be given (`SetTwinkle`, `SetFlicker`, `Vibrate`, `FadeIn`,
+   * `FadeOut`): the picture's point is the one they write to (its alpha, or the picture's position).  A static runs it only for a picture
+   * that has one of them on.
+   * * Twinkle: the remaining time counts down; while it is above 0 the alpha is 0 when `(float)(t - (float)(int)(t / 0.7f)) < 0.2f` (the exe
+   *   subtracts the whole number of 0.7 s, not 0.7 times it) and the original alpha otherwise; at 0 it starts again (loop) or ends, with the original alpha.
+   * * Flicker: the remaining time goes up to `m_fFlickerTime` and down to 0 (the loop turns it round again) and the alpha is
+   *   `(max - min) * t / flickerTime + min`.
+   * * Vibrate: the picture moves away from where it was along `m_vDirSpeed` until it is `m_fDistance` away (the length is a double's square root
+   *   rounded to a float), then back until it is no longer on the way out; after `m_fMaxTime` it is put back (`pos` only; the point is not moved).
+   * * FadeIn / FadeOut: the alpha is `t / fadeTime` or `1 - t / fadeTime`; a time past the fade time sets it to 1 or 0 and ends.
+   */
+  onFrameMove(fTime: number, fElapsedTime: number): void {
+    void fTime;
+    const dt = f(fElapsedTime);
+    const point = this.pPoint;
+    if (this.m_bTwinkle) {
+      let original = true; // `LABEL_10`: the alpha goes back to the original
+      if (this.m_fRemainTwinkleTime > 0) {
+        const t = f(this.m_fRemainTwinkleTime - dt);
+        this.m_fRemainTwinkleTime = t;
+        original = false;
+        if (point) {
+          const phase = f(t - f(cvttss2si(f(t / TWINKLE_PERIOD))));
+          if (phase < TWINKLE_OFF) point.color.a = 0;
+          else original = true;
+        }
+      } else if (this.m_bLoop) this.m_fRemainTwinkleTime = this.m_fTwinkleTime;
+      else this.m_bTwinkle = false;
+      if (original && point) point.color.a = this.m_fOriginalAlpha;
+    }
+    if (this.m_bFlicker) {
+      let t: number;
+      if (this.m_bFlickerGainAlpha) {
+        t = f(this.m_fRemainFlickerTime + dt);
+        this.m_fRemainFlickerTime = t;
+        if (!(t <= this.m_fFlickerTime)) this.m_bFlickerGainAlpha = false;
+      } else {
+        t = f(this.m_fRemainFlickerTime - dt);
+        this.m_fRemainFlickerTime = t;
+        if (t < 0) {
+          if (this.m_bFlickerLoop) this.m_bFlickerGainAlpha = true;
+          else this.m_bFlicker = false;
+        }
+      }
+      if (point) point.color.a = f(f(f(f(this.m_fFlickerMaxAlpha - this.m_fFlickerMinAlpha) * t) / this.m_fFlickerTime) + this.m_fFlickerMinAlpha);
+    }
+    const v = this.m_VibrateData;
+    if (v.m_fMaxTime <= v.m_fElapsedTime) {
+      if (v.m_fMaxTime !== 0) {
+        v.m_fMaxTime = 0;
+        this.pos.set(v.m_vOriginalPos.x, v.m_vOriginalPos.y);
+      }
+    } else {
+      const goingAway = v.m_bGoingAway;
+      v.m_fElapsedTime = f(v.m_fElapsedTime + dt);
+      const px = this.pos.x, py = this.pos.y;
+      const sx = f(v.m_vDirSpeed.x * dt), sy = f(v.m_vDirSpeed.y * dt);
+      if (goingAway) {
+        this.pos.set(f(px + sx), f(py + sy));
+        this.SetPos(this.pos);
+        const dx = f(this.pos.x - v.m_vOriginalPos.x), dy = f(this.pos.y - v.m_vOriginalPos.y);
+        const length = f(Math.sqrt(f(f(dy * dy) + f(dx * dx))));
+        if (length > v.m_fDistance) v.m_bGoingAway = false;
+      } else {
+        this.pos.set(f(px - sx), f(py - sy));
+        this.SetPos(this.pos);
+        const along = f(f(f(this.pos.y - v.m_vOriginalPos.y) * v.m_vDirSpeed.y) + f(f(this.pos.x - v.m_vOriginalPos.x) * v.m_vDirSpeed.x));
+        if (along <= 0) v.m_bGoingAway = true;
+      }
+    }
+    if (this.m_bFadeIn) {
+      if (this.m_fFadeTime < this.m_fRemainFadeTime) {
+        if (point) point.color.a = 1;
+        this.m_bFadeIn = false;
+      } else {
+        const t = f(this.m_fRemainFadeTime + dt);
+        this.m_fRemainFadeTime = t;
+        if (point) point.color.a = f(t / this.m_fFadeTime);
+      }
+    }
+    if (this.m_bFadeOut) {
+      if (this.m_fFadeTime < this.m_fRemainFadeTime) {
+        if (point) point.color.a = 0;
+        this.m_bFadeOut = false;
+      } else {
+        const t = f(this.m_fRemainFadeTime + dt);
+        this.m_fRemainFadeTime = t;
+        if (point) point.color.a = f(1 - f(t / this.m_fFadeTime));
+      }
+    }
+  }
+
   /** `SetShow(bool)` (328CDFB0) */
   SetShow(show: boolean): void {
     this.bShow = show;
@@ -560,6 +656,21 @@ export class CPictureData implements Partial<CKTDGUIControl__CPictureData_Method
 const E_FAIL = -2147467259;
 /** the `0.017453292f` of the animation's angles (degrees to radians, a float) */
 const DEGREES_TO_RADIANS = f(0.017453292);
+
+/** the `0.7f` and `0.2f` of the twinkle */
+const TWINKLE_PERIOD = f(0.7);
+const TWINKLE_OFF = f(0.2);
+
+/** `(float)(int)x`'s `(int)`: `cvttss2si` truncates, and a value that does not fit an int (or a NaN) is `0x80000000` */
+function cvttss2si(x: number): number {
+  const t = Math.trunc(x);
+  return t >= -2147483648 && t <= 2147483647 ? t : -2147483648;
+}
+
+/** `(float)((float)((float)(goal - now) * k) * dt) + now`: one frame of the linear approach `Animate` and `ChangePoint` make (every operation rounds to a float) */
+export function approach(now: number, goal: number, k: number, dt: number): number {
+  return f(f(f(f(goal - now) * k) * dt) + now);
+}
 
 /** `c < 1 ? (c > 0 ? (int)(float)((float)(c * 255) + 0.5) : 0) : 255` (a NaN is 255), the clamp `UpdateVertex` makes of each colour channel */
 export function clampedByte(c: number): number {
@@ -642,6 +753,129 @@ export class CKTDGUIControl implements Partial<CKTDGUIControl_Methods> {
   /** virtual `OnFrameRenderEnd`: the second pass over the controls of a dialog, after all of them are drawn (only the combo box has one) */
   onFrameRenderEnd(): number {
     return 0;
+  }
+
+  // ---- the frame's update (`OnFrameMove`) ----------------------------------------------------------------------------------------
+
+  /**
+   * Virtual `OnFrameMove(fTime, fElapsedTime)` (32924DB0): a shown control keeps the frame's time (`m_fElapsedTime`, a float) and runs
+   * `Animate`.  Always 0 (`S_OK`).  Every class's override calls it first.
+   */
+  onFrameMove(fTime: number, fElapsedTime: number): number {
+    void fTime;
+    if (this.m_bShow) {
+      this.m_fElapsedTime = f(fElapsedTime);
+      this.animate();
+    }
+    return 0;
+  }
+
+  /**
+   * `Animate()` (32923EB0), the work of `Move`: with a change time the offset (and the colour) go towards the goal by
+   * `(goal - now) / (changeTime - animateTime) * elapsed` a frame while `m_fAnimateTime` counts up; once it is no longer below the change time
+   * the control jumps to its goal (an auto-delete control is marked, `m_bCheckAutoDeleteEnd`).  A control with no running move takes the
+   * next item of its queue as the goal (in the same call that finished the last one).  Every operation rounds to a float.
+   */
+  animate(): void {
+    if (this.m_fChangeTime > 0) {
+      const at = this.m_fAnimateTime;
+      if (at < this.m_fChangeTime) {
+        const o = this.m_OffsetPos, g = this.m_GoalPos, c = this.m_Color, gc = this.m_GoalColor;
+        const k = f(1 / f(this.m_fChangeTime - at));
+        const dt = this.m_fElapsedTime;
+        o.x = approach(o.x, g.x, k, dt);
+        o.y = approach(o.y, g.y, k, dt);
+        c.r = approach(c.r, gc.r, k, dt);
+        c.g = approach(c.g, gc.g, k, dt);
+        c.b = approach(c.b, gc.b, k, dt);
+        c.a = approach(c.a, gc.a, k, dt);
+        this.m_fAnimateTime = f(dt + at);
+      } else {
+        this.m_fAnimateTime = 0;
+        this.m_fChangeTime = 0;
+        this.m_OffsetPos.set(this.m_GoalPos.x, this.m_GoalPos.y);
+        if (this.m_bAutoDelete) this.m_bCheckAutoDeleteEnd = true;
+      }
+    }
+    if (this.m_fChangeTime === 0 && this.m_queMoveItems.length !== 0) {
+      const item = this.m_queMoveItems.shift()!;
+      this.m_GoalPos.set(item.pos.x, item.pos.y);
+      this.m_GoalColor.set(item.color.r, item.color.g, item.color.b, item.color.a);
+      this.m_fChangeTime = item.fChangeTime;
+      this.m_bAutoDelete = item.bIsAutoDelete;
+    }
+  }
+
+  /**
+   * `ChangePoint(pNowPoint, pEndPoint)` (329240D0): the point (colour and the four corners) goes from `now` towards `end` in the time
+   * that is left, `pNowPoint->fChangeTime` counting up by the frame's time; when the frame is not shorter than what is left it
+   * becomes the end point (`*pNowPoint = *pEndPoint`, the texture pointer and the blend states with it).  Nothing when both change times agree.
+   */
+  changePoint(now: UIPointData, end: UIPointData): void {
+    const ct = now.fChangeTime;
+    if (end.fChangeTime === ct) return;
+    const dt = this.m_fElapsedTime;
+    const span = f(end.fChangeTime - ct);
+    if (dt < span) {
+      const k = f(1 / span);
+      for (const ch of ["r", "g", "b", "a"] as const) now.color[ch] = approach(now.color[ch], end.color[ch], k, dt);
+      for (const corner of ["leftTopPoint", "rightTopPoint", "leftBottomPoint", "rightBottomPoint"] as const) {
+        const n = now[corner], e = end[corner];
+        n.x = approach(n.x, e.x, k, dt);
+        n.y = approach(n.y, e.y, k, dt);
+      }
+      now.fChangeTime = f(dt + ct);
+    } else {
+      now.assign(end);
+    }
+  }
+
+  /**
+   * `UpdateTexChangeData(pTexChangeData)` (32927DE0): the running texture animation (`m_NowTexChangeData`) goes one frame towards the step it is
+   * heading for (rotation, position, scale and the scale rotation by `(goal - now) / (showTime - elapsedShowTime) * elapsed`); a step that has
+   * been shown for its time ends: the values become the step's, and the sequence goes on to the next id (`m_SequenceID + 1`, or the running data's own
+   * `m_SequenceIDToGo` when that is not -1: the exe reads it from `m_NowTexChangeData`, not from the step), or the animation ends (`m_bEndTexChange`) when the
+   * step is the last.  With no step the sequence id is 0.
+   */
+  updateTexChangeData(step: TexChangeData | null | undefined): void {
+    const now = this.m_NowTexChangeData;
+    if (!step) {
+      now.m_SequenceID = 0;
+      return;
+    }
+    if (step.m_RotateAxis !== TA.NONE) now.m_RotateAxis = step.m_RotateAxis;
+    if (step.m_ScaleAxis !== TA.NONE) now.m_ScaleAxis = step.m_ScaleAxis;
+    const dt = this.m_fElapsedTime;
+    const rotate0 = now.m_fRotateDegree;
+    now.m_fShowTime = f(dt + now.m_fShowTime);
+    const left = f(step.m_fShowTime - now.m_fShowTime); // `v8`
+    now.m_fRotateDegree = f(f(f(f(step.m_fRotateDegree - rotate0) / left) * dt) + rotate0);
+    const inv = f(1 / left);
+    const dy = f(step.m_Pos.y - now.m_Pos.y);
+    now.m_Pos.x = f(f(f(f(step.m_Pos.x - now.m_Pos.x) * inv) * dt) + now.m_Pos.x);
+    now.m_Pos.y = f(f(f(inv * dy) * dt) + now.m_Pos.y);
+    const scaleY = f(f(f(inv * f(step.m_Scale.y - now.m_Scale.y)) * dt) + now.m_Scale.y);
+    now.m_Scale.x = f(f(f(f(step.m_Scale.x - now.m_Scale.x) * inv) * dt) + now.m_Scale.x);
+    now.m_Scale.y = scaleY;
+    now.m_fScaleRotationDegree = f(f(f(f(step.m_fScaleRotationDegree - now.m_fScaleRotationDegree) / left) * dt) + now.m_fScaleRotationDegree);
+    if (now.m_fShowTime >= step.m_fShowTime) {
+      now.m_fShowTime = 0;
+      now.m_fRotateDegree = step.m_fRotateDegree;
+      now.m_fScaleRotationDegree = step.m_fScaleRotationDegree;
+      now.m_Pos.set(step.m_Pos.x, step.m_Pos.y);
+      now.m_Scale.set(step.m_Scale.x, step.m_Scale.y);
+      if (step.m_bEndTexChange) now.m_bEndTexChange = true;
+      else if (now.m_SequenceIDToGo === -1) now.m_SequenceID = (now.m_SequenceID + 1) | 0;
+      else now.m_SequenceID = now.m_SequenceIDToGo;
+    }
+  }
+
+  /**
+   * `ShowGuideDesc()` (32927C30): a control with a guide text asks its dialog to show it (`CKTDGUIDialog::ShowGuideDesc` 3295BA30 builds the
+   * guide dialog and measures the text with a font: not ported, so it throws).
+   */
+  showGuideDesc(): void {
+    if (this.m_GuideDesc.length !== 0 && this.m_pDialog !== null) this.m_pDialog.showGuideDesc(this);
   }
 
   /**

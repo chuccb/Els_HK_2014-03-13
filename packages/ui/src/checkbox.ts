@@ -43,6 +43,39 @@ export class CKTDGUICheckBox extends CKTDGUIControl implements Partial<CKTDGUICh
     [this.m_pSndCheck] = this.openControlSounds(["CheckBox_Check"]);
   }
 
+  /**
+   * `OnFrameMove` (329319A0): a shown box runs the control's, moves its current point towards its end point (`ChangePoint`) and follows the
+   * mouse: normal goes to mouse over, mouse over back to normal, a disabled box to normal once it is enabled again, and a box
+   * that is still normal or mouse over but not enabled becomes disabled.  Returns 0.
+   */
+  override onFrameMove(fTime: number, fElapsedTime: number): number {
+    if (!this.m_bShow) return 0;
+    super.onFrameMove(fTime, fElapsedTime);
+    this.m_fElapsedTime = Math.fround(fElapsedTime);
+    if (this.m_EndPoint.fChangeTime !== this.m_NowPoint.fChangeTime) this.changePoint(this.m_NowPoint, this.m_EndPoint);
+    switch (this.m_CheckBoxState) {
+      case CBCS.NORMAL:
+        if (this.m_bMouseOver) {
+          this.ChangeState(CBCS.MOUSEOVER);
+          return 0;
+        }
+        break;
+      case CBCS.MOUSEOVER:
+        if (!this.m_bMouseOver) {
+          this.ChangeState(CBCS.NORMAL);
+          return 0;
+        }
+        break;
+      case CBCS.DISABLE:
+        if (this.m_bEnable) this.ChangeState(CBCS.NORMAL);
+        return 0;
+      default:
+        return 0;
+    }
+    if (!this.m_bEnable) this.ChangeState(CBCS.DISABLE);
+    return 0;
+  }
+
   override textureData(out: UITextureData[]): void {
     for (const t of [this.m_pNormalTex, this.m_pMouseOverTex, this.m_pDisableTex, this.m_pCheckedTex]) if (t) out.push(t);
   }

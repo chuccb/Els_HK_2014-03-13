@@ -110,6 +110,33 @@ export class CKTDGUIComboBox extends CKTDGUIControl implements Partial<CKTDGUICo
     [this.m_pSndButtonMouseDown, this.m_pSndButtonMouseOver] = this.openControlSounds(["ComboBox_Mouse_Down", "ComboBox_Mouse_Over"]);
   }
 
+  /**
+   * `OnFrameMove` (3293D960): a shown and enabled combo box runs the control's and its scroll bar's, takes the rectangle of its button as its
+   * second bounding box and as its current point (ints), moves the controls of its rows, and plays the over sound once when the mouse comes over it
+   * (`m_bMouseOverCheck`).
+   */
+  override onFrameMove(fTime: number, fElapsedTime: number): number {
+    if (!(this.m_bShow && this.m_bEnable)) return 0;
+    super.onFrameMove(fTime, fElapsedTime);
+    this.m_pScrollBar?.onFrameMove(fTime, fElapsedTime);
+    copyRect(this.m_rcBoundingBox2, this.m_rcButton);
+    const b = this.m_rcBoundingBox2, p = this.m_NowPoint;
+    p.leftTopPoint.set(b.left, b.top);
+    p.rightTopPoint.set(b.right, b.top);
+    p.leftBottomPoint.set(b.left, b.bottom);
+    p.rightBottomPoint.set(b.right, b.bottom);
+    for (let i = 0; i < this.m_Items.length; i++) this.m_Items[i]!.pControl?.onFrameMove(fTime, fElapsedTime);
+    if (this.m_bMouseOver) {
+      if (!this.m_bMouseOverCheck) {
+        this.m_bMouseOverCheck = true;
+        this.playSound(this.m_pSndButtonMouseOver);
+      }
+    } else {
+      this.m_bMouseOverCheck = false;
+    }
+    return 0;
+  }
+
   override textureData(out: UITextureData[]): void {
     for (const t of [
       this.m_pTextTex, this.m_pButtonTex, this.m_pButtonMouseOverTex, this.m_pButtonMouseDownTex, this.m_pDropdownTex, this.m_pDropdownTextTex,

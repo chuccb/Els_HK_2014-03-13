@@ -144,6 +144,60 @@ export class CKTDGUIListBox extends CKTDGUIControl implements Partial<CKTDGUILis
     [this.m_pSndMouseDown] = this.openControlSounds(["ListBox_Mouse_Down"]);
   }
 
+  /**
+   * `OnFrameMove` (32943980): a shown and enabled list box moves its group mark (a static), runs the control's and its scroll bar's, and takes its
+   * bounding box, moved right by the bar's width, as its current point (ints).  Each row then counts down its show time (`m_fTimeLeftShow`; the row
+   * is hidden when it runs out), spreads its text (`bSpread`: one more character each `fSpreadTimeGap`; no colour codes are skipped here) and moves its control.
+   */
+  override onFrameMove(fTime: number, fElapsedTime: number): number {
+    if (!this.m_bShow || !this.m_bEnable) return 0;
+    this.m_pGroupMark.onFrameMove(fTime, fElapsedTime);
+    super.onFrameMove(fTime, fElapsedTime);
+    const bar = this.m_pScrollBar;
+    bar?.onFrameMove(fTime, fElapsedTime);
+    const b = this.m_rcBoundingBox;
+    let left = b.left, right = b.right;
+    if (bar) {
+      left = (left + bar.m_width) | 0;
+      right = (right + bar.m_width) | 0;
+    }
+    const p = this.m_NowPoint;
+    p.leftTopPoint.y = b.top;
+    p.rightTopPoint.y = b.top;
+    p.leftTopPoint.x = left;
+    p.rightTopPoint.x = right;
+    p.leftBottomPoint.x = left;
+    p.leftBottomPoint.y = b.bottom;
+    p.rightBottomPoint.x = right;
+    p.rightBottomPoint.y = b.bottom;
+    const dt = Math.fround(fElapsedTime);
+    for (let i = 0; i < this.m_Items.length; i++) {
+      const item = this.m_Items[i]!;
+      if (item.m_fTimeLeftShow > 0) {
+        const t = Math.fround(item.m_fTimeLeftShow - dt);
+        item.m_fTimeLeftShow = t;
+        if (t < 0) {
+          item.m_fTimeLeftShow = 0;
+          item.m_bShow = false;
+        }
+      }
+      if (item.bSpread) {
+        if (item.iSpreadCount >= item.strText.length) {
+          item.bSpread = false;
+        } else {
+          const t = Math.fround(dt + item.fNowSpreadTime);
+          item.fNowSpreadTime = t;
+          if (t > item.fSpreadTimeGap) {
+            item.fNowSpreadTime = 0;
+            item.iSpreadCount = (item.iSpreadCount + 1) | 0;
+          }
+        }
+      }
+      item.pControl?.onFrameMove(fTime, fElapsedTime);
+    }
+    return 0;
+  }
+
   override textureData(out: UITextureData[]): void {
     for (const t of [
       this.m_pBoudingBoxTex, this.m_pTextTex, this.m_pButtonMouseOverTex, this.m_pScollBarUpButtonTex, this.m_pScollBarUpButtonDownTex,

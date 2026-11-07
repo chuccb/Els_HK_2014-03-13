@@ -43,6 +43,12 @@ export class CKTDGUINavigation extends CKTDGUIControl implements Partial<CKTDGUI
     [this.m_pSndMouseDown] = this.openControlSounds(["Button_Mouse_Up"]);
   }
 
+  /** `OnFrameMove` (3294E530): an enabled navigation runs the control's (a disabled one does nothing, not even for the move queue) */
+  override onFrameMove(fTime: number, fElapsedTime: number): number {
+    if (this.m_bEnable) super.onFrameMove(fTime, fElapsedTime);
+    return 0;
+  }
+
   override textureData(out: UITextureData[]): void {
     if (this.m_pBGTex) out.push(this.m_pBGTex);
     if (this.m_pWindowTex) out.push(this.m_pWindowTex);

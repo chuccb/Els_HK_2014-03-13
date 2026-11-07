@@ -23,7 +23,7 @@ import type { UIContext, UIPointData, UITextureData } from "./control.ts";
 import { byte, channel, d3dColor, ONE_OVER_255, packArgb } from "./d3dcolor.ts";
 import type { DeviceSound } from "./device.ts";
 import type { UKFont } from "./font.ts";
-import { newRect, newVertices } from "./rect.ts";
+import { ftoi, newRect, newVertices } from "./rect.ts";
 import type { Rect, VertexUI } from "./rect.ts";
 import { CKTDGUIUniBuffer } from "./unibuffer.ts";
 
@@ -76,6 +76,34 @@ export class CKTDGUIEditBox extends CKTDGUIControl implements Partial<CKTDGUIEdi
     this.m_dfLastBlink = ctx.devices.absoluteTime();
     CKTDGUIEditBox.s_bHideCaret = false;
     [this.m_pSndKeyDown] = this.openControlSounds(["EditBox_KeyDown"]);
+  }
+
+  /**
+   * `OnFrameMove` (329342D0): an enabled edit box runs the control's and, with a background (`m_bBGCheck`), makes its normal point the end point;
+   * its current point is that point (or, without a background, its text point), and the text rectangle is the text point's left-top and
+   * right-bottom corners cut to ints.  The exe dereferences null when a point it needs is missing; so does the port (an Error).
+   */
+  override onFrameMove(fTime: number, fElapsedTime: number): number {
+    if (!this.m_bEnable) return 0;
+    super.onFrameMove(fTime, fElapsedTime);
+    this.m_fElapsedTime = Math.fround(fElapsedTime);
+    let point: UIPointData | null;
+    if (this.m_bBGCheck) {
+      point = this.m_pNormalPoint;
+      if (!point) throw new Error("CKTDGUIEditBox::OnFrameMove: the box has a background but no normal point; the exe dereferences null");
+      this.m_EndPoint.assign(point);
+    } else {
+      point = this.m_pTextPoint;
+    }
+    const text = this.m_pTextPoint;
+    if (!point || !text) throw new Error("CKTDGUIEditBox::OnFrameMove: the box has no text point (SetTextPoint); the exe dereferences null");
+    this.m_NowPoint.assign(point);
+    const rc = this.m_rcText;
+    rc.left = ftoi(text.leftTopPoint.x);
+    rc.top = ftoi(text.leftTopPoint.y);
+    rc.right = ftoi(text.rightBottomPoint.x);
+    rc.bottom = ftoi(text.rightBottomPoint.y);
+    return 0;
   }
 
   override textureData(out: UITextureData[]): void {

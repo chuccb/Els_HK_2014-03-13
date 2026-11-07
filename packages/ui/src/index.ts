@@ -21,6 +21,7 @@ export * from "./scrollbar.ts";
 export * from "./combobox.ts";
 export * from "./dialog.ts";
 export * from "./dialogmanager.ts";
+export * from "./input.ts";
 export * from "./render.ts";
 export * from "./world.ts";
 export * from "./stdmap.ts";
