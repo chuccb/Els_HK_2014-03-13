@@ -237,7 +237,7 @@ CX2StatePVPRoom::CX2MapSelectWindow	14	1539	32EF9EA0	partial	packages/ui/src/map
 CX2NPCUnitViewerUI	14	1784	3324ED50	todo		
 namespace'::_Find_meow_of::_Bitmap_impl	14	1177	3329DBD0	todo		
 CKTDIManager	13	321	328CF0E0	todo		
-CKTDGDynamicVBManager	13	2736	328E2DB0	todo	packages/d3d9 (device side)	dynamic vertex buffer ring: not ported; the device implements what it needs (DYNAMIC | WRITEONLY buffers, DISCARD / NOOVERWRITE, FVFs 66 / 258 / 322 / 324, triangle fans) and tests it (packages/d3d9/test/draw.test.ts)
+CKTDGDynamicVBManager	13	2736	328E2DB0	partial	packages/engine/src/dynamicvb.ts	constructor 328E2DB0, CustomInitialize 328E3080 / CustomFinalize, OnLostDevice 328E3390 / OnResetDevice 328E3400, DynamicVBInfo::Reset 328E3620, _DrawPrimitiveDynamicVB 328E3730 (the VB ring) and _DrawPrimitiveUP 328E56E0; not ported: _DrawPrimitiveManaged, the WithTryCatch and the _SplitData variants, DrawPrimitive_SplitData 32982E80
 CKTDGXRenderer	13	2265	329724B0	partial	packages/d3d9/src/effect.ts, xrenderer-shaders.ts, vshader.ts	the effect it loads in OnResetDevice (329749E0) - XRenderer.fx with 19 techniques, 19 parameters and 80 vs_1_1 shaders - is emulated (FINDINGS 12.7); the class itself is not ported: render types, SetColor / SetRenderPassFog, the shader-index rule of _CommitChanges, the draw paths, the Cartoon*.bmp ramps
 CX2Room::SlotData	13	693	3298F320	todo		
 CX2WorldObjectParticle	13	697	32A2ABB0	todo		
@@ -692,12 +692,12 @@ CFirstPersonCamera	3	179	328A6FB0	todo
 CDXUTResourceCache	3	139	328A8430	todo		
 std::basic_stringstream<wchar_t,std::char_traits<wchar_t>,std::allocator<wchar_t>>	3	128	328B8240	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 lua_tinker::mem_functor<CKTDGUIControl,int,void,void,void,void,void,void,void,void,void>	3	84	328BAF80	done	packages/host/src/tinker.ts (makeMethod, MemVar, registerConstructor)	the marshalling thunk of ONE registration (read<T> of the arguments, the call, push<T> of the result): one data-driven binder instead of one C++ template instance per signature; the registered function itself is its own row
-CKTDGStateManager	3	381	328D1AF0	todo	packages/d3d9 (device side)	engine-side render-state mirror + push/pop stack (KD3DStack): not ported. Every state it writes (103 render states, 18 texture-stage states x 8 stages, 13 sampler states x 16) is implemented by Direct3DDevice9 with the defaults it restores (packages/d3d9/src/state.ts; FINDINGS 12)
+CKTDGStateManager	3	381	328D1AF0	partial	packages/engine/src/statemanager.ts	ms_adwRenderState / TextureStageState / SamplerState / ms_apd3dTextures as the members of one object, the inlined state setters (push the old value, call the device only on a change) as setRenderState / setTextureStageState / setSamplerState; RestoreDeviceObjects (328D1BD0) is the D3D9 layer's default tables (defaultRenderStates ...), not ported as code; CheckDeviceFormat and InvalidateDeviceObjects not ported
 KGCMassFileBuffer	3	77	328D22B0	todo		
 KGCMassFileManager::CMassFile	3	609	328D57F0	done	packages/kom (archive.ts)	CMassFile / MASSFILE_MEMBERFILEINFO*: the archive container (CRC, adler32, MSZIP / KOM v1-v4, per-entry encryption variants)
 std::map<int,CKTDXDeviceTexture *>	3	115	328E1380	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<CKTDGDynamicVBManager::DynamicVBInfo::KVBInfo>	3	182	328E2BF0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDGDynamicVBManager::DynamicVBInfo	3	59	328E2E50	todo	packages/d3d9 (device side)	dynamic vertex buffer ring: not ported; the device implements what it needs (DYNAMIC | WRITEONLY buffers, DISCARD / NOOVERWRITE, FVFs 66 / 258 / 322 / 324, triangle fans) and tests it (packages/d3d9/test/draw.test.ts)
+CKTDGDynamicVBManager::DynamicVBInfo	3	59	328E2E50	partial	packages/engine/src/dynamicvb.ts	constructor 328E2DB0, CustomInitialize 328E3080 / CustomFinalize, OnLostDevice 328E3390 / OnResetDevice 328E3400, DynamicVBInfo::Reset 328E3620, _DrawPrimitiveDynamicVB 328E3730 (the VB ring) and _DrawPrimitiveUP 328E56E0; not ported: _DrawPrimitiveManaged, the WithTryCatch and the _SplitData variants, DrawPrimitive_SplitData 32982E80
 std::_Hash<std::_Umap_traits<std::string,unsigned int,std::_Uhash_compare<std::string,std::hash<std::string>,std::equal_to<std::string>>,std::allocator<std::pair<std::string const,unsigned int>>,0>>	3	261	328E5BE0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::deque<CKTDGCamera::CameraData>	3	204	328F0F90	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<CKTDGManager::KObjectRenderHint>	3	177	328F2BB0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -883,7 +883,7 @@ lua_tinker::mem_var<CKTDGUIControl::UIStringData,unsigned long>	2	26	328CEBF0	do
 KGCMassFileBufferManager::BufferBucket	2	38	328D2280	todo		
 std::vector<KGCMassFileManager::CMassFile::MASSFILE_MEMBERFILEHEADER>	2	120	328D2E90	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::_Hash_vec<std::allocator<std::_List_unchecked_iterator<std::_List_val<std::_List_simple_types<std::pair<std::string const,unsigned int>>>>>>	2	99	328D3970	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-KD3DStack	2	182	328D9980	todo	packages/d3d9 (device side)	the state push/pop stack of CKTDGStateManager: not ported (engine code over the device)
+KD3DStack	2	182	328D9980	done	packages/engine/src/statemanager.ts	KD3DStack(const KStateID*) 328D9980 (apply) and ~KD3DStack 328D9B50 (popTo: only a state that differs from the mirror reaches the device)
 std::list<CKTDGUIDialogHandle>	2	47	328DD830	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDGUIDialog::CKTDGUIDialogManagerAccess	2	24	328E0AE0	todo		
 std::_Tree_val<std::_Tree_simple_types<std::pair<unsigned long const,boost::shared_ptr<KSocketObject>>>>	2	62	328E1120	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
