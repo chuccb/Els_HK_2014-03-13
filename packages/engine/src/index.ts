@@ -13,7 +13,7 @@ export { loadSkinnedMesh, loadD3DXSkinnedMesh } from "./skinmesh.ts";
 export type { SkinMesh } from "./skinmesh.ts";
 export { XMESH_FVF, isKmeData, loadXMesh, loadD3DXMesh, loadKMEMesh, xmeshAsFrame } from "./xmesh.ts";
 export type { XMeshProxy, SubsetCullingInfo } from "./xmesh.ts";
-export { STATE_TYPE, STATE_MANAGER_SAMPLERS, CKTDGStateManager, KD3DStack } from "./statemanager.ts";
+export { STATE_TYPE, STATE_MANAGER_SAMPLERS, CKTDGStateManager, KD3DStack, akStates } from "./statemanager.ts";
 export type { KState, KStateID, StateDevice } from "./statemanager.ts";
 export {
   DVB_TYPE, DYNAMIC_VB_MODE, DynamicVBInfo, CKTDGDynamicVBManager, ConvertToNumPrimitives, ConvertToNumVertices,

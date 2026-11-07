@@ -6,7 +6,7 @@
  */
 import { D3DRS, D3DSAMP, D3DTA, D3DTADDRESS, D3DTEXF, D3DTOP, D3DTSS } from "@els/d3d9";
 import type { Direct3DTexture9, Direct3DVertexDeclaration9 } from "@els/d3d9";
-import { CKTDGDynamicVBManager, CKTDGStateManager, DYNAMIC_VB_MODE, STATE_TYPE } from "@els/engine";
+import { CKTDGDynamicVBManager, CKTDGStateManager, DYNAMIC_VB_MODE, STATE_TYPE, akStates } from "@els/engine";
 import type { DynamicVBDevice, KStateID, StateDevice } from "@els/engine";
 import { Vec2 } from "@els/host";
 
@@ -91,9 +91,15 @@ export class UIRender {
    */
   readonly undrawn = new Map<string, number>();
 
+  /**
+   * The device has been through `CKTDGManager::OnResetDevice` (32960880): `RestoreDeviceObjects` (the mirror of the state manager) and then
+   * the game's baseline `akStates`, the states the controls find when they set none themselves.  A button, for one, pushes no blend state:
+   * it blends with the SRCALPHA / INVSRCALPHA of the baseline.
+   */
   constructor(device: UIDevice, dynamicVBMode: number = DYNAMIC_VB_MODE.DYNAMICVB) {
     this.device = device;
     this.states = new CKTDGStateManager(device);
+    this.states.set(akStates);
     this.dvb = new CKTDGDynamicVBManager(device, dynamicVBMode);
   }
 

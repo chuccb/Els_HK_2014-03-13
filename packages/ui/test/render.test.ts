@@ -69,6 +69,7 @@ function rig(extra: { backBuffer?: { width: number; height: number }; tickCount?
     }
     return t;
   }) as typeof s.w.devices.openTexture;
+  dev.log.length = 0; // what bringing the device to the baseline cost is pinned by a test of its own
   return { ...s, dev };
 }
 
@@ -121,6 +122,16 @@ describe("VertexUI4 and the tables", () => {
       [0, 6, 2], [0, 5, 2], [0, 7, 2], [1, 6, 2], [1, 5, 2], [1, 7, 2], // min, mag, mip filter: linear, on both stages
       [0, 1, 2], [0, 2, 2], [1, 1, 2], [1, 2, 2], // address u, v: mirror
     ]);
+  });
+
+  test("the render object brings the device to the baseline of CKTDGManager::OnResetDevice (akStates) before anything is drawn", () => {
+    const dev = new Recorder();
+    const r = new UIRender(dev as never);
+    // the Direct3D defaults already hold SPECULAR 0, ALPHABLEND 0, Z 1 / 1 and CULL 3; LIGHTING, ALPHATEST, SRCBLEND, DESTBLEND and
+    // the three filters of sampler 0 are changed
+    expect(dev.log).toEqual(["rs 137 0", "rs 15 1", "rs 19 5", "rs 20 6", "ss 0 6 2", "ss 0 5 2", "ss 0 7 2"]);
+    expect(r.states.stackPointer).toBe(0);
+    expect([r.states.adwRenderState[19], r.states.adwRenderState[20]]).toEqual([5, 6]); // SRCALPHA, INVSRCALPHA
   });
 
   test("m_ResolutionScale = (width * 0.0009765625, height / 768) (CKTDXApp::OnResetDevice 328C4FC0)", () => {
@@ -378,15 +389,12 @@ describe("CKTDGUIStatic.onFrameRender (3292A2B0)", () => {
     return { ...s, dialog, control, picture };
   }
 
-  test("a picture is drawn with its two blend states pushed around the draw and popped after it", () => {
-    const { control, dev, picture } = scene();
+  test("a picture is drawn with the blend states of its point pushed around the draw; the baseline holds them already, so the device is not told", () => {
+    const { control, dev, picture, w } = scene();
     expect(control.onFrameRender()).toBe(0);
     // the corners: x = (10.25 + 10) * 1.5 = 30.375 -> 29.5, (10.25 + 74) * 1.5 = 126.375 -> 125.5; y = (20.5 + 20) * 2 = 81 -> 80.5, (20.5 + 52) * 2 = 145 -> 144.5
-    expect(dev.log).toEqual([
-      "rs 19 5", "rs 20 6", // SRCBLEND = SRCALPHA, DESTBLEND = INVSRCALPHA (the defaults are ONE and ZERO)
-      "tex 0 P.TGA", "fvf 324", "src 12 28", "draw 5 0 2",
-      "rs 20 1", "rs 19 2", // popped newest first
-    ]);
+    expect(dev.log).toEqual(["tex 0 P.TGA", "fvf 324", "src 12 28", "draw 5 0 2"]);
+    expect(w.render!.states.stackPointer).toBe(0);
     const bytes = new Float32Array(dev.vbs[12]!.data.buffer, 0, 28);
     expect([bytes[0], bytes[1], bytes[7], bytes[8], bytes[14], bytes[15], bytes[21], bytes[22]]).toEqual([29.5, 80.5, 125.5, 80.5, 29.5, 144.5, 125.5, 144.5]);
     expect(picture.pPoint!.m_iDrawCount).toBe(1);
@@ -398,12 +406,12 @@ describe("CKTDGUIStatic.onFrameRender (3292A2B0)", () => {
     picture.pPoint!.m_eDestBlend = 2; // ONE
     picture.pPoint!.m_iDrawCount = 2;
     control.onFrameRender();
-    // SRCBLEND is ONE (2) already, so the device is not told; DESTBLEND goes from ZERO (1) to ONE (2) and back
-    expect(dev.log).toEqual(["rs 20 2", "tex 0 P.TGA", "fvf 324", "src 12 28", "draw 5 0 2", "draw 5 0 2", "rs 20 1"]);
+    // SRCBLEND goes from SRCALPHA (5) to ONE (2) and DESTBLEND from INVSRCALPHA (6) to ONE (2); popped newest first
+    expect(dev.log).toEqual(["rs 19 2", "rs 20 2", "tex 0 P.TGA", "fvf 324", "src 12 28", "draw 5 0 2", "draw 5 0 2", "rs 20 6", "rs 19 5"]);
     // the texture is the one stage 0 holds; the second quad goes after the first one in the buffer (4 vertices on)
     dev.log.length = 0;
     control.onFrameRender();
-    expect(dev.log).toEqual(["rs 20 2", "fvf 324", "src 12 28", "draw 5 4 2", "draw 5 4 2", "rs 20 1"]);
+    expect(dev.log).toEqual(["rs 19 2", "rs 20 2", "fvf 324", "src 12 28", "draw 5 4 2", "draw 5 4 2", "rs 20 6", "rs 19 5"]);
   });
 
   test("a hidden static, a hidden picture, a picture without a point or a texture draw nothing", () => {
@@ -424,7 +432,7 @@ describe("CKTDGUIStatic.onFrameRender (3292A2B0)", () => {
     picture.pTexture = texture;
     expect(dev.log).toEqual([]);
     control.onFrameRender();
-    expect(dev.log).toEqual(["rs 19 5", "rs 20 6", "tex 0 P.TGA", "fvf 324", "src 12 28", "draw 5 0 2", "rs 20 1", "rs 19 2"]);
+    expect(dev.log).toEqual(["tex 0 P.TGA", "fvf 324", "src 12 28", "draw 5 0 2"]);
   });
 
   test("the pictures are drawn in the order they were added", () => {
@@ -475,9 +483,11 @@ describe("CKTDGUIButton.onFrameRender (3292ED40)", () => {
   }
 
   test("the quad of the current point is drawn: (10 * 1.5 = 15 -> 14.5, 74 * 1.5 = 111 -> 110.5; 20 * 2 = 40 -> 39.5, 52 * 2 = 104 -> 103.5)", () => {
-    const { b, dev } = scene();
+    const { b, dev, w } = scene();
     expect(b.onFrameRender()).toBe(0);
+    // no blend state is pushed: the button blends with the SRCALPHA / INVSRCALPHA of the baseline
     expect(dev.log).toEqual(["tex 0 B.TGA", "fvf 324", "src 12 28", "draw 5 0 2"]);
+    expect([w.render!.states.adwRenderState[19], w.render!.states.adwRenderState[20]]).toEqual([5, 6]);
     const f = new Float32Array(dev.vbs[12]!.data.buffer, 0, 28);
     expect([f[0], f[1], f[7], f[8], f[14], f[15], f[21], f[22]]).toEqual([14.5, 39.5, 110.5, 39.5, 14.5, 103.5, 110.5, 103.5]);
   });
@@ -507,16 +517,20 @@ describe("CKTDGUIButton.onFrameRender (3292ED40)", () => {
 });
 
 describe("CKTDGUIDialog.onFrameRender (32958FF0)", () => {
-  /** the states the dialog pushes (the defaults are the Direct3D ones: point filters, wrap, z test and write on, ...) */
+  /**
+   * the device calls of the pushes, from the state the baseline leaves (akStates over the Direct3D defaults: sampler 0 filters LINEAR,
+   * ALPHATEST on, SRCALPHA / INVSRCALPHA, stage 1 point filters and wrap): the filters of sampler 0 are linear already, so only stage 1 and the
+   * mirrored addressing reach the device
+   */
   const PUSH = [
-    "ss 0 6 2", "ss 0 5 2", "ss 0 7 2", "ss 1 6 2", "ss 1 5 2", "ss 1 7 2", "ss 0 1 2", "ss 0 2 2", "ss 1 1 2", "ss 1 2 2",
-    // RSI: ALPHABLENDENABLE 0 -> 1, ALPHATESTENABLE 0 stays, ZENABLE 1 -> 0, ZWRITEENABLE 1 -> 0; COLOROP modulate and COLORARG1 texture stay,
+    "ss 1 6 2", "ss 1 5 2", "ss 1 7 2", "ss 0 1 2", "ss 0 2 2", "ss 1 1 2", "ss 1 2 2",
+    // RSI: ALPHABLENDENABLE 0 -> 1, ALPHATESTENABLE 1 -> 0, ZENABLE 1 -> 0, ZWRITEENABLE 1 -> 0; COLOROP modulate and COLORARG1 texture stay,
     // COLORARG2 current -> diffuse, ALPHAOP select-arg-1 -> modulate, ALPHAARG1 texture stays, ALPHAARG2 current -> diffuse
-    "rs 27 1", "rs 7 0", "rs 14 0", "tss 0 3 0", "tss 0 4 4", "tss 0 6 0",
+    "rs 27 1", "rs 15 0", "rs 7 0", "rs 14 0", "tss 0 3 0", "tss 0 4 4", "tss 0 6 0",
   ];
   const POP = [
-    "tss 0 6 1", "tss 0 4 2", "tss 0 3 1", "rs 14 1", "rs 7 1", "rs 27 0",
-    "ss 1 2 1", "ss 1 1 1", "ss 0 2 1", "ss 0 1 1", "ss 1 7 0", "ss 1 5 1", "ss 1 6 1", "ss 0 7 0", "ss 0 5 1", "ss 0 6 1",
+    "tss 0 6 1", "tss 0 4 2", "tss 0 3 1", "rs 14 1", "rs 7 1", "rs 15 1", "rs 27 0",
+    "ss 1 2 1", "ss 1 1 1", "ss 0 2 1", "ss 0 1 1", "ss 1 7 0", "ss 1 5 1", "ss 1 6 1",
   ];
 
   function scene(extra: Parameters<typeof rig>[0] = {}) {
@@ -536,7 +550,8 @@ describe("CKTDGUIDialog.onFrameRender (32958FF0)", () => {
   test("the sampler states and the states of the table are pushed, the controls drawn, everything popped newest first", () => {
     const { dialog, dev } = scene();
     expect(dialog.onFrameRender()).toBe(0);
-    expect(dev.log).toEqual([...PUSH, "rs 19 5", "rs 20 6", "tex 0 P.TGA", "fvf 324", "src 12 28", "draw 5 0 2", "rs 20 1", "rs 19 2", ...POP]);
+    // the point's blend states are the baseline's: no device call for them
+    expect(dev.log).toEqual([...PUSH, "tex 0 P.TGA", "fvf 324", "src 12 28", "draw 5 0 2", ...POP]);
     expect(dialog.ctx.render!.states.stackPointer).toBe(0);
   });
 
@@ -546,7 +561,7 @@ describe("CKTDGUIDialog.onFrameRender (32958FF0)", () => {
     expect(dialog.onFrameRender()).toBe(0);
     expect(dev.log).toEqual([]);
     expect(dialog.onFrameRender(true)).toBe(0);
-    expect(dev.log).toEqual([...PUSH, "rs 19 5", "rs 20 6", "tex 0 P.TGA", "fvf 324", "src 12 28", "draw 5 0 2", "rs 20 1", "rs 19 2", ...POP]);
+    expect(dev.log).toEqual([...PUSH, "tex 0 P.TGA", "fvf 324", "src 12 28", "draw 5 0 2", ...POP]);
   });
 
   test("while the dialog manager hides the dialogs only DLG_ChatBox_EditBox draws, and the others answer 1", () => {

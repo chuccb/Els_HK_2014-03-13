@@ -31,6 +31,27 @@ export interface KState {
 /** `CKTDGStateManager::KStateID`: a table of states (`m_pkStates`, `m_uNumStates`) */
 export type KStateID = readonly KState[];
 
+/**
+ * `akStates` (x2.exe.c L140817): the states `CKTDGManager::OnResetDevice` (32960880) sets right after `RestoreDeviceObjects`, the game's own
+ * baseline: what a draw routine finds when it sets no state itself.  The UI buttons rely on it: they push no blend state, so SRCBLEND /
+ * DESTBLEND have to be SRCALPHA / INVSRCALPHA here.  Lighting and specular off, alpha test on (its function is ALWAYS), z test and write on,
+ * culling counter-clockwise, alpha blending off, and linear filtering on sampler 0.
+ */
+export const akStates: KStateID = [
+  { m_eType: 0, m_dwStage: 0, m_dwType: 137 /* LIGHTING */, m_dwValue: 0 },
+  { m_eType: 0, m_dwStage: 0, m_dwType: 29 /* SPECULARENABLE */, m_dwValue: 0 },
+  { m_eType: 0, m_dwStage: 0, m_dwType: 27 /* ALPHABLENDENABLE */, m_dwValue: 0 },
+  { m_eType: 0, m_dwStage: 0, m_dwType: 15 /* ALPHATESTENABLE */, m_dwValue: 1 },
+  { m_eType: 0, m_dwStage: 0, m_dwType: 7 /* ZENABLE */, m_dwValue: 1 },
+  { m_eType: 0, m_dwStage: 0, m_dwType: 14 /* ZWRITEENABLE */, m_dwValue: 1 },
+  { m_eType: 0, m_dwStage: 0, m_dwType: 22 /* CULLMODE */, m_dwValue: 3 /* CCW */ },
+  { m_eType: 0, m_dwStage: 0, m_dwType: 19 /* SRCBLEND */, m_dwValue: 5 /* SRCALPHA */ },
+  { m_eType: 0, m_dwStage: 0, m_dwType: 20 /* DESTBLEND */, m_dwValue: 6 /* INVSRCALPHA */ },
+  { m_eType: 2, m_dwStage: 0, m_dwType: 6 /* MINFILTER */, m_dwValue: 2 /* LINEAR */ },
+  { m_eType: 2, m_dwStage: 0, m_dwType: 5 /* MAGFILTER */, m_dwValue: 2 },
+  { m_eType: 2, m_dwStage: 0, m_dwType: 7 /* MIPFILTER */, m_dwValue: 2 },
+];
+
 /** the device calls the state manager makes (`g_pd3dDevice->SetRenderState` ...) */
 export interface StateDevice {
   SetRenderState(state: number, value: number): number;
@@ -108,6 +129,34 @@ export class CKTDGStateManager {
     if (old !== value) {
       this.device.SetSamplerState(stage, type, value);
       this.adwSamplerState[at] = value;
+    }
+  }
+
+  /**
+   * The loop of `CKTDGManager::OnResetDevice` (32960880) that sets a table's states for good: nothing is pushed, and the device is
+   * called only for a state whose value differs from the mirror.
+   */
+  set(id: KStateID): void {
+    for (const s of id) {
+      const value = s.m_dwValue >>> 0;
+      if (s.m_eType === STATE_TYPE.RENDER) {
+        if (this.adwRenderState[s.m_dwType] !== value) {
+          this.device.SetRenderState(s.m_dwType, value);
+          this.adwRenderState[s.m_dwType] = value;
+        }
+      } else if (s.m_eType === STATE_TYPE.TEXTURE_STAGE) {
+        const at = s.m_dwStage * NUM_TSS + s.m_dwType;
+        if (this.adwTextureStageState[at] !== value) {
+          this.device.SetTextureStageState(s.m_dwStage, s.m_dwType, value);
+          this.adwTextureStageState[at] = value;
+        }
+      } else if (s.m_eType === STATE_TYPE.SAMPLER) {
+        const at = s.m_dwStage * NUM_SAMP + s.m_dwType;
+        if (this.adwSamplerState[at] !== value) {
+          this.device.SetSamplerState(s.m_dwStage, s.m_dwType, value);
+          this.adwSamplerState[at] = value;
+        }
+      }
     }
   }
 

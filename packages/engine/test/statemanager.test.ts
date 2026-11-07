@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { D3DBLEND, D3DRS, D3DSAMP, D3DTA, D3DTADDRESS, D3DTEXF, D3DTOP, D3DTSS, NUM_SAMP, NUM_TSS } from "@els/d3d9";
-import { CKTDGStateManager, KD3DStack, STATE_TYPE } from "../src/index.ts";
+import { CKTDGStateManager, KD3DStack, STATE_TYPE, akStates } from "../src/index.ts";
 import type { KStateID, StateDevice } from "../src/index.ts";
 
 /** a device that only writes down what it is told */
@@ -169,5 +169,36 @@ describe("KD3DStack", () => {
     dev.calls.length = 0;
     stack.dispose();
     expect(dev.calls).toEqual([`rs ${D3DRS.SRCBLEND} ${D3DBLEND.SRCALPHA}`, `rs ${D3DRS.SRCBLEND} ${D3DBLEND.ONE}`]);
+  });
+});
+
+describe("akStates: the baseline CKTDGManager::OnResetDevice sets after RestoreDeviceObjects (x2.exe.c L140817)", () => {
+  test("the table, as numbers: LIGHTING 0, SPECULAR 0, ALPHABLEND 0, ALPHATEST 1, Z 1 / 1, CULL 3, SRCBLEND 5, DESTBLEND 6; sampler 0 min, mag, mip LINEAR", () => {
+    expect(akStates.map((s) => [s.m_eType, s.m_dwStage, s.m_dwType, s.m_dwValue])).toEqual([
+      [0, 0, 137, 0], [0, 0, 29, 0], [0, 0, 27, 0], [0, 0, 15, 1], [0, 0, 7, 1], [0, 0, 14, 1], [0, 0, 22, 3], [0, 0, 19, 5], [0, 0, 20, 6],
+      [2, 0, 6, 2], [2, 0, 5, 2], [2, 0, 7, 2],
+    ]);
+  });
+
+  test("set() calls the device only for what differs from the Direct3D defaults the mirror starts with, pushes nothing, and is idempotent", () => {
+    const { dev, sm } = make();
+    sm.set(akStates);
+    // the defaults already hold SPECULAR 0, ALPHABLEND 0, Z 1 / 1 and CULL 3
+    expect(dev.calls).toEqual(["rs 137 0", "rs 15 1", "rs 19 5", "rs 20 6", "ss 0 6 2", "ss 0 5 2", "ss 0 7 2"]);
+    expect(sm.stackPointer).toBe(0);
+    expect([sm.adwRenderState[D3DRS.LIGHTING], sm.adwRenderState[D3DRS.ALPHATESTENABLE], sm.adwRenderState[D3DRS.SRCBLEND], sm.adwRenderState[D3DRS.DESTBLEND]]).toEqual([0, 1, 5, 6]);
+    expect([sm.adwSamplerState[D3DSAMP.MINFILTER], sm.adwSamplerState[D3DSAMP.MAGFILTER], sm.adwSamplerState[D3DSAMP.MIPFILTER]]).toEqual([2, 2, 2]);
+    expect(sm.adwSamplerState[NUM_SAMP + D3DSAMP.MINFILTER]).toBe(D3DTEXF.POINT); // stage 1 is not in the table
+    dev.calls.length = 0;
+    sm.set(akStates);
+    expect(dev.calls).toEqual([]);
+  });
+
+  test("set() writes a texture-stage state too (a table of another kind)", () => {
+    const { dev, sm } = make();
+    sm.set([{ m_eType: STATE_TYPE.TEXTURE_STAGE, m_dwStage: 1, m_dwType: D3DTSS.COLOROP, m_dwValue: D3DTOP.MODULATE }]);
+    expect(dev.calls).toEqual([`tss 1 ${D3DTSS.COLOROP} ${D3DTOP.MODULATE}`]);
+    expect(sm.adwTextureStageState[NUM_TSS + D3DTSS.COLOROP]).toBe(D3DTOP.MODULATE);
+    expect(sm.stackPointer).toBe(0);
   });
 });
