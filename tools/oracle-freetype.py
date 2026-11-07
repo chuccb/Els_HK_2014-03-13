@@ -6,9 +6,11 @@ packages/freetype, run by tools/verify-freetype.ts.
     pip install --target /home/user/work/pycap unicorn pefile
     python3 tools/oracle-freetype.py JOBS.json RESULTS.jsonl
 
-The exe's code runs as it is.  Only what it takes from the C runtime is replaced (memcpy / memmove / memset / str* / _setjmp3 as Python hooks on the
+The exe's code runs as it is.  Only what it takes from the C runtime is replaced (memcpy / memmove / memset / str* / _setjmp3 / longjmp as Python hooks on the
 import thunks; any other import that is called stops the run with its name) and the allocator: the `FT_Memory` the library is made with (the exe makes
 its own with `FT_New_Memory`, 0x32870130, a CRT `malloc`) is three hooked `ret`s with a free list, so the heap never grows with the glyphs loaded.
+Unlike the CRT's malloc the blocks it hands out are ZEROED: FT_Bitmap_Embolden (2.4.11) allocates its new buffer with FT_QALLOC_MULT, i.e. uninitialised, and
+reads the margins it added, so in the exe the result there depends on stale heap bytes; the oracle and the port both mean "zeroed".
 The library is set up the way the exe does it (`FT_Init_FreeType` 0x32831A20: `FT_New_Library`, then `FT_Add_Default_Modules` 0x328319F0, 18 modules).
 
 JOBS.json:
@@ -17,13 +19,14 @@ JOBS.json:
                   "outline": BOOL, "hres": 72, "vres": 72 },
                 { "embolden": { "rows", "width", "pitch", "pixel_mode", "hex" }, "xstr": 26.6, "ystr": 26.6 },
                 { "font": NAME, "char_range": [LO, HI, STEP] }                      # FT_Get_Char_Index only, no size needed
+                { "font": NAME, "raster": { "points": [[x, y]...], "tags": [...], "contours": [...], "flags": N } },   # FT_Render_Glyph(NORMAL) of a synthetic outline
                 { "calc": "mulfix" | "muldiv" | "muldiv_no_round" | "divfix" | "sqrtfixed", "args": [[a, b(, c)]...] },
                 { "calc": "veclen", "args": [[x, y]...] },                          # FT_Vector_Length
                 { "calc": "vtransform", "args": [[x, y, xx, xy, yx, yy]...] } ] }  # FT_Vector_Transform: results are [x, y] pairs
 RESULTS.jsonl: one line per font (its face and size metrics, `size` = the size of the job), then one line per glyph:
   { "font", "size", "code", "glyph", "load_err", "render_err", "metrics": [8 ints of FT_Glyph_Metrics], "linear": [hori, vert], "advance": [x, y], "format",
     "bitmap": { "rows", "width", "pitch", "mode", "left", "top", "hex" }, "outline": { "contours": [...], "points": [[x, y]...], "tags": [...] } }
-and one line per embolden job.
+and one line per embolden job, a last line {"stats": {"glyphs", "longjmps"}} (a longjmp = the gray rasterizer bisected a band); a raster job answers { "raster": true, "render_err", "bitmap": { rows, width, pitch, mode, left, top, sha1, hex (only up to 4 KB) } }.
 
 Offsets (ILP32, FreeType 2.4.11 structs; checked against the exe's own accesses in CKTDGFreeTypeFont::CharToSystemTexture 0x328DA300):
   FT_FaceRec  num_faces 0, face_index 4, face_flags 8, num_glyphs 16, num_charmaps 36, bbox 52, units_per_EM 68 (u16), ascender 70, descender 72, height 74,
@@ -76,11 +79,12 @@ class FtOracle:
         self.impl = {
             "memcpy": self._memcpy, "memmove": self._memcpy, "memset": self._memset, "memchr": self._memchr, "strlen": self._strlen,
             "strcmp": self._strcmp, "strncmp": self._strncmp, "strstr": self._strstr, "strchr": self._strchr, "strrchr": self._strrchr,
-            "strncpy": self._strncpy, "_setjmp3": lambda: self._ret(0), "longjmp": self._longjmp,
+            "strncpy": self._strncpy, "_setjmp3": self._setjmp3, "longjmp": self._longjmp,
         }
         uc.hook_add(UC_HOOK_CODE, self._trap, begin=TRAP, end=TRAP + len(self.names) * 4)
         # the allocator: the FT_Memory handed to FT_New_Library
         self.blocks, self.free = {}, {}
+        self.longjmps = 0
         uc.mem_map(MEMSTUB, 0x1000)
         uc.mem_write(MEMSTUB, b"\xC3" * 64)
         emu.hook(MEMSTUB, self._h_alloc)
@@ -159,8 +163,27 @@ class FtOracle:
         self.emu.write(d, x + bytes(n - len(x)))
         self._ret(d)
 
+    def _setjmp3(self):
+        """save what a longjmp must restore: the callee-saved registers, the stack pointer of the caller and the return address (first 6 dwords of the
+        jmp_buf; the exe's gray rasterizer is the only FreeType code that jumps, to bisect a band whose cells do not fit its pool)"""
+        emu = self.emu
+        esp = emu.reg(UC_X86_REG_ESP)
+        emu.write(self._arg(0), struct.pack("<6I", emu.reg(UC_X86_REG_EBX), emu.reg(UC_X86_REG_ESI), emu.reg(UC_X86_REG_EDI), emu.reg(UC_X86_REG_EBP), esp, emu.u32(esp)))
+        self._ret(0)
+
     def _longjmp(self):
-        raise RuntimeError("longjmp: the library took an error path")
+        """the trap's own `ret` then pops the saved return address, so the _setjmp3 call returns a second time, with `value` (1 if 0)"""
+        emu = self.emu
+        self.longjmps += 1
+        ebx, esi, edi, ebp, esp, ret = struct.unpack("<6I", emu.read(self._arg(0), 24))
+        value = self._arg(1) or 1
+        emu.set_reg(UC_X86_REG_EBX, ebx)
+        emu.set_reg(UC_X86_REG_ESI, esi)
+        emu.set_reg(UC_X86_REG_EDI, edi)
+        emu.set_reg(UC_X86_REG_EBP, ebp)
+        emu.write(esp, struct.pack("<I", ret))
+        emu.set_reg(UC_X86_REG_ESP, esp)
+        self._ret(value)
 
     # ---- the FT_Memory
     def _alloc(self, n):
@@ -274,6 +297,38 @@ class FtOracle:
                 r["metrics_after"] = list(struct.unpack("<8i", emu.read(slot + 24, 32)))
         return r
 
+    def raster(self, font, ol):
+        """FT_Render_Glyph(NORMAL) of a synthetic outline: the glyph slot of `font`, after a real FT_Load_Glyph (so its internals are in place), with its
+        outline fields pointed at the given arrays.  This reaches what no shipped font does (cubic segments, FT_OUTLINE_EVEN_ODD_FILL, invalid tags) and
+        outlines with far more cells than the rasterizer's 16 KB pool holds (it renders in bands and bisects them)."""
+        import hashlib
+        emu = self.emu
+        face = self.faces[font]
+        slot = emu.u32(face + 84)
+        assert self.set_char_size(face, 16 << 6, 0, 72, 72) == 0
+        assert emu.call(FT_LOAD_GLYPH, (face, ol.get("glyph", 1), 10)) == 0
+        pts, tags, conts = ol["points"], ol["tags"], ol["contours"]
+        n, nc = len(pts), len(conts)
+        pbuf, tbuf, cbuf = self._alloc(8 * n + 8), self._alloc(n + 8), self._alloc(2 * nc + 8)
+        if n:
+            emu.write(pbuf, struct.pack("<%di" % (2 * n), *[v for p in pts for v in p]))
+            emu.write(tbuf, bytes(tags))
+        if nc:
+            emu.write(cbuf, struct.pack("<%dh" % nc, *conts))
+        emu.write(slot + 108, struct.pack("<hhIIII", nc, n, pbuf, tbuf, cbuf, ol.get("flags", 0)))
+        emu.write(slot + 72, struct.pack("<I", 0x6F75746C))
+        r = {"raster": True, "render_err": emu.call(FT_RENDER_GLYPH, (slot, 0))}
+        if r["render_err"] == 0:
+            b = self.bitmap_state(slot, True)
+            data = bytes.fromhex(b.pop("hex"))
+            b["sha1"] = hashlib.sha1(data).hexdigest()
+            if len(data) <= 4096:
+                b["hex"] = data.hex()
+            r["bitmap"] = b
+        for p in (pbuf, tbuf, cbuf):
+            self._release(p)
+        return r
+
     def embolden(self, bm, xstr, ystr):
         """FT_Bitmap_New + the pixels of `bm` copied in (FT_Bitmap_Copy) + FT_Bitmap_Embolden"""
         emu = self.emu
@@ -335,6 +390,9 @@ def main():
                 lo, hi, step = job["char_range"]
                 out.write(json.dumps({"font": job["font"], "char_range": job["char_range"], "glyphs": [o.char_index(face, c) for c in range(lo, hi + 1, step)]}) + "\n")
                 continue
+            if "raster" in job:
+                out.write(json.dumps(o.raster(job["font"], job["raster"])) + "\n")
+                continue
             if "embolden" in job:
                 r = o.embolden(job["embolden"], job["xstr"], job["ystr"])
                 r["embolden"] = True
@@ -362,6 +420,7 @@ def main():
                 r.update(font=job["font"], size=job["size"])
                 out.write(json.dumps(r) + "\n")
                 n += 1
+        out.write(json.dumps({"stats": {"glyphs": n, "longjmps": o.longjmps}}) + "\n")
     print("%d glyphs in %.1f s" % (n, time.time() - t0), file=sys.stderr)
 
 
