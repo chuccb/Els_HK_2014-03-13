@@ -4,7 +4,7 @@
  *
  * Without one (`UIContext.render` is null) a control builds its data but draws nothing: the census and most tests run that way.
  */
-import { D3DRS, D3DSAMP, D3DTA, D3DTADDRESS, D3DTEXF, D3DTOP, D3DTSS } from "@els/d3d9";
+import { D3DBLEND, D3DCMP, D3DCULL, D3DRS, D3DSAMP, D3DTA, D3DTADDRESS, D3DTEXF, D3DTOP, D3DTSS } from "@els/d3d9";
 import type { Direct3DTexture9, Direct3DVertexDeclaration9 } from "@els/d3d9";
 import { CKTDGDynamicVBManager, CKTDGStateManager, DYNAMIC_VB_MODE, STATE_TYPE, akStates } from "@els/engine";
 import type { DynamicVBDevice, KStateID, StateDevice } from "@els/engine";
@@ -56,6 +56,27 @@ export const RSI_UI_DIALOG: KStateID = [
   { m_eType: STATE_TYPE.TEXTURE_STAGE, m_dwStage: 0, m_dwType: D3DTSS.ALPHAOP, m_dwValue: D3DTOP.MODULATE },
   { m_eType: STATE_TYPE.TEXTURE_STAGE, m_dwStage: 0, m_dwType: D3DTSS.ALPHAARG1, m_dwValue: D3DTA.TEXTURE },
   { m_eType: STATE_TYPE.TEXTURE_STAGE, m_dwStage: 0, m_dwType: D3DTSS.ALPHAARG2, m_dwValue: D3DTA.DIFFUSE },
+];
+
+/**
+ * `akRSICKTDXDeviceTexture` (x2.exe.c L140832, `CKTDGManager::m_RSICKTDXDeviceTexture`): the states `CKTDXDeviceTexture::Draw` pushes for its
+ * quad.  The alpha test keeps what is not fully transparent (`NOTEQUAL` 0), alpha blending is SRCALPHA / INVSRCALPHA, nothing touches the z
+ * buffer, and the culling is `CW`: the quad is wound counter-clockwise (left-top, left-bottom, right-top, right-bottom), the opposite of
+ * the controls' quads.  The alpha of the stage is `diffuse * texture`; the colour operation is not set (a dialog has set `MODULATE`).
+ */
+export const RSI_DEVICE_TEXTURE: KStateID = [
+  { m_eType: STATE_TYPE.RENDER, m_dwStage: 0, m_dwType: D3DRS.ALPHATESTENABLE, m_dwValue: 1 },
+  { m_eType: STATE_TYPE.RENDER, m_dwStage: 0, m_dwType: D3DRS.ALPHAFUNC, m_dwValue: D3DCMP.NOTEQUAL },
+  { m_eType: STATE_TYPE.RENDER, m_dwStage: 0, m_dwType: D3DRS.ALPHAREF, m_dwValue: 0 },
+  { m_eType: STATE_TYPE.RENDER, m_dwStage: 0, m_dwType: D3DRS.ALPHABLENDENABLE, m_dwValue: 1 },
+  { m_eType: STATE_TYPE.RENDER, m_dwStage: 0, m_dwType: D3DRS.SRCBLEND, m_dwValue: D3DBLEND.SRCALPHA },
+  { m_eType: STATE_TYPE.RENDER, m_dwStage: 0, m_dwType: D3DRS.DESTBLEND, m_dwValue: D3DBLEND.INVSRCALPHA },
+  { m_eType: STATE_TYPE.RENDER, m_dwStage: 0, m_dwType: D3DRS.ZENABLE, m_dwValue: 0 },
+  { m_eType: STATE_TYPE.RENDER, m_dwStage: 0, m_dwType: D3DRS.ZWRITEENABLE, m_dwValue: 0 },
+  { m_eType: STATE_TYPE.RENDER, m_dwStage: 0, m_dwType: D3DRS.CULLMODE, m_dwValue: D3DCULL.CW },
+  { m_eType: STATE_TYPE.TEXTURE_STAGE, m_dwStage: 0, m_dwType: D3DTSS.ALPHAOP, m_dwValue: D3DTOP.MODULATE },
+  { m_eType: STATE_TYPE.TEXTURE_STAGE, m_dwStage: 0, m_dwType: D3DTSS.ALPHAARG1, m_dwValue: D3DTA.DIFFUSE },
+  { m_eType: STATE_TYPE.TEXTURE_STAGE, m_dwStage: 0, m_dwType: D3DTSS.ALPHAARG2, m_dwValue: D3DTA.TEXTURE },
 ];
 
 /**

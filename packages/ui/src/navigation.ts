@@ -11,18 +11,20 @@
  * texture only meet when `SetWindowTex_LUA` runs after `SetWindowPoint_LUA`), SetCustomMsgLButtonDown 328CD120 and SetCustomMsgMouseDragging
  * 328CD1B0 (folded by the linker with the radio button's `SetCustomMsgRButtonUp`; the member it writes is `m_CustomMsgMouseDragging`, 0x2D0).
  *
- * Not ported: what the control does while the game runs (`MsgProc`, `HandleMouse`, `OnFrameMove`, `OnFrameRender`, `ContainsPoint`, and the
- * rectangle helpers the mouse handling uses).
+ * `OnFrameRender` (3294E560) draws the background and the window.  Not ported: what the control does while the game runs (`MsgProc`,
+ * `HandleMouse`, `OnFrameMove`, `ContainsPoint`, and the rectangle helpers the mouse handling uses).
  */
 import type { CKTDGUINavigation_Methods } from "@els/host";
 import { CKTDGUIControl, UCT } from "./control.ts";
 import type { UIContext, UIPointData, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
-import { newRect, newVertices } from "./rect.ts";
-import type { Rect, VertexUI } from "./rect.ts";
+import { newRect } from "./rect.ts";
+import type { Rect } from "./rect.ts";
+import { VertexUI4 } from "./render.ts";
 
 export class CKTDGUINavigation extends CKTDGUIControl implements Partial<CKTDGUINavigation_Methods> {
-  readonly m_Vertex: VertexUI[] = newVertices();
+  /** `m_Vertex[4]`: the quad being drawn */
+  readonly m_Vertex = new VertexUI4();
   m_pBGTex: UITextureData | null = null;
   m_pWindowTex: UITextureData | null = null;
   m_pBGPoint: UIPointData | null = null;
@@ -44,6 +46,22 @@ export class CKTDGUINavigation extends CKTDGUIControl implements Partial<CKTDGUI
   override textureData(out: UITextureData[]): void {
     if (this.m_pBGTex) out.push(this.m_pBGTex);
     if (this.m_pWindowTex) out.push(this.m_pWindowTex);
+  }
+
+  /**
+   * `OnFrameRender` (3294E560): a shown control draws the quad of its background point with the background texture, then the quad of
+   * its window point with the window texture; a quad is skipped when the texture or the point is missing (the point is given the texture
+   * just before it is drawn).
+   */
+  override onFrameRender(): number {
+    if (!this.m_bShow) return 0;
+    for (const [tex, point] of [[this.m_pBGTex, this.m_pBGPoint], [this.m_pWindowTex, this.m_pWindowPoint]] as const) {
+      if (!tex || !point) continue;
+      point.pUITextureData = tex;
+      this.updateVertex(this.m_Vertex, point);
+      this.renderVertex(this.m_Vertex, point, 1);
+    }
+    return 0;
   }
 
   SetBGTex_LUA(file: string, key: string): void {

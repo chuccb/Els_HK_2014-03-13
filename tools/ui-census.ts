@@ -66,6 +66,20 @@ for (const r of strict) {
   for (const t of r.textures.missingKey) (tex.missingKey.get(t) ?? tex.missingKey.set(t, []).get(t)!).push(r.name);
 }
 
+// drawing: which control classes the dialogs hold, and which of them have a ported OnFrameRender (the others are still counted as not drawn)
+const okRuns = strict.filter((r) => r.ok);
+const classUse = new Map<string, { dialogs: number; controls: number }>();
+const undrawnClasses = new Set<string>();
+for (const r of okRuns) {
+  for (const [k, n] of Object.entries(r.classes)) {
+    const e = classUse.get(k) ?? classUse.set(k, { dialogs: 0, controls: 0 }).get(k)!;
+    e.dialogs++;
+    e.controls += n;
+  }
+  for (const k of r.undrawn) undrawnClasses.add(k);
+}
+const allClassesDrawn = okRuns.filter((r) => r.undrawn.length === 0).length;
+
 // 4. what to port next
 const next = greedyOrder(needs);
 const calledBy = new Map<string, number>();
@@ -74,6 +88,7 @@ for (const n of dlgOk) for (const k of host.get(n)!.calls.keys()) calledBy.set(k
 console.log(`DLG scripts: ${dlgNames.length}; run to the end on stubs: ${dlgOk.length}; fully ported: ${ported.length}`);
 console.log(`strict run of the ported ones: ${strict.filter((r) => r.ok).length} ok, ${failed.length} failed, ${waiting.length} wait for a sibling script that defines a global they use (${[...new Set(waiting.map((r) => /global '([^']+)'/.exec(r.error!)?.[1]))].join(", ")})`);
 for (const r of failed.slice(0, 20)) console.log(`  FAILED ${r.name}: ${r.error}`);
+console.log(`drawing: ${allClassesDrawn} of ${okRuns.length} dialogs hold only control classes whose OnFrameRender is ported; not ported: ${[...undrawnClasses].sort().join(", ")}`);
 console.log(`textures named by those dialogs: ${tex.resolved} resolved, ${[...tex.missingFile.values()].reduce((a, b) => a + b.length, 0)} references to files that do not open (${tex.missingFile.size} distinct), ${[...tex.missingKey.values()].reduce((a, b) => a + b.length, 0)} references to keys the TET lacks (${tex.missingKey.size} distinct)`);
 for (const [t, by] of [...tex.missingFile].slice(0, 10)) console.log(`  no file ${t} (${by.length}: ${by.slice(0, 3).join(" ")})`);
 for (const [t, by] of [...tex.missingKey].slice(0, 10)) console.log(`  no key  ${t} (${by.length}: ${by.slice(0, 3).join(" ")})`);
@@ -114,6 +129,10 @@ if (mdOut) {
   md += `| **fully ported** (every method they call is implemented) | **${ported.length}** |\n`;
   md += `| of those, run in strict mode without an error | ${strict.filter((r) => r.ok).length} |\n`;
   md += `| of those, wait for a sibling script (a global it defines is used, the sibling is not ported yet) | ${waiting.length} |\n\n`;
+  md += `## Drawing\n\nThe control classes the finished dialogs hold, by the number of dialogs that hold one, and whether the class has its own \`OnFrameRender\` (otherwise \`CKTDGUIControl\`'s counts it as not drawn). **${allClassesDrawn} of ${okRuns.length}** dialogs hold only classes that draw their pictures; the text of Static / Button / RadioButton strings is not drawn yet in any of them.\n\n`;
+  md += `| control class | dialogs | controls | OnFrameRender |\n|---|---:|---:|---|\n`;
+  for (const [k, e] of [...classUse].sort((a, b) => b[1].dialogs - a[1].dialogs || (a[0] < b[0] ? -1 : 1))) md += `| \`${k}\` | ${e.dialogs} | ${e.controls} | ${undrawnClasses.has(k) ? "not ported" : "ported"} |\n`;
+  md += `\n`;
   md += `Textures named by the strict runs: ${tex.resolved} references resolve (file in the archives and key in its TET); ${tex.missingFile.size} distinct files do not open, ${tex.missingKey.size} distinct keys are not in their TET.\n\n`;
   md += `## Classes\n\n| class (Lua name) | registered | implemented | called by DLG scripts |\n|---|---:|---:|---:|\n`;
   const calledPerClass = new Map<string, number>();

@@ -13,11 +13,14 @@
  */
 import { Color, Vec2 } from "@els/host";
 import type { CKTDGUIButton_Methods } from "@els/host";
-import { CKTDGUIControl, TexChangeData, UCT, UIM, UIPointData, readPointData, readStringData, readTexChangeData, setTexureData } from "./control.ts";
+import { CKTDGUIControl, TexChangeData, UCT, UIM, UIPointData, clampedByte, readPointData, readStringData, readTexChangeData, setTexureData } from "./control.ts";
 import type { UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceSound, DeviceTexture } from "./device.ts";
 import { VertexUI4 } from "./render.ts";
+import { ftoi } from "./rect.ts";
 import type { CKTDGUIStatic } from "./static.ts";
+
+const f = Math.fround;
 
 /** `CKTDGUIButton::BUTTON_CONTROL_STATE` */
 export const BCS = { NORMAL: 0, MOUSEOVER: 1, MOUSEDOWN: 2, DISABLE: 3, END: 4 } as const;
@@ -89,21 +92,58 @@ export class CKTDGUIButton extends CKTDGUIControl implements Partial<CKTDGUIButt
 
   /**
    * `OnFrameRender` (3292ED40): a shown button draws its quad from `m_NowPoint` (`UpdateVertex`, then `UpdateAnimVertex` with the texture
-   * change step it is in, then `RenderVertex`), with the edge before and after while it has the focus and an edge width; then its string.
-   * The edge (`DrawEdge` 3292D750) and the string (the UK font's `OutTextMultiline`) are not ported: counted in
-   * `render.undrawn`.
+   * change step it is in, then `RenderVertex`), with the edge before (`DrawEdge(true)`: outside the quad) and after (`DrawEdge(false)`:
+   * on it) while it has the focus and an edge width; then its string.  The string (the UK font's `OutTextMultiline`) is not ported: counted
+   * in `render.undrawn`.
    */
   override onFrameRender(): number {
     if (!this.m_bShow) return 0;
     const render = this.ctx.render;
     const edge = this.m_bHasFocus && this.m_EdgeWidth > 0;
-    if (edge) render?.noteUndrawn("CKTDGUIButton::DrawEdge");
+    if (edge) this.drawEdge(true);
     this.updateVertex(this.m_Vertex, this.m_NowPoint);
     this.updateAnimVertex(this.m_Vertex, this.m_NowTexChangeData);
     this.renderVertex(this.m_Vertex, this.m_NowPoint, 1);
-    if (edge) render?.noteUndrawn("CKTDGUIButton::DrawEdge");
+    if (edge) this.drawEdge(false);
     if (this.m_pStringData) render?.noteUndrawn("CKTDGUIButton string");
     return 0;
+  }
+
+  /**
+   * `DrawEdge(bDrawOut)` (3292D750): four bars of the edge texture round (`bDrawOut`) or on the quad of `m_edgePoint`, in `m_EdgeColor`
+   * (times the dialog's and the button's colour), each pushed out by `m_EdgeEnlargeValue`; nothing for a width of 0 or without the
+   * texture.  It is not the static's code: the bars grow with the enlargement, and the size of the quad is the right-bottom corner's distance
+   * from the left-top one in both directions.  The corners are whole pixels (cut after the offsets are added, before the enlargement and
+   * the width of the edge texture are added).
+   */
+  drawEdge(drawOut: boolean): void {
+    const render = this.ctx.render;
+    const texture = this.m_pEdgeTexture;
+    if (this.m_EdgeWidth === 0 || !texture || !render) return;
+    const dialog = this.m_pDialog!;
+    const dc = dialog.m_Color, cc = this.m_Color, ec = this.m_EdgeColor;
+    const argb = (((((clampedByte(f(f(dc.a * ec.a) * cc.a)) << 8) | clampedByte(f(f(dc.r * ec.r) * cc.r))) << 8 |
+      clampedByte(f(f(dc.g * ec.g) * cc.g))) << 8) | clampedByte(f(f(dc.b * ec.b) * cc.b))) >>> 0;
+    const p = this.m_edgePoint;
+    const v45 = ftoi(f(p.rightBottomPoint.x - p.leftTopPoint.x));
+    const v46 = ftoi(f(p.rightBottomPoint.y - p.leftTopPoint.y));
+    const x = (corner: number): number => f(f(dialog.m_Pos.x + this.m_OffsetPos.x) + corner);
+    const y = (corner: number): number => f(f(dialog.m_Pos.y + this.m_OffsetPos.y) + corner);
+    const w = this.m_EdgeWidth | 0;
+    const e = this.m_EdgeEnlargeValue | 0;
+    const lt = p.leftTopPoint, rt = p.rightTopPoint, lb = p.leftBottomPoint;
+    const draw = (px: number, py: number, pw: number, ph: number): void => texture.draw(render, px | 0, py | 0, pw | 0, ph | 0, argb, 0);
+    if (drawOut) {
+      draw(ftoi(f(x(lt.x) - w)) - e, ftoi(f(y(lt.y) - w)) - e, w, v46 + w + 2 * e);
+      draw(ftoi(f(x(lt.x) - w)) - e, e + ftoi(y(lb.y)), v45 + e + w, w);
+      draw(e + ftoi(x(rt.x)), ftoi(y(lt.y)), w, v46 + e + w);
+      draw(ftoi(x(lt.x)), ftoi(f(y(lt.y) - w)) - e, v45 + w + 2 * e, w);
+    } else {
+      draw(ftoi(x(lt.x)) - e, ftoi(y(lt.y)) - e, w, v46 + 2 * e);
+      draw(ftoi(x(lt.x)) - e, e + ftoi(f(y(lb.y) - w)), e + v45, w);
+      draw(e + ftoi(f(x(rt.x) - w)), ftoi(y(lt.y)), w, e + v46);
+      draw(ftoi(x(lt.x)), ftoi(y(lt.y)) - e, v45 + 2 * e, w);
+    }
   }
 
 

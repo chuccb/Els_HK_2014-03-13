@@ -43,6 +43,17 @@ describe.skipIf(!haveData)("the DLG scripts of the client", () => {
     expect(strict.filter((r) => !r.ok).map((r) => `${r.name}: ${r.error}`)).toEqual([]);
     expect(strict.filter((r) => r.needsSibling).length).toBe(0);
 
+    // the drawing: how many of those dialogs hold only control classes whose OnFrameRender is ported (the text of their strings is not
+    // drawn yet).  Goes up as ListBox, ComboBox, the edit boxes and the slots are ported; the list of classes below only shrinks.
+    expect(strict.filter((r) => r.undrawn.length === 0).length).toBeGreaterThanOrEqual(868);
+    const notDrawn = ["CKTDGUIComboBox", "CKTDGUIEditBox", "CKTDGUIIMEEditBox", "CKTDGUIListBox", "CKTDGUISlot"];
+    for (const r of strict) for (const c of r.undrawn) expect(notDrawn).toContain(c);
+    // and a dialog's classes are counted as they are: DLG_COMMAND_SKILL holds a slider, five radio buttons, two buttons
+    const skill = strict.find((r) => r.name === "DLG_COMMAND_SKILL.LUA")!;
+    expect(skill.classes).toEqual({ CKTDGUIStatic: 3, CKTDGUIButton: 2, CKTDGUIRadioButton: 5, CKTDGUISlider: 1 });
+    expect(skill.undrawn).toEqual([]);
+    expect(strict.find((r) => r.name === "DLG_UI_OPTION_ETC.LUA")!.undrawn).toEqual([]);
+
     // the rest are the scripts of the game states: each reads a table or an object that the state (the village map, the shop, the video
     // recorder) puts into Lua when it starts, and no state is ported yet.  A bound that only goes down.
     const rest = dlg.filter((n) => !host.get(n)!.ok);

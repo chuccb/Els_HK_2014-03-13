@@ -13,7 +13,14 @@
  *  - Blending: `source * SRCBLEND + destination * DESTBLEND` when alpha blending is on, the source alone when it is off; the target is an
  *    8-bit surface without alpha (X8R8G8B8: the destination alpha reads as 1), rounded to the nearest level after each draw.
  *
- * The alpha test, the z buffer and the culling are not modelled; the UI turns the first two off, and the quads are drawn clockwise.
+ * - Culling: a triangle that winds clockwise on the screen (y down) is dropped by `D3DCULL_CW`, one that winds counter-clockwise by
+ *   `D3DCULL_CCW`; the controls' quads (left-top, right-top, left-bottom, right-bottom) are clockwise, the quads of
+ *   `CKTDXDeviceTexture::Draw` (left-top, left-bottom, right-top, right-bottom) counter-clockwise.
+ * - The alpha test: a pixel whose alpha (after the stage, as a whole number 0..255) fails `ALPHAFUNC` against the low 8 bits of `ALPHAREF`
+ *   is not written (nor blended).
+ *
+ * A quad is an upright rectangle whose strip runs its diagonal from the right-top to the left-bottom corner, with the vertices in any order
+ * that keeps that (the two orders above), or a quad without area, which draws nothing; the z buffer is not modelled (the UI turns it off).
  */
 
 export interface RefImage {
@@ -25,7 +32,7 @@ export interface RefImage {
 
 /** one `DrawPrimitive` of the UI: a quad as the four 28-byte vertices of `VertexUI4`, and the device state it is drawn with */
 export interface RefQuad {
-  /** 4 vertices: x, y, z, rhw (float), diffuse (ARGB dword), u, v (float); left-top, right-top, left-bottom, right-bottom */
+  /** 4 vertices of a triangle strip: x, y, z, rhw (float), diffuse (ARGB dword), u, v (float); see the header for the orders that are modelled */
   readonly vertices: Uint8Array;
   readonly texture: RefImage | null;
   readonly blendEnable: boolean;
@@ -37,6 +44,14 @@ export interface RefQuad {
   readonly addressV: number;
   /** how many times the same primitive is drawn (the picture's draw count) */
   readonly numDraws: number;
+  /** `D3DRS_ALPHATESTENABLE` (default: off) */
+  readonly alphaTest?: boolean;
+  /** `D3DRS_ALPHAFUNC`, a `D3DCMP_*` value (default: ALWAYS) */
+  readonly alphaFunc?: number;
+  /** `D3DRS_ALPHAREF` (default 0); only the low 8 bits count */
+  readonly alphaRef?: number;
+  /** `D3DRS_CULLMODE`: 1 none, 2 clockwise, 3 counter-clockwise (default: none) */
+  readonly cullMode?: number;
 }
 
 const D3DTEXF_LINEAR = 2;
@@ -97,6 +112,21 @@ function factor(mode: number, sc: number, sa: number, dc: number): number {
 
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
 
+/** `D3DCMP_*`: does a pixel of alpha `a` pass the alpha test against `ref`? */
+function alphaPasses(func: number, a: number, ref: number): boolean {
+  switch (func) {
+    case 1: return false; // NEVER
+    case 2: return a < ref; // LESS
+    case 3: return a === ref; // EQUAL
+    case 4: return a <= ref; // LESSEQUAL
+    case 5: return a > ref; // GREATER
+    case 6: return a !== ref; // NOTEQUAL
+    case 7: return a >= ref; // GREATEREQUAL
+    case 8: return true; // ALWAYS
+    default: throw new Error(`reference: alpha function ${func} is not modelled`);
+  }
+}
+
 /** draw one quad onto `target` (RGBA, modified in place) */
 export function drawQuad(target: RefImage, q: RefQuad): void {
   if (q.vertices.length !== 4 * 28) throw new Error("reference: a quad is four 28-byte vertices");
@@ -118,13 +148,38 @@ export function drawQuad(target: RefImage, q: RefQuad): void {
     U.push(dv.getFloat32(o + 20, true));
     V.push(dv.getFloat32(o + 24, true));
   }
-  if (!(X[0] === X[2] && X[1] === X[3] && Y[0] === Y[1] && Y[2] === Y[3] && X[0]! < X[1]! && Y[0]! < Y[2]!)) {
-    throw new Error("reference: only an upright quad (left-top, right-top, left-bottom, right-bottom) is modelled");
+  // which vertex is which corner of the rectangle (0 left-top, 1 right-top, 2 left-bottom, 3 right-bottom)
+  const xl = Math.min(...X);
+  const xr = Math.max(...X);
+  const yt = Math.min(...Y);
+  const yb = Math.max(...Y);
+  // a quad without area (all its vertices on one vertical or horizontal line, or on one point: a picture whose corners have no size) rasterises nothing
+  if (xl === xr || yt === yb) return;
+  const upright = "reference: only an upright quad (a rectangle with one vertex at each corner) is modelled";
+  const cornerOf: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    if ((X[i] !== xl && X[i] !== xr) || (Y[i] !== yt && Y[i] !== yb)) throw new Error(upright);
+    cornerOf.push((Y[i] === yb ? 2 : 0) + (X[i] === xr ? 1 : 0));
   }
-  const xl = X[0]!;
-  const xr = X[1]!;
-  const yt = Y[0]!;
-  const yb = Y[2]!;
+  if (new Set(cornerOf).size !== 4) throw new Error(upright);
+  // the strip is the triangles (v0, v1, v2) and (v2, v1, v3): the weights below are those of a diagonal from the right-top to the left-bottom corner
+  if (!((cornerOf[1] === 1 && cornerOf[2] === 2) || (cornerOf[1] === 2 && cornerOf[2] === 1))) {
+    throw new Error("reference: only a strip whose diagonal runs from the right-top to the left-bottom corner is modelled");
+  }
+  // the winding of the triangle (v0, v1, v2) on the screen (y down): a positive area is clockwise, and so is the second triangle of the strip
+  const area = (X[1]! - X[0]!) * (Y[2]! - Y[0]!) - (X[2]! - X[0]!) * (Y[1]! - Y[0]!);
+  const cull = q.cullMode ?? 1;
+  if (cull < 1 || cull > 3) throw new Error(`reference: cull mode ${cull} is not modelled`);
+  if ((cull === 2 && area > 0) || (cull === 3 && area < 0)) return;
+  // the attributes by corner
+  const Uc: number[] = [0, 0, 0, 0];
+  const Vc: number[] = [0, 0, 0, 0];
+  const Cc: number[][] = [[], [], [], []];
+  for (let i = 0; i < 4; i++) {
+    Uc[cornerOf[i]!] = U[i]!;
+    Vc[cornerOf[i]!] = V[i]!;
+    Cc[cornerOf[i]!] = C[i]!;
+  }
   const x0 = Math.max(0, Math.ceil(xl));
   const x1 = Math.min(target.width, Math.ceil(xr)); // exclusive: x < right
   const y0 = Math.max(0, Math.ceil(yt));
@@ -143,15 +198,16 @@ export function drawQuad(target: RefImage, q: RefQuad): void {
       for (let i = 0; i < 4; i++) {
         const wi = w[i]!;
         if (wi === 0) continue;
-        u += wi * U[i]!;
-        v += wi * V[i]!;
-        for (let c = 0; c < 4; c++) col[c]! += wi * C[i]![c]!;
+        u += wi * Uc[i]!;
+        v += wi * Vc[i]!;
+        for (let c = 0; c < 4; c++) col[c]! += wi * Cc[i]![c]!;
       }
       sampleBilinear(q.texture, u, v, q.addressU, q.addressV, tex);
       const sr = clamp01(tex[0]! * col[0]!);
       const sg = clamp01(tex[1]! * col[1]!);
       const sb = clamp01(tex[2]! * col[2]!);
       const sa = clamp01(tex[3]! * col[3]!);
+      if (q.alphaTest && !alphaPasses(q.alphaFunc ?? 8, Math.round(255 * sa), (q.alphaRef ?? 0) & 255)) continue;
       const o = (py * target.width + px) * 4;
       for (let n = 0; n < q.numDraws; n++) {
         if (q.blendEnable) {

@@ -13,6 +13,7 @@ import type { CKTDGUICheckBox_Methods } from "@els/host";
 import { CKTDGUIControl, UCT, UIM, UIPointData } from "./control.ts";
 import type { UIContext, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
+import { VertexUI4 } from "./render.ts";
 
 /** `CKTDGUICheckBox::CHECKBOX_CONTROL_STATE` */
 export const CBCS = { NORMAL: 0, MOUSEOVER: 1, DISABLE: 2 } as const;
@@ -33,6 +34,8 @@ export class CKTDGUICheckBox extends CKTDGUIControl implements Partial<CKTDGUICh
   m_CustomMsgUnChecked = -1;
   m_CustomFuncChecked = "";
   m_CustomFuncUnChecked = "";
+  /** `m_Vertex[4]`: the quad being drawn */
+  readonly m_Vertex = new VertexUI4();
 
   constructor(ctx: UIContext) {
     super(ctx);
@@ -42,6 +45,26 @@ export class CKTDGUICheckBox extends CKTDGUIControl implements Partial<CKTDGUICh
 
   override textureData(out: UITextureData[]): void {
     for (const t of [this.m_pNormalTex, this.m_pMouseOverTex, this.m_pDisableTex, this.m_pCheckedTex]) if (t) out.push(t);
+  }
+
+  /**
+   * `OnFrameRender` (32931A90): a shown box draws the quad of its current point (`m_NowPoint`: the normal, over or disabled texture) unless
+   * it is checked and `m_bEmptyBGWhenChecked` is set, then, when it is checked, the quad of the check point.  A checked box without a
+   * check point (`SetCheckPoint` not called) is a null dereference in the exe.
+   */
+  override onFrameRender(): number {
+    if (!this.m_bShow) return 0;
+    if (!(this.m_bEmptyBGWhenChecked && this.m_bChecked)) {
+      this.updateVertex(this.m_Vertex, this.m_NowPoint);
+      this.renderVertex(this.m_Vertex, this.m_NowPoint, 1);
+    }
+    if (this.m_bChecked) {
+      const point = this.m_pCheckedPoint;
+      if (!point) throw new Error("CKTDGUICheckBox::OnFrameRender: the box is checked but has no check point (SetCheckPoint); the exe dereferences null");
+      this.updateVertex(this.m_Vertex, point);
+      this.renderVertex(this.m_Vertex, point, 1);
+    }
+    return 0;
   }
 
   /**

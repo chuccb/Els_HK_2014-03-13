@@ -142,6 +142,15 @@ export class CKTDGUIContolList extends CKTDGUIControl implements Partial<CKTDGUI
 
   // ---- the scroll bars ------------------------------------------------------------------------------------------------------------
 
+  /** `OnFrameRender` (3294FD90): a shown list draws its two scroll bars (the list's controls are drawn by the dialog) */
+  override onFrameRender(): number {
+    if (this.m_bShow) {
+      this.m_pScrollBarX?.onFrameRender();
+      this.m_pScrollBarY?.onFrameRender();
+    }
+    return 0;
+  }
+
   /** a bar in this list's dialog with the textures of one axis (`InitXScrollBar_LUA` / `InitYScrollBar_LUA`); the one it had is deleted */
   private makeBar(old: CKTDGUIScrollBar | null, tex: BarTextures): CKTDGUIScrollBar {
     old?.destroy();

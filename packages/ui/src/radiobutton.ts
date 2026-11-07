@@ -20,6 +20,10 @@ import type { CKTDGUIRadioButton_Methods } from "@els/host";
 import { CKTDGUIControl, UCT, UIM, UIPointData, readStringData } from "./control.ts";
 import type { UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceSound, DeviceTexture } from "./device.ts";
+import { ftoi } from "./rect.ts";
+import { VertexUI4 } from "./render.ts";
+
+const f = Math.fround;
 
 /** `CKTDGUIRadioButton::RADIOBUTTON_CONTROL_STATE` */
 export const RBCS = { NORMAL: 0, MOUSEOVER: 1, DISABLE: 2 } as const;
@@ -91,6 +95,8 @@ export class CKTDGUIRadioButton extends CKTDGUIControl implements Partial<CKTDGU
   /** `UIEdge.tga` */
   readonly m_pCheckedEdgeTexture: DeviceTexture | undefined;
   m_bDrawCheckedEdgeOut = true;
+  /** `m_Vertex[4]`: the quad being drawn */
+  readonly m_Vertex = new VertexUI4();
 
   constructor(ctx: UIContext) {
     super(ctx);
@@ -101,6 +107,51 @@ export class CKTDGUIRadioButton extends CKTDGUIControl implements Partial<CKTDGU
 
   override textureData(out: UITextureData[]): void {
     for (const t of [this.m_pNormalTex, this.m_pMouseOverTex, this.m_pDisableTex, this.m_pCheckedTex]) if (t) out.push(t);
+  }
+
+  // ---- drawing ---------------------------------------------------------------------------------------------------------------
+
+  /**
+   * `OnFrameRender` (3294AE80): a shown button that is checked first draws its checked edge outside (`DrawCheckedEdge(true)`); the
+   * quad of its own point (`m_MyNowPoint`, the background of the current state) follows unless it is checked and `m_bShowOffBGByCheck` is
+   * set; a checked button then draws the checked edge on the quad (`DrawCheckedEdge(false)`); its string comes next (the UK font's
+   * `OutTextMultiline`: not ported, counted in `render.undrawn`); last, a checked button draws the quad of its check point.  A checked
+   * button without a check point (`SetCheckPoint`) is a null dereference in the exe.
+   */
+  override onFrameRender(): number {
+    if (!this.m_bShow) return 0;
+    let background = !this.m_bChecked;
+    if (!background) {
+      this.drawCheckedEdge(true);
+      background = !this.m_bChecked || !this.m_bShowOffBGByCheck;
+    }
+    if (background) {
+      this.updateVertex(this.m_Vertex, this.m_MyNowPoint);
+      this.renderVertex(this.m_Vertex, this.m_MyNowPoint, 1);
+    }
+    if (this.m_bChecked) this.drawCheckedEdge(false);
+    if (this.m_pStringData) this.ctx.render?.noteUndrawn("CKTDGUIRadioButton string");
+    if (this.m_bChecked) {
+      const point = this.m_pCheckedPoint;
+      if (!point) throw new Error("CKTDGUIRadioButton::OnFrameRender: the button is checked but has no check point (SetCheckPoint); the exe dereferences null");
+      this.updateVertex(this.m_Vertex, point);
+      this.renderVertex(this.m_Vertex, point, 1);
+    }
+    return 0;
+  }
+
+  /**
+   * `DrawCheckedEdge(bDrawOut)` (32949850): the edge of a checked button, four bars of the checked edge texture (`drawEdgeBars`) round
+   * or on the quad of `m_MyNowPoint`, in `m_CheckedEdgeColor`; nothing for a width of 0.  The quad's width and height are taken from the
+   * right-bottom corner (the static's width comes from the right-top one).
+   */
+  drawCheckedEdge(drawOut: boolean): void {
+    const texture = this.m_pCheckedEdgeTexture;
+    if (this.m_CheckedEdgeWidth === 0 || !texture) return;
+    const p = this.m_MyNowPoint;
+    const nWidth = ftoi(f(p.rightBottomPoint.x - p.leftTopPoint.x));
+    const nHeight = ftoi(f(p.rightBottomPoint.y - p.leftTopPoint.y));
+    this.drawEdgeBars(texture, drawOut, this.m_CheckedEdgeWidth, this.m_CheckedEdgeColor, p, nWidth, nHeight);
   }
 
   /** `SetCustomMouseOverSound(wstring)` (3294BD80): opens the sound (the old one is not closed) */

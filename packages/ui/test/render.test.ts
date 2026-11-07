@@ -6,92 +6,12 @@
  * The world is 1536 x 1536 pixels, so the layout of 1024 x 768 is scaled by (1536 * 0.0009765625, 1536 / 768) = (1.5, 2).
  */
 import { describe, expect, test } from "bun:test";
-import { StringTable } from "@els/assets";
-import type { Direct3DDevice9, Direct3DTexture9 } from "@els/d3d9";
 import {
-  BCS, CKTDGUIButton, CKTDGUIControl, CKTDGUIDialog, CKTDGUINavigation, CKTDGUIStatic, CPictureData, DIALOG_SAMPLER_STATES, RSI_UI_DIALOG, TA,
-  TexChangeData, UIPointData, UITextureData, UIRender, VertexUI4,
+  BCS, CKTDGUIButton, CKTDGUIControl, CKTDGUIDialog, CKTDGUIEditBox, CKTDGUIStatic, CPictureData, DIALOG_SAMPLER_STATES, RSI_UI_DIALOG, TA,
+  TexChangeData, UITextureData, UIRender, VertexUI4,
 } from "../src/index.ts";
 import type { UIContext } from "../src/index.ts";
-import { setup } from "./harness.ts";
-
-const E_FAIL = -2147467259;
-
-class FakeTexture {
-  refs = 1;
-  constructor(readonly name: string) {}
-  AddRef(): number { return ++this.refs; }
-  Release(): number { return --this.refs; }
-}
-
-class FakeVB {
-  readonly data: Uint8Array;
-  constructor(readonly id: number, length: number) { this.data = new Uint8Array(length); }
-  Lock(offset: number, size: number): { hr: number; data: Uint8Array | null } { return { hr: 0, data: this.data.subarray(offset, offset + size) }; }
-  Unlock(): number { return 0; }
-  Release(): number { return 0; }
-}
-
-/** a Direct3D device that writes down the calls that change something */
-class Recorder {
-  readonly log: string[] = [];
-  readonly vbs: FakeVB[] = [];
-  readonly declaration = { released: 0, Release: () => ++this.declaration.released };
-  GetDeviceCaps(): { MaxPrimitiveCount: number } { return { MaxPrimitiveCount: 0xfffff }; }
-  CreateVertexBuffer(length: number): { hr: number; vb: FakeVB } {
-    const vb = new FakeVB(this.vbs.length, length);
-    this.vbs.push(vb);
-    return { hr: 0, vb };
-  }
-  SetFVF(fvf: number): number { this.log.push(`fvf ${fvf}`); return 0; }
-  SetStreamSource(_stream: number, vb: FakeVB | null, _offset: number, stride: number): number { this.log.push(`src ${vb!.id} ${stride}`); return 0; }
-  DrawPrimitive(type: number, start: number, count: number): number { this.log.push(`draw ${type} ${start} ${count}`); return 0; }
-  DrawPrimitiveUP(): number { this.log.push("up"); return 0; }
-  SetRenderState(state: number, value: number): number { this.log.push(`rs ${state} ${value}`); return 0; }
-  SetTextureStageState(stage: number, type: number, value: number): number { this.log.push(`tss ${stage} ${type} ${value}`); return 0; }
-  SetSamplerState(stage: number, type: number, value: number): number { this.log.push(`ss ${stage} ${type} ${value}`); return 0; }
-  SetTexture(stage: number, texture: FakeTexture | null): number { this.log.push(`tex ${stage} ${texture ? texture.name : "null"}`); return 0; }
-  GetVertexDeclaration(): unknown { this.log.push("getdecl"); return this.declaration; }
-  SetVertexDeclaration(declaration: unknown): number { this.log.push(declaration ? "setdecl" : "setdecl null"); return 0; }
-}
-
-/** a world that draws on the recorder, with textures of 64 x 32 texels that each hold a fake Direct3D texture named after the file */
-function rig(extra: { backBuffer?: { width: number; height: number }; tickCount?: () => number } = {}) {
-  const dev = new Recorder();
-  const s = setup(new StringTable([]), { device: dev as unknown as Direct3DDevice9, backBuffer: { width: 1536, height: 1536 }, ...extra });
-  const open = s.w.devices.openTexture.bind(s.w.devices);
-  s.w.devices.openTexture = ((id: string) => {
-    const t = open(id);
-    if (t) {
-      t.m_pTexture = new FakeTexture(id.toUpperCase()) as unknown as Direct3DTexture9;
-      t.uWidth = 64;
-      t.uHeight = 32;
-    }
-    return t;
-  }) as typeof s.w.devices.openTexture;
-  dev.log.length = 0; // what bringing the device to the baseline cost is pinned by a test of its own
-  return { ...s, dev };
-}
-
-/** a world without a device: the census and the other tests */
-const headless = () => setup();
-
-/** the quad of a 64 x 32 picture at (x, y), the UVs 0..1 (a texture without a key: the whole image) */
-function quad(w: UIContext, x: number, y: number): UIPointData {
-  const p = new UIPointData();
-  p.leftTopPoint.set(x, y);
-  p.rightTopPoint.set(x + 64, y);
-  p.leftBottomPoint.set(x, y + 32);
-  p.rightBottomPoint.set(x + 64, y + 32);
-  const t = new UITextureData();
-  t.pTexture = w.devices.openTexture("QUAD.TGA") ?? null;
-  const uv = [[0, 0], [1, 0], [0, 0.5], [1, 0.5]] as const;
-  uv.forEach(([u, v], i) => t.uvTexture[i]!.set(u, v));
-  p.pUITextureData = t;
-  return p;
-}
-
-const verts = (v: VertexUI4) => [0, 1, 2, 3].map((i) => [v.x(i), v.y(i), v.z(i), v.rhw(i), v.color(i), v.u(i), v.v(i)]);
+import { E_FAIL, Recorder, headless, quad, rig, verts } from "./rig.ts";
 
 describe("VertexUI4 and the tables", () => {
   test("a vertex is x, y, z, rhw (floats), the colour (ARGB dword), u, v (floats): 28 bytes, four of them", () => {
@@ -446,13 +366,13 @@ describe("CKTDGUIStatic.onFrameRender (3292A2B0)", () => {
     expect(dev.log.filter((l) => l.startsWith("tex"))).toEqual(["tex 0 P.TGA", "tex 0 Q.TGA"]);
   });
 
-  test("what is not ported is counted, not drawn: an edge (twice, before and after), a string with text, a movie", () => {
+  test("what is not ported is counted, not drawn: a string with text (one without is not), a movie; the edge is drawn now (controldraw.test.ts)", () => {
     const { control, picture, w } = scene();
-    picture.m_EdgeWidth = 2;
+    picture.m_EdgeWidth = 0;
     control.m_StringDataList.push({ msg: "" } as never, { msg: "Hi" } as never);
     control.m_MovieDataList.push({} as never);
     control.onFrameRender();
-    expect([...w.render!.undrawn]).toEqual([["CKTDGUIStatic::DrawEdge", 2], ["CKTDGUIStatic string", 1], ["CMovieData::OnFrameRender", 1]]);
+    expect([...w.render!.undrawn]).toEqual([["CKTDGUIStatic string", 1], ["CMovieData::OnFrameRender", 1]]);
   });
 
   test("without a device each picture is error 0x82 and nothing else happens", () => {
@@ -500,18 +420,17 @@ describe("CKTDGUIButton.onFrameRender (3292ED40)", () => {
     expect([f[0], f[1], f[7], f[8]]).toEqual([114.5, 89.5, 210.5, 89.5]);
   });
 
-  test("a hidden button draws nothing; the edge and the string are not ported and are counted", () => {
+  test("a hidden button draws nothing; its string is not ported and is counted (the edge is drawn: controldraw.test.ts)", () => {
     const { b, dev, w } = scene();
     b.SetShow(false);
     b.onFrameRender();
     expect(dev.log).toEqual([]);
     b.SetShow(true);
-    b.m_bHasFocus = true;
-    b.m_EdgeWidth = 2;
     b.onFrameRender();
-    expect(w.render!.undrawn.get("CKTDGUIButton::DrawEdge")).toBe(2);
-    expect(w.render!.undrawn.get("CKTDGUIButton string")).toBeUndefined();
-    b.m_EdgeWidth = 0;
+    expect([...w.render!.undrawn]).toEqual([]);
+    b.m_pStringData = { msg: "Hi" } as never;
+    b.onFrameRender();
+    expect([...w.render!.undrawn]).toEqual([["CKTDGUIButton string", 1]]);
     expect(b.m_ButtonState).toBe(BCS.NORMAL);
   });
 });
@@ -618,10 +537,10 @@ describe("CKTDGUIDialog.onFrameRender (32958FF0)", () => {
 
   test("a control whose drawing is not ported is counted by class and draws nothing", () => {
     const { dialog, w, dev } = scene();
-    dialog.AddControl(new CKTDGUINavigation(w));
+    dialog.AddControl(new CKTDGUIEditBox(w));
     dev.log.length = 0;
     dialog.onFrameRender();
-    expect([...w.render!.undrawn]).toEqual([["CKTDGUINavigation", 1]]);
+    expect([...w.render!.undrawn]).toEqual([["CKTDGUIEditBox", 1]]);
     expect(dev.log.filter((l) => l.startsWith("draw")).length).toBe(1); // the static's picture only
   });
 

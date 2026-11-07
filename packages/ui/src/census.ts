@@ -5,6 +5,7 @@
  */
 import { HostWorld } from "@els/host";
 import type { HostOptions, HostRuntime } from "@els/host";
+import { CKTDGUIControl } from "./control.ts";
 import { CKTDGUIDialog } from "./dialog.ts";
 import { CX2SlotManager } from "./slot.ts";
 import type { UITextureData } from "./control.ts";
@@ -113,6 +114,10 @@ export interface StrictRun {
   textures: TextureCheck;
   /** controls of the finished dialog */
   controls: number;
+  /** the class (TS name) of each control of the finished dialog -> how many there are */
+  classes: Record<string, number>;
+  /** the classes among them whose `OnFrameRender` is not ported yet (they still have the one of `CKTDGUIControl`, which only counts them as not drawn) */
+  undrawn: string[];
 }
 
 /**
@@ -133,7 +138,16 @@ export function runStrict(opts: Omit<UIWorldOptions, "notPorted">, names: string
     } catch (e) {
       error = HostWorld.describeError(e);
     }
-    return { name, ok: error === undefined, error, textures: checkTextures(dialog ? textureDataOf(dialog) : []), controls: dialog?.m_ControlsList.length ?? 0 };
+    const classes: Record<string, number> = {};
+    const undrawn = new Set<string>();
+    for (const c of dialog?.m_ControlsList ?? []) {
+      classes[c.constructor.name] = (classes[c.constructor.name] ?? 0) + 1;
+      if (c.onFrameRender === CKTDGUIControl.prototype.onFrameRender) undrawn.add(c.constructor.name);
+    }
+    return {
+      name, ok: error === undefined, error, textures: checkTextures(dialog ? textureDataOf(dialog) : []), controls: dialog?.m_ControlsList.length ?? 0,
+      classes, undrawn: [...undrawn].sort(),
+    };
   };
   const out = new Map<string, StrictRun>();
   for (const name of names) out.set(name, one(name));

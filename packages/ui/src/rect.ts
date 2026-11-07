@@ -34,6 +34,9 @@ export function setRect(rc: Rect, left: number, top: number, right: number, bott
   rc.bottom = bottom | 0;
 }
 
+/** `PtInRect(rc, pt)`: the left and top edges belong to the rectangle, the right and bottom ones do not */
+export const ptInRect = (rc: Rect, pt: { x: number; y: number }): boolean => pt.x >= rc.left && pt.x < rc.right && pt.y >= rc.top && pt.y < rc.bottom;
+
 /** `OffsetRect(rc, dx, dy)` */
 export function offsetRect(rc: Rect, dx: number, dy: number): void {
   rc.left = (rc.left + dx) | 0;

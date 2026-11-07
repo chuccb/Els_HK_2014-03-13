@@ -562,7 +562,7 @@ const E_FAIL = -2147467259;
 const DEGREES_TO_RADIANS = f(0.017453292);
 
 /** `c < 1 ? (c > 0 ? (int)(float)((float)(c * 255) + 0.5) : 0) : 255` (a NaN is 255), the clamp `UpdateVertex` makes of each colour channel */
-function clampedByte(c: number): number {
+export function clampedByte(c: number): number {
   if (!(c < 1)) return 255;
   if (!(c > 0)) return 0;
   return Math.trunc(f(f(c * 255) + 0.5));
@@ -681,6 +681,43 @@ export class CKTDGUIControl implements Partial<CKTDGUIControl_Methods> {
         vertex.setU(i, texture.uvTexture[i]!.x);
         vertex.setV(i, texture.uvTexture[i]!.y);
       }
+    }
+  }
+
+  /**
+   * The edge `CKTDGUIStatic::DrawEdge` (32929090), `CKTDGUISlot::DrawEdge` (32951310) and `CKTDGUIRadioButton::DrawCheckedEdge`
+   * (32949850) draw around the quad of `point`: the same eight calls in the three classes (compared one by one; they differ only in where
+   * the edge, its colour and the quad come from, and in how a class takes the width of the quad: the static's and the slot's from the
+   * right-top corner, the radio button's from the right-bottom one, hence the arguments `nWidth` and `nHeight`).
+   *
+   * The colour of the bars is the dialog's times `edgeColor` times the control's, per channel clamped to a byte (as `UpdateVertex` does).
+   * A bar is a `CKTDXDeviceTexture::Draw` of the edge texture; the corners are whole pixels, cut after the offsets are added.  Outside
+   * (`drawOut`): the four bars go round the quad like a pinwheel, `edgeWidth` wide, none of them covering another (left: from the
+   * top-left corner of the outside down to the bottom of the quad, bottom: from the left outside to the right edge of the quad, right: from the top
+   * of the quad down to the bottom outside, top: from the left edge of the quad to the right outside).  Inside: the four bars lie on the
+   * quad's own edge, the left and the right one as high as the quad, the bottom and the top one as wide as it, so the corners are drawn twice.
+   */
+  protected drawEdgeBars(texture: DeviceTexture, drawOut: boolean, edgeWidth: number, edgeColor: Color, point: UIPointData, nWidth: number, nHeight: number): void {
+    const render = this.ctx.render;
+    if (!render) return;
+    const dialog = this.m_pDialog!;
+    const dc = dialog.m_Color, cc = this.m_Color;
+    const argb = (((((clampedByte(f(f(dc.a * edgeColor.a) * cc.a)) << 8) | clampedByte(f(f(dc.r * edgeColor.r) * cc.r))) << 8 |
+      clampedByte(f(f(dc.g * edgeColor.g) * cc.g))) << 8) | clampedByte(f(f(dc.b * edgeColor.b) * cc.b))) >>> 0;
+    const x = (corner: number): number => f(f(dialog.m_Pos.x + this.m_OffsetPos.x) + corner);
+    const y = (corner: number): number => f(f(dialog.m_Pos.y + this.m_OffsetPos.y) + corner);
+    const w = edgeWidth | 0;
+    const lt = point.leftTopPoint, rt = point.rightTopPoint, lb = point.leftBottomPoint;
+    if (drawOut) {
+      texture.draw(render, ftoi(f(x(lt.x) - w)), ftoi(f(y(lt.y) - w)), w, (w + nHeight) | 0, argb, 0);
+      texture.draw(render, ftoi(f(x(lt.x) - w)), ftoi(y(lb.y)), (w + nWidth) | 0, w, argb, 0);
+      texture.draw(render, ftoi(x(rt.x)), ftoi(y(lt.y)), w, (w + nHeight) | 0, argb, 0);
+      texture.draw(render, ftoi(x(lt.x)), ftoi(f(y(lt.y) - w)), (w + nWidth) | 0, w, argb, 0);
+    } else {
+      texture.draw(render, ftoi(x(lt.x)), ftoi(y(lt.y)), w, nHeight, argb, 0);
+      texture.draw(render, ftoi(x(lt.x)), ftoi(f(y(lb.y) - w)), nWidth, w, argb, 0);
+      texture.draw(render, ftoi(f(x(rt.x) - w)), ftoi(y(lt.y)), w, nHeight, argb, 0);
+      texture.draw(render, ftoi(x(lt.x)), ftoi(y(lt.y)), nWidth, w, argb, 0);
     }
   }
 

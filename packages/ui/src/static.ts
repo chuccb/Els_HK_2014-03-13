@@ -4,12 +4,16 @@
  * `CKTDGUIControl::SetStringData_`, 329269C0), GetPicture 32929CD0, GetString 32929D50, CanHaveFocus 32928E80.
  */
 import { D3DRS } from "@els/d3d9";
+import type { Color } from "@els/host";
 import { CKTDGUIControl, UCT, readStringData } from "./control.ts";
-import type { CPictureData, UIContext, UIStringData, UITextureData } from "./control.ts";
+import type { CPictureData, UIContext, UIPointData, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceTexture } from "./device.ts";
 import type { CMovieData } from "./movie.ts";
 import { VertexUI4 } from "./render.ts";
+import { ftoi } from "./rect.ts";
 import type { CKTDGUIItem_Methods, CKTDGUIStatic_Methods } from "@els/host";
+
+const f = Math.fround;
 
 export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStatic_Methods> {
   readonly m_PictureDataList: CPictureData[] = [];
@@ -42,9 +46,9 @@ export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStat
   /**
    * `OnFrameRender` (3292A2B0): a shown static draws its pictures, then its strings, then its movies.  A picture is drawn when it is shown
    * and has a point and a loaded texture: the edge (when `m_EdgeWidth` is not 0), the quad (`UpdateVertex`, the picture's two blend
-   * states pushed around `RenderVertex(..., m_iDrawCount)`), the edge again.  The edge (`DrawEdge` 32929090), the strings (the UK font's
-   * `OutTextMultiline` / `Draw2DText`) and the movies (`CMovieData::OnFrameRender` 32925150) are not ported: they are counted in
-   * `render.undrawn`.
+   * states pushed around `RenderVertex(..., m_iDrawCount)`), the edge again (both times with the picture's own `m_bDrawEdgeOut`).  The
+   * strings (the UK font's `OutTextMultiline` / `Draw2DText`) and the movies (`CMovieData::OnFrameRender` 32925150) are not ported: they
+   * are counted in `render.undrawn`.
    */
   override onFrameRender(): number {
     if (!this.m_bShow) return 0;
@@ -53,18 +57,30 @@ export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStat
       const picture = this.m_PictureDataList[i]!;
       const point = picture.pPoint;
       if (!(picture.bShow && point && picture.pTexture && picture.pTexture.pTexture)) continue;
-      if (picture.m_EdgeWidth !== 0) render?.noteUndrawn("CKTDGUIStatic::DrawEdge");
+      if (picture.m_EdgeWidth !== 0) this.drawEdge(picture.m_bDrawEdgeOut, picture.m_EdgeWidth, picture.m_EdgeColor, point);
       this.updateVertex(this.m_Vertex, point);
       const top = render?.states.stackPointer ?? 0;
       render?.states.setRenderState(D3DRS.SRCBLEND, point.m_eSrcBlend);
       render?.states.setRenderState(D3DRS.DESTBLEND, point.m_eDestBlend);
       this.renderVertex(this.m_Vertex, point, point.m_iDrawCount);
       render?.states.popTo(top);
-      if (picture.m_EdgeWidth !== 0) render?.noteUndrawn("CKTDGUIStatic::DrawEdge");
+      if (picture.m_EdgeWidth !== 0) this.drawEdge(picture.m_bDrawEdgeOut, picture.m_EdgeWidth, picture.m_EdgeColor, point);
     }
     for (const text of this.m_StringDataList) if (text.msg.length !== 0) render?.noteUndrawn("CKTDGUIStatic string");
     for (let i = 0; i < this.m_MovieDataList.length; i++) render?.noteUndrawn("CMovieData::OnFrameRender");
     return 0;
+  }
+
+  /**
+   * `DrawEdge(bDrawOut, edgeWidth, edgeColor, pPoint)` (32929090): the edge of a picture, four bars of the edge texture (`drawEdgeBars`)
+   * round or on the quad of `pPoint`; nothing for a width of 0, without the edge texture or without a point.  The size of the quad is
+   * taken from the right-top corner (width) and the right-bottom one (height).
+   */
+  drawEdge(drawOut: boolean, edgeWidth: number, edgeColor: Color, point: UIPointData | null): void {
+    if (edgeWidth === 0 || !this.m_pEdgeTexture || !point) return;
+    const nWidth = ftoi(f(point.rightTopPoint.x - point.leftTopPoint.x));
+    const nHeight = ftoi(f(point.rightBottomPoint.y - point.leftTopPoint.y));
+    this.drawEdgeBars(this.m_pEdgeTexture, drawOut, edgeWidth, edgeColor, point, nWidth, nHeight);
   }
 
   /** `AddPicture(CPictureData*)` (328C0DB0) */

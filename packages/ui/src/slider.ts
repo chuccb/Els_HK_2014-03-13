@@ -13,13 +13,15 @@
  * `SetValueInternal` (3294D210) clamps the value into the range and, if that changes it, updates the rectangles and sends the custom
  * message, or without one the control event 0x466 with 0.
  *
- * Not ported: what the slider does while the game runs (`HandleMouse`, `OnFrameMove`, `OnFrameRender`).
+ * `OnFrameRender` (3294CD20) draws the background and the button.  Not ported: what the slider does while the game runs (`HandleMouse`,
+ * `OnFrameMove`).
  */
 import type { CKTDGUISlider_Methods } from "@els/host";
 import { CKTDGUIControl, UCT, UIM, UIPointData } from "./control.ts";
 import type { UIContext, UITextureData } from "./control.ts";
-import { ftoi, idiv, newRect, newVertices, offsetRect, setRect } from "./rect.ts";
-import type { Rect, VertexUI } from "./rect.ts";
+import { ftoi, idiv, newRect, offsetRect, setRect } from "./rect.ts";
+import type { Rect } from "./rect.ts";
+import { VertexUI4 } from "./render.ts";
 
 const f = Math.fround;
 
@@ -44,7 +46,8 @@ export class CKTDGUISlider extends CKTDGUIControl implements Partial<CKTDGUISlid
   m_bPressed = false;
   readonly m_rcButton: Rect = newRect();
   readonly m_rcBoundingBox: Rect = newRect();
-  readonly m_Vertex: VertexUI[] = newVertices();
+  /** `m_Vertex[4]`: the quad being drawn */
+  readonly m_Vertex = new VertexUI4();
 
   constructor(ctx: UIContext) {
     super(ctx);
@@ -54,6 +57,27 @@ export class CKTDGUISlider extends CKTDGUIControl implements Partial<CKTDGUISlid
   override textureData(out: UITextureData[]): void {
     if (this.m_pBGTex) out.push(this.m_pBGTex);
     if (this.m_pButtonTex) out.push(this.m_pButtonTex);
+  }
+
+  /**
+   * `OnFrameRender` (3294CD20): a shown slider draws two quads with its scratch point `m_TempPoint`: the bounding box with the background
+   * texture, then the button's rectangle with the button texture.  The corners of the point are the rectangle's (as floats); the point
+   * keeps the texture data it had when the slider has no texture for the quad (a slider with no background texture still goes through
+   * `UpdateVertex` and `RenderVertex`: with no texture data the vertex keeps its UVs and nothing is drawn).
+   */
+  override onFrameRender(): number {
+    if (!this.m_bShow) return 0;
+    const point = this.m_TempPoint;
+    for (const [rc, tex] of [[this.m_rcBoundingBox, this.m_pBGTex], [this.m_rcButton, this.m_pButtonTex]] as const) {
+      point.leftTopPoint.set(rc.left, rc.top);
+      point.rightTopPoint.set(rc.right, rc.top);
+      point.leftBottomPoint.set(rc.left, rc.bottom);
+      point.rightBottomPoint.set(rc.right, rc.bottom);
+      if (tex) point.pUITextureData = tex;
+      this.updateVertex(this.m_Vertex, point);
+      this.renderVertex(this.m_Vertex, point, 1);
+    }
+    return 0;
   }
 
   SetBGTex(file: string, key: string): void {

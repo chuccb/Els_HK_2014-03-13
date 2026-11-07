@@ -30,9 +30,12 @@
  */
 import { parseTet } from "@els/assets";
 import type { TetFile } from "@els/assets";
-import { D3DFMT, D3DPOOL, D3DXCheckTextureRequirements, D3DXCreateTextureFromFileInMemoryEx, D3DXGetImageInfoFromFileInMemory, D3DX_FILTER } from "@els/d3d9";
+import { D3DFMT, D3DPOOL, D3DPT, D3DXCheckTextureRequirements, D3DXCreateTextureFromFileInMemoryEx, D3DXGetImageInfoFromFileInMemory, D3DX_FILTER } from "@els/d3d9";
 import type { D3DXImageInfo, Direct3DDevice9, Direct3DTexture9 } from "@els/d3d9";
 import { KGCMassFileManager, towupperAscii } from "@els/host";
+import { DVB_TYPE } from "@els/engine";
+import { RSI_DEVICE_TEXTURE, VertexUI4 } from "./render.ts";
+import type { UIRender } from "./render.ts";
 
 /** `CKTDXDeviceTexture` */
 export class DeviceTexture {
@@ -87,6 +90,53 @@ export class DeviceTexture {
       hr = target.device.SetTexture(stage, texture);
     }
     if (hr < 0) this.log.push(0x80, `${hr === D3DERR_INVALIDCALL ? "D3DERR_INVALIDCALL" : "D3DERR_UNKNOWN"} ${this.deviceID}`);
+  }
+
+  /**
+   * `Draw(nX, nY, nWidth, nHeight, color, fRotateDegree)` (329675F0): the whole texture as one quad at a place of the 1024 x 768 layout, every
+   * corner of the one `color` (ARGB).  `akRSICKTDXDeviceTexture` is pushed for the draw and popped after it.  The corners are
+   * `scale * nX - 0.5` and `scale * nY - 0.5` on the left and at the top, but `scale * nWidth + scale * nX` and `scale * nHeight + scale * nY`
+   * on the right and at the bottom (no half pixel is taken off there: the quad is half a pixel wider and higher than the layout says),
+   * all in single precision and with no cutting to whole pixels.  The vertices are left-top (u v 0 0), left-bottom (0 1), right-top (1 0) and
+   * right-bottom (1 1), z = rhw = 1; the texture goes to stage 0 (`SetDeviceTexture`, which logs error 0x5E for a texture that is not
+   * there and then draws with what the stage holds) and the strip is handed to the vertex buffer manager, type 3, once.
+   *
+   * Not ported: the rotated quad (`fRotateDegree != 0`: the corners turned about the middle with the CRT's `cos` and `sin`); no
+   * control passes a rotation.  It throws.
+   */
+  draw(render: UIRender, nX: number, nY: number, nWidth: number, nHeight: number, color: number, rotateDegree: number): void {
+    if (rotateDegree !== 0) throw new Error("CKTDXDeviceTexture::Draw with a rotation is not ported");
+    const f = Math.fround;
+    const states = render.states;
+    const top = states.stackPointer;
+    states.apply(RSI_DEVICE_TEXTURE);
+    const sx = render.resolutionScale.x;
+    const sy = render.resolutionScale.y;
+    const x = f(sx * f(nX));
+    const y = f(sy * f(nY));
+    const left = f(x - 0.5);
+    const upper = f(y - 0.5);
+    const right = f(f(f(nWidth) * sx) + x);
+    const lower = f(f(f(nHeight) * sy) + y);
+    const v = new VertexUI4();
+    const corners: [number, number, number, number][] = [
+      [left, upper, 0, 0],
+      [left, lower, 0, 1],
+      [right, upper, 1, 0],
+      [right, lower, 1, 1],
+    ];
+    corners.forEach(([cx, cy, u, w], i) => {
+      v.setX(i, cx);
+      v.setY(i, cy);
+      v.setZ(i, 1);
+      v.setRhw(i, 1);
+      v.setColor(i, color);
+      v.setU(i, u);
+      v.setV(i, w);
+    });
+    this.setDeviceTexture(render, 0);
+    render.dvb.drawPrimitive(DVB_TYPE.XYZRHW_DIFFUSE_TEX1, D3DPT.TRIANGLESTRIP, 2, v.bytes, 1);
+    states.popTo(top);
   }
 }
 
