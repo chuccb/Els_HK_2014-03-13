@@ -18,8 +18,13 @@ import { KLuaManager, Color, Vec2, Vec3, towupperAscii } from "@els/host";
 import type { CKTDGUIControl__CPictureData_Methods, CKTDGUIControl_Methods, HostWorld } from "@els/host";
 import type { StringTable } from "@els/assets";
 import { LuaError } from "@els/lua";
+import { D3DPT, matTransformation2D, vec2Transform } from "@els/d3d9";
+import { DVB_TYPE } from "@els/engine";
 import type { DeviceManager, DeviceSound, DeviceTexture } from "./device.ts";
 import type { CKTDGUIDialog } from "./dialog.ts";
+import type { CKTDGUIDialogManager } from "./dialogmanager.ts";
+import type { UIRender, VertexUI4 } from "./render.ts";
+import { ftoi } from "./rect.ts";
 import type { UIFonts } from "./font.ts";
 import type { ImeSystem } from "./imeeditbox.ts";
 
@@ -64,6 +69,15 @@ export interface UIContext {
   readonly ime: ImeSystem;
   /** `MessageBoxA(g_pKTDXApp->m_hWnd, text, caption, 0)` (a modal box the exe shows when a script asks for a control that is not there) */
   messageBox(text: string, caption: string): void;
+  /**
+   * What the UI draws with (`g_pKTDXApp->m_pd3dDevice`, `m_pDVBManager`, `m_ResolutionScale`).  Null: nothing is drawn (the census and most
+   * tests build dialogs without a device; a draw call then fails the way the exe's does without a device).
+   */
+  readonly render: UIRender | null;
+  /** `g_pKTDXApp->m_pDGManager->m_pDialogManager`: what the dialogs ask of it (so far: whether the dialogs are hidden) */
+  readonly dialogManager: CKTDGUIDialogManager;
+  /** `_clock()` in milliseconds: the CRT's clock the `boost::timer` of a dialog counts from */
+  clock(): number;
 }
 
 const f = Math.fround;
@@ -542,6 +556,18 @@ export class CPictureData implements Partial<CKTDGUIControl__CPictureData_Method
 }
 
 /** the base of every control: `CKTDGUIControl` */
+/** `E_FAIL`: what `RenderVertex` answers when it cannot draw */
+const E_FAIL = -2147467259;
+/** the `0.017453292f` of the animation's angles (degrees to radians, a float) */
+const DEGREES_TO_RADIANS = f(0.017453292);
+
+/** `c < 1 ? (c > 0 ? (int)(float)((float)(c * 255) + 0.5) : 0) : 255` (a NaN is 255), the clamp `UpdateVertex` makes of each colour channel */
+function clampedByte(c: number): number {
+  if (!(c < 1)) return 255;
+  if (!(c > 0)) return 0;
+  return Math.trunc(f(f(c * 255) + 0.5));
+}
+
 export class CKTDGUIControl implements Partial<CKTDGUIControl_Methods> {
   m_ControlType: number = UCT.NONE;
   m_Name = "";
@@ -600,6 +626,159 @@ export class CKTDGUIControl implements Partial<CKTDGUIControl_Methods> {
   /** `SetDialog` (329254A0) */
   setDialog(dialog: CKTDGUIDialog | null): void {
     this.m_pDialog = dialog;
+  }
+
+  // ---- drawing -------------------------------------------------------------------------------------------------------------------
+
+  /**
+   * Virtual `OnFrameRender`: draws the control.  A control class whose drawing is not ported yet draws nothing (and is counted in
+   * `render.undrawn`); the classes that are override this.
+   */
+  onFrameRender(): number {
+    this.ctx.render?.noteUndrawn(this.constructor.name);
+    return 0;
+  }
+
+  /** virtual `OnFrameRenderEnd`: the second pass over the controls of a dialog, after all of them are drawn (only the combo box has one) */
+  onFrameRenderEnd(): number {
+    return 0;
+  }
+
+  /**
+   * `UpdateVertex(vertexLT, vertexRT, vertexLB, vertexRB, pointData)` (32927FB0; every caller passes the control's `m_Vertex[0..3]`).  A
+   * control that is in no dialog does nothing.  Each corner is `(dialog.m_Pos + corner + m_OffsetPos) * m_ResolutionScale`, cut to whole
+   * pixels and moved half a pixel up and left (`(float)(int)x - 0.5`, the texel-centre offset of Direct3D 9), at `z = rhw = 1`; the colour
+   * of all four is the dialog's times the point data's times the control's, per channel clamped to 0..1, `(int)(c * 255 + 0.5)`, packed
+   * `ARGB`; the UVs are the texture data's four `uvTexture` (kept as they were when the point data has no texture).
+   */
+  updateVertex(vertex: VertexUI4, pointData: UIPointData): void {
+    const dialog = this.m_pDialog;
+    if (!dialog) return;
+    const scale = this.ctx.render?.resolutionScale;
+    const sx = scale ? scale.x : 1, sy = scale ? scale.y : 1;
+    const dc = dialog.m_Color, pc = pointData.color, cc = this.m_Color;
+    const a = f(f(dc.a * pc.a) * cc.a);
+    const r = f(f(dc.r * pc.r) * cc.r);
+    const g = f(f(dc.g * pc.g) * cc.g);
+    const b = f(f(dc.b * pc.b) * cc.b);
+    const argb = ((((clampedByte(a) << 8) | clampedByte(r)) << 8 | clampedByte(g)) << 8 | clampedByte(b)) >>> 0;
+    const corners = [pointData.leftTopPoint, pointData.rightTopPoint, pointData.leftBottomPoint, pointData.rightBottomPoint];
+    for (let i = 0; i < 4; i++) {
+      const c = corners[i]!;
+      vertex.setX(i, f(f(f(dialog.m_Pos.x + c.x) + this.m_OffsetPos.x) * sx));
+      vertex.setY(i, f(f(f(dialog.m_Pos.y + c.y) + this.m_OffsetPos.y) * sy));
+      vertex.setZ(i, 1);
+      vertex.setRhw(i, 1);
+      vertex.setColor(i, argb);
+    }
+    for (let i = 0; i < 4; i++) {
+      vertex.setX(i, f(f(ftoi(vertex.x(i))) - 0.5));
+      vertex.setY(i, f(f(ftoi(vertex.y(i))) - 0.5));
+    }
+    const texture = pointData.pUITextureData;
+    if (texture) {
+      for (let i = 0; i < 4; i++) {
+        vertex.setU(i, texture.uvTexture[i]!.x);
+        vertex.setV(i, texture.uvTexture[i]!.y);
+      }
+    }
+  }
+
+  /**
+   * `GetAxisPos(pVertex, texAxis)` (329244F0): a point of the quad the animation turns or scales about, given as one of the nine places of
+   * the quad (corners and middles of the sides, from the left-top, right-top and left-bottom vertices; `BOTTOM_RIGHT` is the fourth
+   * vertex); `NONE`, `WORLD` and anything else is the origin (the caller takes the data's own point for `WORLD`).
+   */
+  getAxisPos(vertex: VertexUI4 | null, axis: number): Vec2 {
+    const out = new Vec2(0, 0);
+    if (!vertex) return out;
+    const midX = (): number => f(f(f(vertex.x(1) - vertex.x(0)) * 0.5) + vertex.x(0));
+    const midY = (): number => f(f(f(vertex.y(2) - vertex.y(0)) * 0.5) + vertex.y(0));
+    switch (axis) {
+      case TA.TOP_LEFT: out.set(vertex.x(0), vertex.y(0)); break;
+      case TA.TOP_CENTER: out.set(midX(), vertex.y(0)); break;
+      case TA.TOP_RIGHT: out.set(vertex.x(1), vertex.y(0)); break;
+      case TA.CENTER_LEFT: out.set(vertex.x(0), midY()); break;
+      case TA.CENTER_CENTER: out.set(midX(), midY()); break;
+      case TA.CENTER_RIGHT: out.set(vertex.x(1), midY()); break;
+      case TA.BOTTOM_LEFT: out.set(vertex.x(0), vertex.y(2)); break;
+      case TA.BOTTOM_CENTER: out.set(midX(), vertex.y(2)); break;
+      case TA.BOTTOM_RIGHT: out.set(vertex.x(3), vertex.y(3)); break;
+      default: break;
+    }
+    return out;
+  }
+
+  /**
+   * `UpdateAnimVertex(pVertex, pTexChangeData)` (32927C70): the four vertices go through `D3DXMatrixTransformation2D` with the step's
+   * scale (about its axis point, the scale rotated by `m_fScaleRotationDegree`), rotation (about its axis point) and translation `m_Pos`.
+   * An axis is a place of the quad (`getAxisPos`), or the data's own point for `TA_WORLD`.
+   */
+  updateAnimVertex(vertex: VertexUI4 | null, data: TexChangeData | null): void {
+    if (!vertex || !data) return;
+    const translation = new Vec2(data.m_Pos.x, data.m_Pos.y);
+    let rotationAxisPos = this.getAxisPos(vertex, data.m_RotateAxis);
+    if (data.m_RotateAxis === TA.WORLD) rotationAxisPos = data.m_RotateAxisPos;
+    let scaleAxisPos = this.getAxisPos(vertex, data.m_ScaleAxis);
+    if (data.m_ScaleAxis === TA.WORLD) scaleAxisPos = data.m_ScaleAxisPos;
+    const matrix = matTransformation2D(scaleAxisPos, f(data.m_fScaleRotationDegree * DEGREES_TO_RADIANS), data.m_Scale, rotationAxisPos, f(data.m_fRotateDegree * DEGREES_TO_RADIANS), translation);
+    for (let i = 0; i < 4; i++) {
+      const moved = vec2Transform({ x: vertex.x(i), y: vertex.y(i) }, matrix);
+      vertex.setX(i, moved.x);
+      vertex.setY(i, moved.y);
+    }
+  }
+
+  /**
+   * `RenderVertex(pVertex, pointData, renderCount)` (32925200): the point data's texture goes to stage 0 and the quad is drawn through
+   * the dynamic vertex buffer manager as a two-triangle strip, `renderCount` times.  Without a device (error 0x82 "device null"), a vertex
+   * (0x82 "null") or a texture data nothing is drawn; a texture data without a texture is error 0x83 with the control's name.  Returns
+   * `E_FAIL` for each of those, else 0.
+   */
+  renderVertex(vertex: VertexUI4 | null, pointData: UIPointData, renderCount: number): number;
+  /**
+   * `RenderVertex(pVertex, bRestoreVertexDecl)` (329252C0): draws the quad with whatever texture the device holds; `bRestoreVertexDecl`
+   * keeps the vertex declaration around the draw (`GetVertexDeclaration` before, `SetVertexDeclaration` and a `Release` after).
+   */
+  renderVertex(vertex: VertexUI4 | null, restoreVertexDecl: boolean): number;
+  renderVertex(vertex: VertexUI4 | null, second: UIPointData | boolean, renderCount = 1): number {
+    const log = this.ctx.devices.massFiles.log;
+    const render = this.ctx.render;
+    if (typeof second === "boolean") {
+      if (!render) {
+        log.push(0x82, "device null");
+        return E_FAIL;
+      }
+      if (!vertex) {
+        log.push(0x82, "null");
+        return E_FAIL;
+      }
+      const decl = second ? render.device.GetVertexDeclaration() : null;
+      render.dvb.drawPrimitive(DVB_TYPE.XYZRHW_DIFFUSE_TEX1, D3DPT.TRIANGLESTRIP, 2, vertex.bytes, 1);
+      if (second) {
+        render.device.SetVertexDeclaration(decl);
+        decl?.Release();
+      }
+      return 0;
+    }
+    if (!render) {
+      log.push(0x82, "device null");
+      return E_FAIL;
+    }
+    if (!vertex) {
+      log.push(0x82, "null");
+      return E_FAIL;
+    }
+    const data = second.pUITextureData;
+    if (!data) return E_FAIL;
+    const texture = data.pTexture;
+    if (!texture) {
+      log.push(0x83, this.m_Name);
+      return E_FAIL;
+    }
+    texture.setDeviceTexture(render, 0);
+    render.dvb.drawPrimitive(DVB_TYPE.XYZRHW_DIFFUSE_TEX1, D3DPT.TRIANGLESTRIP, 2, vertex.bytes, renderCount);
+    return 0;
   }
 
   /** `SetNameByForce` (32925B80) */

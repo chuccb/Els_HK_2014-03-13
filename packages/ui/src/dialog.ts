@@ -29,6 +29,7 @@ import { CKTDGUISlider } from "./slider.ts";
 import { CKTDGUIEditBox } from "./editbox.ts";
 import { CKTDGUINavigation } from "./navigation.ts";
 import type { RadioButtonGroupInfo } from "./radiobutton.ts";
+import { DIALOG_SAMPLER_STATES, RSI_UI_DIALOG } from "./render.ts";
 import { WStringMap } from "./stdmap.ts";
 import type { UIContext } from "./control.ts";
 import { CKTDGUIItem, CKTDGUIStatic } from "./static.ts";
@@ -99,6 +100,8 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
   m_CustomMsgRMouseUp = -1;
   m_bFadeInOut = true;
   m_fTimeForSelfDelete = 0;
+  /** `m_TimerToSelfDelete` (a `boost::timer`): `_clock()` when the dialog was made */
+  readonly m_TimerToSelfDelete = { _start_time: 0 };
   m_wstrCustomButtonMouseOverSndFileName = "";
   m_wstrCustomButtonMouseUpSndFileName = "";
   m_bSuccessInitOpenScript = false;
@@ -116,11 +119,46 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
 
   constructor(ctx: UIContext, opts: DialogOptions = {}) {
     this.ctx = ctx;
+    this.m_TimerToSelfDelete._start_time = ctx.clock();
     this.m_pStage = opts.stage;
     this.m_iLayer = opts.layer ?? 0;
     const script = opts.scriptFileName ?? "";
     if (script.length !== 0) this.m_bSuccessInitOpenScript = this.openScriptFile(script);
     if ((opts.moveTime ?? 0) > 0) throw new Error("CKTDGUIDialog: the fade-in of fMoveTime > 0 is not ported");
+  }
+
+  /**
+   * `OnFrameRender(bForceDraw)` (32958FF0): a dialog that is shown (or forced) and whose self-delete time (`SetTimeForSelfDelete`, counted
+   * from its making) is not up draws its controls.  While the dialog manager hides the dialogs only the chat box's edit box
+   * (`DLG_ChatBox_EditBox`) is drawn and every other dialog answers 1.  The sampler states (linear filters, mirrored addressing on the
+   * stages 0 and 1) and the states of `m_RSICKTDGUIDialog` (alpha blending on, no alpha test, no depth test or write, modulate the texture
+   * by the diffuse colour for colour and alpha) are pushed, every control that is not out of the list is drawn (`OnFrameRender`), then each
+   * of them gets `OnFrameRenderEnd`, then the states are popped.  The unit viewer and the particle blocks of the exe (`m_bHasUnit`,
+   * `m_bHasParticle`: set by C++ only, never by a script) are not ported.  Returns 0.
+   */
+  onFrameRender(bForceDraw = false): number {
+    if (!(bForceDraw || this.m_bShow)) return 0;
+    if (this.m_fTimeForSelfDelete > 0) {
+      const elapsed = ((this.ctx.clock() - this.m_TimerToSelfDelete._start_time) | 0) / 1000;
+      if (!(elapsed <= this.m_fTimeForSelfDelete)) return 0;
+    }
+    if (this.ctx.dialogManager.getHideDialog() && this.m_Name !== "DLG_ChatBox_EditBox") return 1;
+    const states = this.ctx.render?.states;
+    const top = states?.stackPointer ?? 0;
+    if (states) {
+      for (const s of DIALOG_SAMPLER_STATES) states.setSamplerState(s.stage, s.type, s.value);
+      states.apply(RSI_UI_DIALOG);
+    }
+    for (let i = 0; i < this.m_ControlsList.length; i++) {
+      const control = this.m_ControlsList[i];
+      if (control && !control.m_bOutofList) control.onFrameRender();
+    }
+    for (let i = 0; i < this.m_ControlsList.length; i++) {
+      const control = this.m_ControlsList[i]!;
+      if (!control.m_bOutofList) control.onFrameRenderEnd();
+    }
+    states?.popTo(top);
+    return 0;
   }
 
   /** `OpenScriptFile` (3295A6B0) */

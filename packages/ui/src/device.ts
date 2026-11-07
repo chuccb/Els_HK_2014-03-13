@@ -1,8 +1,8 @@
 /**
  * The texture devices the UI opens: `CKTDXDeviceManager::OpenTexture` (328EE8E0), the `CKTDXDeviceTexture` device behind it and the
- * `CKTDXDeviceManager` device map, headless.  What a UI control needs from a texture is its file's size (`m_Info.Width` / `Height`, the
- * values the UVs are normalised by) and its UV table (`m_tet`, the `.tet` file next to the image); the GPU texture itself is a renderer's
- * business and is created from `data` when something is drawn.
+ * `CKTDXDeviceManager` device map.  What a UI control needs from a texture is its file's size (`m_Info.Width` / `Height`, the values the
+ * UVs are normalised by) and its UV table (`m_tet`, the `.tet` file next to the image).  Without a Direct3D device the texture stops there
+ * (the census, most tests); with one (`DeviceManager.d3dDevice`) `_Load` makes the GPU texture too (below).
  *
  * `OpenTexture(id, fmt, bAlwaysHigh, bLog)`:
  *   - an empty id gives null; the id is upper-cased (`_towupper`);
@@ -12,18 +12,26 @@
  *     (`bAlwaysHigh` becomes true when the id contains one of `m_HighTexName`: texture detail only, not modelled), put into the map
  *     (`CreateAndOpenDevice`, reference count 1) and loaded.
  * `CKTDXDeviceTexture::_Load` (329682A0): `LoadTwoDataFiles(id, id minus its last 3 characters + L"TET")`; no image bytes is error 0x58
- * (and the load fails); `D3DXGetImageInfoFromFileInMemory` failing is error 0x59 (fails); a `.tet` that is there but that
- * `CKTDXDeviceTET_Preprocessing::OpenFile` rejects is error 0x5F (the texture still loads, its UV table stays empty); `m_Info` is the
- * info of the FILE (not of a texture reduced by the detail level).
+ * (and the load fails); `D3DXGetImageInfoFromFileInMemory` failing is error 0x59 (fails); each failure goes on to error 0x5A with the name
+ * of the HRESULT and the id (below); a `.tet` that is there but that `CKTDXDeviceTET_Preprocessing::OpenFile` rejects is error 0x5F with
+ * the TET's name (the texture still loads, its UV table stays empty); `m_Info` is the info of the FILE (not of a texture reduced by the
+ * detail level).
  * `CloseDevice(id)` (328ED610): upper-case, find, `UnrefDevice`; the last reference removes the device from the map.
+ *
+ * With a Direct3D device attached (`DeviceManager.d3dDevice`, `g_pKTDXApp->m_pd3dDevice`) `_Load` goes on: the size and format by the detail
+ * level (`DL_HIGH`: the file's; `DL_MEDIUM` halves a side of 128 or more, `DL_LOW` quarters it (halves one of 64..127); both ask for DXT1 when
+ * the file is `R8G8B8` / `R5G6B5` and `DL_LOW` for DXT3 otherwise; `bAlwaysHigh` skips that), `D3DXCheckTextureRequirements` (managed pool, one
+ * mip level), then `D3DXCreateTextureFromFileInMemoryEx` (filter `NONE` when the size is the file's, else `LINEAR`, mip filter `NONE`); a failing
+ * step is error 0x5A (the name of the HRESULT, a space and the id) and fails the load, before the TET is read.  `SetDeviceTexture(stage)`
+ * binds it.
  *
  * Also here: the render target textures (`OpenRenderTargetTexture` 328EE4C0, which `CKTDGUIControl::CMovieData::SetRect` uses) and
  * the video player (Bandisoft's `bdvid32.dll`, which `CMovieData` plays its file with) as the interfaces `CMovieData` needs of it.
  */
 import { parseTet } from "@els/assets";
 import type { TetFile } from "@els/assets";
-import { D3DXGetImageInfoFromFileInMemory } from "@els/d3d9";
-import type { D3DXImageInfo } from "@els/d3d9";
+import { D3DFMT, D3DPOOL, D3DXCheckTextureRequirements, D3DXCreateTextureFromFileInMemoryEx, D3DXGetImageInfoFromFileInMemory, D3DX_FILTER } from "@els/d3d9";
+import type { D3DXImageInfo, Direct3DDevice9, Direct3DTexture9 } from "@els/d3d9";
 import { KGCMassFileManager, towupperAscii } from "@els/host";
 
 /** `CKTDXDeviceTexture` */
@@ -40,10 +48,91 @@ export class DeviceTexture {
   tet: TetFile | undefined;
   /** the image file's bytes (what the renderer turns into a GPU texture) */
   data: Uint8Array = new Uint8Array(0);
+  /** `m_pTexture`: the Direct3D texture; null when there was no Direct3D device at load time (headless) or D3DX could not make it */
+  m_pTexture: Direct3DTexture9 | null = null;
+  /** `m_uWidth` / `m_uHeight`: the size of that texture (the file's, reduced by the detail level and fitted to the device) */
+  uWidth = 0;
+  uHeight = 0;
 
-  constructor(deviceID: string) {
+  /** `log`: `g_CKTDXLog` (`SetDeviceTexture` reports its failures there) */
+  constructor(deviceID: string, private readonly log: ErrorLogLike = { push() {} }) {
     this.deviceID = deviceID;
   }
+
+  /**
+   * `SetDeviceTexture(stage)` (32968070): a texture that is not there is error 0x5E.  A stage below 16 has its texture remembered in
+   * `ms_apd3dTextures`: the call does nothing when the stage already holds this texture, otherwise `SetTexture` (a failing one is followed by
+   * `SetTexture(stage, null)`) and the remembered texture is released and replaced (and referenced).  Stages from 16 are set directly.  A
+   * failure (`D3DERR_INVALIDCALL`, else `D3DERR_UNKNOWN`, then a space and the id) is error 0x80.
+   */
+  setDeviceTexture(target: TextureTarget, stage: number): void {
+    const texture = this.m_pTexture;
+    if (!texture) {
+      this.log.push(0x5e, this.deviceID);
+      return;
+    }
+    let hr: number;
+    if (stage < 0x10) {
+      const cache = target.states.apd3dTextures;
+      if (cache[stage] === texture) {
+        hr = 0;
+      } else {
+        hr = target.device.SetTexture(stage, texture);
+        if (hr < 0) target.device.SetTexture(stage, null);
+        cache[stage]?.Release();
+        cache[stage] = texture;
+        texture.AddRef();
+      }
+    } else {
+      hr = target.device.SetTexture(stage, texture);
+    }
+    if (hr < 0) this.log.push(0x80, `${hr === D3DERR_INVALIDCALL ? "D3DERR_INVALIDCALL" : "D3DERR_UNKNOWN"} ${this.deviceID}`);
+  }
+}
+
+/** where the device objects report their errors (`g_CKTDXLog.PushErrorLog`) */
+export interface ErrorLogLike {
+  push(id: number, text?: string): void;
+}
+
+/** what `SetDeviceTexture` reaches: `g_pd3dDevice` and the state manager's `ms_apd3dTextures` */
+export interface TextureTarget {
+  readonly device: { SetTexture(stage: number, texture: Direct3DTexture9 | null): number };
+  readonly states: { readonly apd3dTextures: (Direct3DTexture9 | null)[] };
+}
+
+/** the HRESULTs `_Load` and `SetDeviceTexture` name */
+const D3DERR_INVALIDCALL = -2005530516;
+const HRESULT_NAMES = new Map<number, string>([
+  [-2005530518, "D3DERR_NOTAVAILABLE"],
+  [-2005532292, "D3DERR_OUTOFVIDEOMEMORY"],
+  [D3DERR_INVALIDCALL, "D3DERR_INVALIDCALL"],
+  [-2005529767, "D3DXERR_INVALIDDATA"],
+  [-2147024882, "E_OUTOFMEMORY"],
+]);
+
+/** `CKTDXDeviceTexture::DETAIL_LEVEL` */
+export const DL = { HIGH: 0, MEDIUM: 1, LOW: 2 } as const;
+
+/**
+ * What `_Load` (329682A0) asks `D3DXCheckTextureRequirements` for: the file's size and `D3DFMT_UNKNOWN` at `DL_HIGH`; `DL_MEDIUM` halves a
+ * side that is 128 or more and asks for DXT1 when the file is `R8G8B8` or `R5G6B5`; `DL_LOW` quarters a side of 128 or more, halves one of
+ * 64 to 127, and asks for DXT1 (those two formats) or DXT3 (any other).
+ */
+export function textureLoadRequest(info: { Width: number; Height: number; Format: number }, level: number): { width: number; height: number; format: number } {
+  let width = info.Width, height = info.Height;
+  let format: number = D3DFMT.UNKNOWN;
+  const small = info.Format === D3DFMT.R8G8B8 || info.Format === D3DFMT.R5G6B5;
+  if (level === DL.MEDIUM) {
+    if (info.Width >= 0x80) width = info.Width >>> 1;
+    if (info.Height >= 0x80) height = info.Height >>> 1;
+    if (small) format = D3DFMT.DXT1;
+  } else if (level === DL.LOW) {
+    if (info.Width >= 0x40) width = info.Width >= 0x80 ? info.Width >>> 2 : info.Width >>> 1;
+    if (info.Height >= 0x40) height = info.Height >= 0x80 ? info.Height >>> 2 : info.Height >>> 1;
+    format = small ? D3DFMT.DXT1 : D3DFMT.DXT3;
+  }
+  return { width, height, format };
 }
 
 /**
@@ -191,6 +280,13 @@ export class DeviceManager {
    * it `OpenSound` answers null for every sound that is not open yet, as the exe does when FMOD failed to initialise.
    */
   soundSystemInitialised = false;
+  /**
+   * `g_pKTDXApp->m_pd3dDevice`: with a device, a texture that loads also gets its Direct3D texture (`m_pTexture`); without one (the census,
+   * most tests) it keeps only its file's size and UV table.  The textures already open are not touched when it is set.
+   */
+  d3dDevice: Direct3DDevice9 | null = null;
+  /** `m_TexDetailLevel` (`SetTextureDetailLevel`): what the textures opened from now on are reduced to (`DL.HIGH`: not at all) */
+  textureDetailLevel: number = DL.HIGH;
   /** `GetCaretBlinkTime()` in milliseconds (the system setting; Windows' default is 530) */
   caretBlinkTime = 530;
   /** `DXUTGetGlobalTimer()->GetAbsoluteTime()` in seconds (a clock that stands still unless the application wires a real one) */
@@ -210,7 +306,7 @@ export class DeviceManager {
       return known.failed ? undefined : known;
     }
     if (!this.massFiles.isValidFile(id)) return undefined;
-    const tex = new DeviceTexture(id);
+    const tex = new DeviceTexture(id, this.massFiles.log);
     tex.refCount = 1; // CreateAndOpenDevice
     this.devices.set(id, tex);
     if (!this.loadTexture(tex)) {
@@ -220,28 +316,66 @@ export class DeviceManager {
     return tex;
   }
 
-  /** `CKTDXDeviceTexture::_Load` */
+  /**
+   * `CKTDXDeviceTexture::_Load` (329682A0): the file and its TET (`LoadTwoDataFiles`), the image info, the Direct3D texture, the TET table.
+   * Every failure ends in error 0x5A, the name of the HRESULT, a space and the id (a missing file, error 0x58 before it, is `E_FAIL`; an
+   * image D3DX cannot read, error 0x59 before it, is whatever D3DX answered).  The TET is read after the texture is made; one that does
+   * not open is error 0x5F with the TET's name and the texture still loads, its UV table empty.
+   */
   private loadTexture(tex: DeviceTexture): boolean {
     const id = tex.deviceID;
     const tetName = id.length > 3 ? id.slice(0, -3) + "TET" : "";
+    const log = this.massFiles.log;
     const { first, second } = this.massFiles.loadTwoDataFiles(id, tetName);
     if (!first) {
-      this.massFiles.log.push(0x58, id);
-      return false;
+      log.push(0x58, id);
+      return this.loadFailed(id, E_FAIL);
     }
     const { hr, info } = D3DXGetImageInfoFromFileInMemory(first);
     if (hr !== 0 || !info) {
-      this.massFiles.log.push(0x59, id);
-      return false;
+      log.push(0x59, id);
+      return this.loadFailed(id, hr);
+    }
+    if (this.d3dDevice) {
+      const made = this.createD3DTexture(first, info);
+      if (made.hr !== 0) return this.loadFailed(id, made.hr);
+      tex.m_pTexture = made.tex;
+      tex.uWidth = made.width;
+      tex.uHeight = made.height;
     }
     if (second) {
       const tet = parseTet(second);
       if (tet) tex.tet = tet;
-      else this.massFiles.log.push(0x5f, id);
+      else log.push(0x5f, tetName);
     }
     tex.info = info;
     tex.data = first;
     return true;
+  }
+
+  /** the end of `_Load` for every failure (LABEL_30): error 0x5A with the HRESULT's name (`알수없는에러`, "unknown error", for the others) */
+  private loadFailed(id: string, hr: number): boolean {
+    this.massFiles.log.push(0x5a, `${HRESULT_NAMES.get(hr) ?? "알수없는에러"} ${id}`);
+    return false;
+  }
+
+  /**
+   * The Direct3D half of `_Load`: the size by the detail level (`bAlwaysHigh` is not modelled: no id is exempt), the requirements check,
+   * the texture from the file's bytes.  `m_LoadTexFormat` is `D3DFMT_UNKNOWN` (the UI never asks for a format).
+   */
+  private createD3DTexture(data: Uint8Array, info: D3DXImageInfo): { hr: number; tex: Direct3DTexture9 | null; width: number; height: number } {
+    const device = this.d3dDevice!;
+    const request = textureLoadRequest(info, this.textureDetailLevel);
+    const check = D3DXCheckTextureRequirements(device, request.width, request.height, 1, 0, request.format, D3DPOOL.MANAGED);
+    if (check.hr !== 0) return { hr: check.hr, tex: null, width: 0, height: 0 };
+    const { width, height } = check;
+    const filter = width === info.Width && height === info.Height ? D3DX_FILTER.NONE : D3DX_FILTER.LINEAR;
+    const created = D3DXCreateTextureFromFileInMemoryEx(device, data, width, height, 1, 0, check.format, D3DPOOL.MANAGED, filter, D3DX_FILTER.NONE, 0);
+    if (created.hr !== 0) {
+      created.tex?.Release();
+      return { hr: created.hr, tex: null, width: 0, height: 0 };
+    }
+    return { hr: 0, tex: created.tex, width, height };
   }
 
   /**

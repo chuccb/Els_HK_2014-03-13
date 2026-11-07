@@ -16,6 +16,7 @@ import type { CKTDGUIButton_Methods } from "@els/host";
 import { CKTDGUIControl, TexChangeData, UCT, UIM, UIPointData, readPointData, readStringData, readTexChangeData, setTexureData } from "./control.ts";
 import type { UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceSound, DeviceTexture } from "./device.ts";
+import { VertexUI4 } from "./render.ts";
 import type { CKTDGUIStatic } from "./static.ts";
 
 /** `CKTDGUIButton::BUTTON_CONTROL_STATE` */
@@ -66,6 +67,8 @@ export class CKTDGUIButton extends CKTDGUIControl implements Partial<CKTDGUIButt
   readonly m_mapMouseNormalTex = new Map<number, TexChangeData>();
   readonly m_mapMouseDownTex = new Map<number, TexChangeData>();
   readonly m_edgePoint = new UIPointData();
+  /** `m_Vertex[4]`: the quad of the button */
+  readonly m_Vertex = new VertexUI4();
 
   constructor(ctx: UIContext) {
     super(ctx);
@@ -83,6 +86,26 @@ export class CKTDGUIButton extends CKTDGUIControl implements Partial<CKTDGUIButt
   }
 
   // ---- virtual overrides -----------------------------------------------------------------------------------------------------
+
+  /**
+   * `OnFrameRender` (3292ED40): a shown button draws its quad from `m_NowPoint` (`UpdateVertex`, then `UpdateAnimVertex` with the texture
+   * change step it is in, then `RenderVertex`), with the edge before and after while it has the focus and an edge width; then its string.
+   * The edge (`DrawEdge` 3292D750) and the string (the UK font's `OutTextMultiline`) are not ported: counted in
+   * `render.undrawn`.
+   */
+  override onFrameRender(): number {
+    if (!this.m_bShow) return 0;
+    const render = this.ctx.render;
+    const edge = this.m_bHasFocus && this.m_EdgeWidth > 0;
+    if (edge) render?.noteUndrawn("CKTDGUIButton::DrawEdge");
+    this.updateVertex(this.m_Vertex, this.m_NowPoint);
+    this.updateAnimVertex(this.m_Vertex, this.m_NowTexChangeData);
+    this.renderVertex(this.m_Vertex, this.m_NowPoint, 1);
+    if (edge) render?.noteUndrawn("CKTDGUIButton::DrawEdge");
+    if (this.m_pStringData) render?.noteUndrawn("CKTDGUIButton string");
+    return 0;
+  }
+
 
   /** `SetName` (3292FFE0): the statics are renamed after the button */
   override setName(name: string): boolean {

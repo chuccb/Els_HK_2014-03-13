@@ -3,10 +3,12 @@
  * CKTDGUIStatic::CKTDGUIStatic 329288F0, AddPicture 328C0DB0, AddString_LUA 32928E40 (its argument table is read by
  * `CKTDGUIControl::SetStringData_`, 329269C0), GetPicture 32929CD0, GetString 32929D50, CanHaveFocus 32928E80.
  */
+import { D3DRS } from "@els/d3d9";
 import { CKTDGUIControl, UCT, readStringData } from "./control.ts";
 import type { CPictureData, UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceTexture } from "./device.ts";
 import type { CMovieData } from "./movie.ts";
+import { VertexUI4 } from "./render.ts";
 import type { CKTDGUIItem_Methods, CKTDGUIStatic_Methods } from "@els/host";
 
 export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStatic_Methods> {
@@ -18,6 +20,8 @@ export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStat
   m_CustomMsgMouseUp = -1;
   /** `m_pEdgeTexture`: every static opens `UIEdge.tga` */
   readonly m_pEdgeTexture: DeviceTexture | undefined;
+  /** `m_Vertex[4]`: the quad of the picture being drawn */
+  readonly m_Vertex = new VertexUI4();
 
   constructor(ctx: UIContext) {
     super(ctx);
@@ -33,6 +37,34 @@ export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStat
 
   override textureData(out: UITextureData[]): void {
     for (const p of this.m_PictureDataList) if (p.pTexture) out.push(p.pTexture);
+  }
+
+  /**
+   * `OnFrameRender` (3292A2B0): a shown static draws its pictures, then its strings, then its movies.  A picture is drawn when it is shown
+   * and has a point and a loaded texture: the edge (when `m_EdgeWidth` is not 0), the quad (`UpdateVertex`, the picture's two blend
+   * states pushed around `RenderVertex(..., m_iDrawCount)`), the edge again.  The edge (`DrawEdge` 32929090), the strings (the UK font's
+   * `OutTextMultiline` / `Draw2DText`) and the movies (`CMovieData::OnFrameRender` 32925150) are not ported: they are counted in
+   * `render.undrawn`.
+   */
+  override onFrameRender(): number {
+    if (!this.m_bShow) return 0;
+    const render = this.ctx.render;
+    for (let i = 0; i < this.m_PictureDataList.length; i++) {
+      const picture = this.m_PictureDataList[i]!;
+      const point = picture.pPoint;
+      if (!(picture.bShow && point && picture.pTexture && picture.pTexture.pTexture)) continue;
+      if (picture.m_EdgeWidth !== 0) render?.noteUndrawn("CKTDGUIStatic::DrawEdge");
+      this.updateVertex(this.m_Vertex, point);
+      const top = render?.states.stackPointer ?? 0;
+      render?.states.setRenderState(D3DRS.SRCBLEND, point.m_eSrcBlend);
+      render?.states.setRenderState(D3DRS.DESTBLEND, point.m_eDestBlend);
+      this.renderVertex(this.m_Vertex, point, point.m_iDrawCount);
+      render?.states.popTo(top);
+      if (picture.m_EdgeWidth !== 0) render?.noteUndrawn("CKTDGUIStatic::DrawEdge");
+    }
+    for (const text of this.m_StringDataList) if (text.msg.length !== 0) render?.noteUndrawn("CKTDGUIStatic string");
+    for (let i = 0; i < this.m_MovieDataList.length; i++) render?.noteUndrawn("CMovieData::OnFrameRender");
+    return 0;
   }
 
   /** `AddPicture(CPictureData*)` (328C0DB0) */

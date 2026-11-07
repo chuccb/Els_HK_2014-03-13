@@ -4,6 +4,7 @@ import { StringTable } from "@els/assets";
 import type { TetFile } from "@els/assets";
 import type { MassFileSource } from "@els/host";
 import { CKTDGUIDialog, DeviceTexture, UIWorld } from "../src/index.ts";
+import type { UIWorldOptions } from "../src/index.ts";
 
 /**
  * The control classes on their own (no client data): a world whose every texture opens (64 x 32 texels, one UV rectangle for every key),
@@ -12,8 +13,8 @@ import { CKTDGUIDialog, DeviceTexture, UIWorld } from "../src/index.ts";
  */
 export const NOTHING: MassFileSource = { has: () => false, read: () => undefined };
 
-export function setup(strings = new StringTable([])) {
-  const w = new UIWorld({ source: NOTHING, strings, notPorted: "throw" });
+export function setup(strings = new StringTable([]), extra: Partial<UIWorldOptions> = {}) {
+  const w = new UIWorld({ source: NOTHING, strings, notPorted: "throw", ...extra });
   w.devices.openTexture = ((id: string) => {
     const t = new DeviceTexture(id.toUpperCase());
     t.info = { ...t.info, Width: 64, Height: 32 };

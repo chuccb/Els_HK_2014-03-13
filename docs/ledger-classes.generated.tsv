@@ -28,7 +28,7 @@ CX2StateServerSelect	113	24663	32D94900	todo
 CX2Data	110	4151	32A27F00	todo		
 CX2UIQuestNew	103	17145	32CE0E10	todo		
 CX2CashShop	101	15480	329E6480	todo		
-CKTDGUIDialog	95	5959	328C0CD0	partial	packages/ui/src/dialog.ts	the constructor, OpenScriptFile (error logs 0x87 / 0x48 / 0x49), AddControl (a taken name becomes name+N from 100), GetControl (log 0x24), all 53 Lua methods, the Create* factories, ChangeSequence*, the custom sound files; not ported: MsgProc, OnFrameMove / OnFrameRender, the move / fade animation, SetFront / SetLayer against the dialog manager
+CKTDGUIDialog	95	5959	328C0CD0	partial	packages/ui/src/dialog.ts	the constructor, OpenScriptFile (error logs 0x87 / 0x48 / 0x49), AddControl (a taken name becomes name+N from 100), GetControl (log 0x24), all 53 Lua methods, the Create* factories, ChangeSequence*, the custom sound files; OnFrameRender (32958FF0: the dialog manager hides it, the self-delete time, the sampler states and the table of render states pushed around its controls drawn in list order, then OnFrameRenderEnd); not ported: MsgProc, OnFrameMove, the move / fade animation, SetFront / SetLayer against the dialog manager
 CX2PostBox	94	15351	32CA5110	partial	packages/ui/src/slot.ts (CX2PostBox)	only what the dialog scripts reach through the global g_pPostBoxInventory (32CA5F80); the post box itself is not ported
 CX2UIManager	93	5546	32B7DE70	todo		
 CX2Unit	92	6747	329BB8A0	todo		
@@ -39,7 +39,7 @@ CX2StateDungeonGame	88	9096	32D7FCB0	todo
 CX2ChatBox	87	23961	3299C580	todo		
 CX2ItemManager	81	9601	32B8AC70	todo		
 CX2GageManager	78	5160	32B38A00	todo		
-CKTDGUIControl	77	2783	328C0AE5	partial	packages/ui/src/control.ts	what the controls share: UI_Control_Sound.lua and the sounds (opened only when FMOD is up), textures + UIPointData (USE_TEXTURE_SIZE), offset positions, the internal events 0x466 / 0x467, all 30 Lua methods; not ported: MsgProc / HandleMouse / OnFrameMove / OnFrameRender / ContainsPoint, the virtual SetMaximize
+CKTDGUIControl	77	2783	328C0AE5	partial	packages/ui/src/control.ts	what the controls share: UI_Control_Sound.lua and the sounds (opened only when FMOD is up), textures + UIPointData (USE_TEXTURE_SIZE), offset positions, the internal events 0x466 / 0x467, all 30 Lua methods; the drawing every control shares: UpdateVertex (32927FB0), GetAxisPos (329244F0), UpdateAnimVertex (32927C70), RenderVertex (32925200 / 329252C0), the base OnFrameRender (counted in render.undrawn); not ported: MsgProc / HandleMouse / OnFrameMove / ContainsPoint, the virtual SetMaximize
 CX2SquareUnit	77	8683	329BB820	todo		
 CX2Room	76	4540	3298FF70	todo		
 CX2StateMenu	75	15455	32EC5080	todo		
@@ -54,7 +54,7 @@ CX2UserSkillTree	68	4649	32A92F30	todo
 CX2World	67	4893	32A27590	todo		
 CX2DamageEffect::CEffect	67	12252	32A28B20	todo		
 CKTDGUIIMEEditBox	63	5163	328A8420	partial	packages/ui/src/imeeditbox.ts	constructor (32935240), all 28 Lua methods (the folded setters shared with CKTDGUIEditBox verified by disassembly); not ported: IME input, caret and selection handling, drawing
-CKTDGUIButton	62	4011	328CD080	partial	packages/ui/src/button.ts	constructor (sounds), all 31 Lua methods incl. the folded one-line setters (offsets verified by disassembly); not ported: input handling and drawing
+CKTDGUIButton	62	4011	328CD080	partial	packages/ui/src/button.ts	constructor (sounds), all 31 Lua methods incl. the folded one-line setters (offsets verified by disassembly); OnFrameRender (3292ED40): the quad of the current point; not ported: input handling, the edge (DrawEdge 3292D750) and the string (counted in render.undrawn)
 CX2ServerProtocol	61	3987	329E01B0	todo		
 CX2UISkillTreeNew	58	16940	32CB9E40	todo		
 DXUTState	57	785	3289CBD0	todo		
@@ -101,7 +101,7 @@ CX2DungeonSubStage	37	2093	32A28AC0	todo
 boost	35	868	32894E60	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDXApp	35	7871	328BFA50	todo		
 CKTDGUIContolList	35	1919	328CD280	partial	packages/ui/src/controllist.ts	constructor (3294F030), all 25 Lua methods, SetIndex / SetShow / UpdateRects / UpdateRenderControlList / UpdateScrollBar (the exe bug that sets the X index on the Y bar kept); not ported: input handling and drawing
-CKTDGUIDialogManager	35	3042	328CDFA0	todo		
+CKTDGUIDialogManager	35	3042	328CDFA0	partial	packages/ui/src/dialogmanager.ts	the constructor (m_bShow, m_bCanHide) and GetHideDialog (the two flags a dialog asks before it draws); not ported: the dialog list and its layers, MsgProc / OnFrameMove / OnFrameRender of the manager
 CX2RelationshipManager	35	5773	32B77630	todo		
 CX2GameUnit::Weapon	34	4603	32AC1A00	todo		
 CX2MemoryHolder	34	2184	32D61B70	todo		
@@ -161,7 +161,7 @@ CX2SecurityPad	24	3001	32E79C60	todo
 CX2MyGageUI	24	2076	32F8F6B0	todo		
 CX2TitleSystem	24	2892	33254580	todo		
 CX2BattleFieldNpcAi	24	1716	33281B70	todo		
-CKTDGUIStatic	23	2190	328C0D80	partial	packages/ui/src/static.ts	constructor, the 7 Lua methods (AddPicture, AddString, AddMovieData, ...), the picture / string lists; not ported: drawing
+CKTDGUIStatic	23	2190	328C0D80	partial	packages/ui/src/static.ts	constructor, the 7 Lua methods (AddPicture, AddString, AddMovieData, ...), the picture / string lists; OnFrameRender (3292A2B0): the quad of every picture with its two blend states and draw count; not ported: the edge (DrawEdge 32929090), the strings and the movies (counted in render.undrawn)
 CX2UIGuild	23	2996	32D09520	todo		
 CX2WorldMissionManager	23	1226	32D19E40	todo		
 CX2UnitManager	23	5111	32DBBDC0	todo		
@@ -288,7 +288,7 @@ CBaseCamera	10	694	328A6C40	todo
 CD3DEnumeration	10	2795	328A9270	todo		
 CKTDGXMeshPlayer::CXMeshPlayerTokenizer	10	1418	329175F0	done	packages/assets/src/effectscript.ts (tokenize), xmeshplayer.ts (classifyXMeshToken)	same code as the particle tokenizer plus ProcessBool / ProcessRenderType / ProcessString / ProcessVector3; the line numbers are kept for diagnostics only
 std::set<int>	10	571	3295F680	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDXDeviceTexture	10	1105	32967340	partial	packages/assets (decoders)	image decoding ported (D3DX semantics); D3DXGetImageInfoFromFileInMemory / CheckTextureRequirements / CreateTextureFromFileInMemoryEx with the exact arguments of _Load are in packages/d3d9/src/d3dx-texture.ts (test/d3dx-texture.test.ts); the class itself (detail levels, async load, device object) is not ported
+CKTDXDeviceTexture	10	1105	32967340	partial	packages/ui/src/device.ts; packages/assets (decoders); packages/d3d9 (D3DX)	image decoding ported (D3DX semantics); _Load (329682A0: LoadTwoDataFiles, D3DXGetImageInfoFromFileInMemory, the detail level, D3DXCheckTextureRequirements and D3DXCreateTextureFromFileInMemoryEx with the exact arguments, the TET after the texture, every failure ending in error 0x5A) and SetDeviceTexture (32968070, with the texture cache of CKTDGStateManager); not ported: the loader thread and the DEVICE_STATE machine, OnResetDevice / OnLostDevice, bAlwaysHigh (m_HighTexName)
 CKTDXDeviceSound	10	495	329718B0	todo		
 KBenchMark_MXM	10	902	32C35750	todo		
 CX2CashShop::CashItemToInvenPopup	10	789	32C89240	todo		

@@ -20,6 +20,8 @@ export * from "./imeeditbox.ts";
 export * from "./scrollbar.ts";
 export * from "./combobox.ts";
 export * from "./dialog.ts";
+export * from "./dialogmanager.ts";
+export * from "./render.ts";
 export * from "./world.ts";
 export * from "./stdmap.ts";
 export * from "./census.ts";

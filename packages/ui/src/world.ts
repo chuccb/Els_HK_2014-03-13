@@ -5,6 +5,7 @@
 import { HostWorld, KGCMassFileManager } from "@els/host";
 import type { HostOptions, MassFileSource } from "@els/host";
 import type { StringTable } from "@els/assets";
+import type { Direct3DDevice9 } from "@els/d3d9";
 import { CKTDGUIControl, CPictureData } from "./control.ts";
 import type { UIContext } from "./control.ts";
 import { CKTDGUIButton } from "./button.ts";
@@ -12,6 +13,8 @@ import { CKTDGUICheckBox } from "./checkbox.ts";
 import { CKTDGUIRadioButton } from "./radiobutton.ts";
 import { CKTDGUIDialog } from "./dialog.ts";
 import { DeviceManager } from "./device.ts";
+import { CKTDGUIDialogManager } from "./dialogmanager.ts";
+import { UIRender } from "./render.ts";
 import { CKTDGUIItem, CKTDGUIStatic } from "./static.ts";
 import { CKTDGUISlot, CX2CouponBox, CX2PostBox, CX2Slot, CX2SlotManager } from "./slot.ts";
 import { CKTDGUIIMEEditBox, ImeSystem } from "./imeeditbox.ts";
@@ -34,6 +37,13 @@ export interface UIWorldOptions extends HostOptions {
   strings: StringTable;
   /** `GetTickCount()` in milliseconds (default: the time since start-up) */
   tickCount?: () => number;
+  /**
+   * The Direct3D device to draw on (`g_pKTDXApp->m_pd3dDevice`; a `Direct3DDevice9` of `@els/d3d9`).  Given, the textures that open get
+   * Direct3D textures and `render` draws; without it the world only builds the dialogs.
+   */
+  device?: Direct3DDevice9;
+  /** the size of the back buffer the layout (1024 x 768) is scaled to (`m_ResolutionScale`; default: no scaling) */
+  backBuffer?: { width: number; height: number };
 }
 
 /** the Lua classes (C++ names) the UI classes implement */
@@ -76,12 +86,21 @@ export class UIWorld implements UIContext {
   readonly ime: ImeSystem;
   /** the message boxes the UI code opened, in order (the exe shows them modally) */
   readonly messageBoxes: { text: string; caption: string }[] = [];
+  readonly render: UIRender | null;
+  readonly dialogManager = new CKTDGUIDialogManager();
 
   constructor(opts: UIWorldOptions) {
     const massFiles = new KGCMassFileManager();
     massFiles.source = opts.source;
     if (opts.tickCount) massFiles.tickCount = opts.tickCount;
     this.devices = new DeviceManager(massFiles);
+    if (opts.device) {
+      this.devices.d3dDevice = opts.device;
+      this.render = new UIRender(opts.device);
+      if (opts.backBuffer) this.render.setBackBufferSize(opts.backBuffer.width, opts.backBuffer.height);
+    } else {
+      this.render = null;
+    }
     this.ime = new ImeSystem(massFiles.log);
     this.strings = opts.strings;
     this.world = new HostWorld({ readScript: (name) => massFiles.loadDataFile(name), massFiles, notPorted: opts.notPorted });
@@ -92,6 +111,11 @@ export class UIWorld implements UIContext {
 
   messageBox(text: string, caption: string): void {
     this.messageBoxes.push({ text, caption });
+  }
+
+  /** `_clock()`: milliseconds, from the same source as `GetTickCount` */
+  clock(): number {
+    return this.devices.massFiles.tickCount();
   }
 
   /** `LoadLuaEnum`: Enum.lua, DungeonEnum.lua, MassFileMappingList_HK.lua, StringID_def.lua */

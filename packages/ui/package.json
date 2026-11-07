@@ -7,6 +7,7 @@
   "dependencies": {
     "@els/assets": "workspace:*",
     "@els/d3d9": "workspace:*",
+    "@els/engine": "workspace:*",
     "@els/host": "workspace:*",
     "@els/lua": "workspace:*"
   }
