@@ -12,15 +12,11 @@
  * (FT_Bitmap_Copy + FT_Bitmap_Embolden).  Every number is compared exactly.
  */
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FtFace, FtError, setCharSize } from "@els/freetype";
-import { loadGlyph } from "../packages/freetype/src/glyph.ts";
-import { renderGlyph } from "../packages/freetype/src/render.ts";
-import { bitmapCopy, bitmapEmbolden } from "../packages/freetype/src/bitmap.ts";
-import { Bitmap } from "../packages/freetype/src/slot.ts";
+import { FtFace, setCharSize } from "@els/freetype";
+import { bufHex, compactGlyph, faceInfo, indicesDigest, portEmbolden, portGlyph, portRaster, sha1, sizeInfo, type Json, type SynthOutline } from "../packages/freetype/test/probe.ts";
 import { divFix, mulDiv, mulDivNoRound, mulFix } from "../packages/freetype/src/calc.ts";
 import { sqrtFixed, vectorLength, vectorTransform } from "../packages/freetype/src/trig.ts";
 import { dataDir, indexAllKoms } from "./komindex.ts";
@@ -71,7 +67,6 @@ async function fonts(): Promise<FontSpec[]> {
 }
 
 // ------------------------------------------------------------------------------------------------------------------ oracle
-type Json = Record<string, any>;
 
 /** the oracle's closing `stats` line of the last run (glyph count, longjmps) */
 let lastStats: Json | undefined;
@@ -118,29 +113,6 @@ function report(layer: string, total: number, bad: number, firsts: string[]): vo
 }
 
 // ------------------------------------------------------------------------------------------------------------------ the port's side
-const faceInfo = (f: FtFace): Json => ({
-  num_faces: f.numFaces,
-  face_index: f.faceIndex,
-  face_flags: f.faceFlags,
-  style_flags: f.styleFlags,
-  num_glyphs: f.numGlyphs,
-  num_charmaps: f.charmaps.length,
-  bbox: [f.bbox.xMin, f.bbox.yMin, f.bbox.xMax, f.bbox.yMax],
-  units_per_EM: f.unitsPerEM,
-  ascender: f.ascender,
-  descender: f.descender,
-  height: f.height,
-  max_advance_width: f.maxAdvanceWidth,
-  max_advance_height: f.maxAdvanceHeight,
-  underline_position: f.underlinePosition,
-  underline_thickness: f.underlineThickness,
-});
-
-const sizeInfo = (f: FtFace): Json => {
-  const m = f.size.metrics;
-  return { x_ppem: m.xPpem, y_ppem: m.yPpem, x_scale: m.xScale, y_scale: m.yScale, ascender: m.ascender, descender: m.descender, height: m.height, max_advance: m.maxAdvance };
-};
-
 function mulberry32(a: number): () => number {
   return () => {
     a = (a + 0x6d2b79f5) | 0;
@@ -345,52 +317,6 @@ interface GlyphLayer {
   render: number | null;
 }
 
-const bufHex = (b: Uint8Array | null, n: number): string => (b ? Buffer.from(b.subarray(0, n)).toString("hex") : "");
-
-/** what the oracle prints for a loaded glyph, from the port's slot: FT_Load_Glyph(flags), then FT_Render_Glyph(mode) when `render` is not null */
-function portGlyph(face: FtFace, gi: number, flags: number, render: number | null, withOutline: boolean): Json {
-  const r: Json = { glyph: gi, load_err: 0, render_err: null };
-  let err: number;
-  try {
-    err = loadGlyph(face, gi, flags);
-  } catch (e) {
-    if (e instanceof FtError) return { glyph: gi, thrown: e.message };
-    throw e;
-  }
-  r.load_err = err;
-  if (err) return r;
-  const s = face.glyph;
-  const m = s.metrics;
-  const metrics = (): number[] => [m.width, m.height, m.horiBearingX, m.horiBearingY, m.horiAdvance, m.vertBearingX, m.vertBearingY, m.vertAdvance];
-  r.metrics = metrics();
-  r.linear = [s.linearHoriAdvance, s.linearVertAdvance];
-  r.advance = [s.advance.x, s.advance.y];
-  r.format = s.format;
-  if (withOutline && s.format === 0x6f75746c) {
-    const o = s.outline;
-    r.outline = {
-      contours: Array.from(o.contours.subarray(0, o.nContours)),
-      points: Array.from({ length: o.nPoints }, (_, i) => [o.points[2 * i]!, o.points[2 * i + 1]!]),
-      tags: Array.from(o.tags.subarray(0, o.nPoints)),
-      flags: o.flags,
-    };
-  }
-  if (render !== null) {
-    try {
-      r.render_err = renderGlyph(s, render);
-    } catch (e) {
-      if (e instanceof FtError) return { glyph: gi, thrown: e.message };
-      throw e;
-    }
-    if (r.render_err === 0) {
-      const b = s.bitmap;
-      r.bitmap = { rows: b.rows, width: b.width, pitch: b.pitch, mode: b.pixelMode, left: s.bitmapLeft, top: s.bitmapTop, hex: bufHex(b.buffer, b.rows * Math.abs(b.pitch)) };
-      r.metrics_after = metrics();
-    }
-  }
-  return r;
-}
-
 async function glyphLayer(list: FontSpec[], layer: GlyphLayer, limit: number): Promise<void> {
   const use = list.filter((f) => uiFonts.includes(f.name));
   const fontsJson: Json = {};
@@ -450,13 +376,6 @@ async function glyphLayer(list: FontSpec[], layer: GlyphLayer, limit: number): P
 }
 
 // ------------------------------------------------------------------------------------------------------------------ synthetic outlines
-interface SynthOutline {
-  points: number[][];
-  tags: number[];
-  contours: number[];
-  flags: number;
-}
-
 /** a random outline: 1-3 contours of lines, conic and cubic segments (some contours start on a conic point or end open, a few tags are garbage) */
 function randomOutline(rnd: () => number, scale: number): SynthOutline {
   const lo = -Math.round(scale * 16);
@@ -539,32 +458,6 @@ function rectilinearOutline(rnd: () => number, scale: number): SynthOutline {
     contours.push(points.length - 1);
   }
   return { points, tags, contours, flags: rnd() < 0.5 ? 2 : 0 };
-}
-
-const sha1 = (b: Uint8Array): string => createHash("sha1").update(b).digest("hex");
-
-function bitmapJson(s: { bitmap: Bitmap; bitmapLeft: number; bitmapTop: number }): Json {
-  const b = s.bitmap;
-  const data = b.buffer ? b.buffer.subarray(0, b.rows * Math.abs(b.pitch)) : new Uint8Array(0);
-  const r: Json = { rows: b.rows, width: b.width, pitch: b.pitch, mode: b.pixelMode, left: s.bitmapLeft, top: s.bitmapTop, sha1: sha1(data) };
-  if (data.length <= 4096) r.hex = Buffer.from(data).toString("hex");
-  return r;
-}
-
-function portRaster(face: FtFace, o: SynthOutline): Json {
-  const slot = face.glyph;
-  slot.clear();
-  const ol = slot.outline;
-  ol.nContours = o.contours.length;
-  ol.nPoints = o.points.length;
-  ol.points = Int32Array.from(o.points.flat());
-  ol.tags = Uint8Array.from(o.tags);
-  ol.contours = Uint16Array.from(o.contours);
-  ol.flags = o.flags;
-  slot.format = 0x6f75746c;
-  const r: Json = { raster: true, render_err: renderGlyph(slot, 0) };
-  if (r.render_err === 0) r.bitmap = bitmapJson(slot);
-  return r;
 }
 
 /** FT_Render_Glyph of outlines no shipped font has: cubic segments, even-odd fill, garbage tags, and outlines with far more cells than the exe's pool holds */
@@ -659,17 +552,7 @@ async function emboldenLayer(list: FontSpec[], count: number): Promise<void> {
   let bad = 0;
   res.forEach((want, i) => {
     const { b, x, y } = cases[i]!;
-    const src = new Bitmap();
-    src.rows = b.rows;
-    src.width = b.width;
-    src.pitch = b.pitch;
-    src.pixelMode = b.pixel_mode;
-    src.numGrays = 256;
-    src.buffer = Uint8Array.from(Buffer.from(b.hex, "hex"));
-    const dst = new Bitmap();
-    let err = bitmapCopy(src, dst);
-    if (!err) err = bitmapEmbolden(dst, x, y);
-    const got: Json = { err, rows: dst.rows, width: dst.width, pitch: dst.pitch, mode: dst.pixelMode, hex: bufHex(dst.buffer, dst.rows * Math.abs(dst.pitch)), embolden: true };
+    const got = portEmbolden(b, x, y);
     const out: string[] = [];
     diff(want, got, `bitmap ${i >= 0 ? cases.indexOf(cases[i]!) : i} ${b.width}x${b.rows} pitch ${b.pitch} mode ${b.pixel_mode} strength (${x}, ${y})`, out);
     if (out.length) {
@@ -681,6 +564,105 @@ async function emboldenLayer(list: FontSpec[], count: number): Promise<void> {
   report("embolden", res.length, bad, firsts);
 }
 
+// ------------------------------------------------------------------------------------------------------------------ fixture
+/**
+ * `--record FILE`: what the exe's FreeType says about a sample, written as the fixture packages/freetype/test/oracle.test.ts replays without Python:
+ * face info and size metrics, the char index of U+0..U+2FFFF (as a hash), hinted and unhinted renders of a mixed sample of glyphs at 13 / 15 / 17 / 28 px,
+ * emboldened bitmaps, 2,100 integer-helper cases, and synthetic outlines (cubics, even-odd, tiny curves, a pixel-grid staircase, a glyph-sized one that makes the exe bisect bands).
+ */
+async function record(list: FontSpec[], file: string): Promise<void> {
+  const use = list.filter((f) => f.name !== "GULIM_1" && f.name !== "GULIM_2");
+  const fontsJson: Json = {};
+  for (const f of use) fontsJson[f.name] = { path: f.file, face: f.face };
+  const recSizes = [13, 15, 17, 28];
+  const codes = codeCorpus(20);
+  const flagSets: [number, number][] = [[8, 0], [10, 0]];
+  const rnd = mulberry32(seed + 77);
+  const outlines: SynthOutline[] = [];
+  const classes: [number, number, (r: () => number, sc: number) => SynthOutline][] = [
+    [1, 10, randomOutline], [2, 10, randomOutline], [6, 20, randomOutline], [14, 20, randomOutline], [30, 10, randomOutline], [80, 4, randomOutline], [200, 1, randomOutline],
+    [8, 15, rectilinearOutline], [20, 15, rectilinearOutline],
+  ];
+  for (const [sc, n, gen] of classes) for (let i = 0; i < n; i++) outlines.push(gen(rnd, sc));
+  // outlines the exe refuses: three the decomposer rejects (render_err 1) and one whose contour table does not end at the last point (FT_Err_Invalid_Outline)
+  const square = [[0, 0], [640, 0], [640, 640], [0, 640]];
+  outlines.push(
+    { points: square, tags: [2, 1, 1, 1], contours: [3], flags: 0 }, // starts on a cubic control point
+    { points: square, tags: [1, 0, 2, 1], contours: [3], flags: 0 }, // a conic control point followed by a cubic one
+    { points: square, tags: [1, 1, 1, 2], contours: [3], flags: 0 }, // a lone cubic control point closes the contour
+    { points: square, tags: [1, 1, 1, 1], contours: [2], flags: 0 }, // the last contour ends before the last point
+  );
+  const jobs: Json[] = [];
+  for (const f of use) for (const s of recSizes) for (const [flags, render] of flagSets) jobs.push({ font: f.name, size: s, flags, render, codes, outline: true });
+  for (const f of use) jobs.push({ font: f.name, char_range: [0, 0x2ffff, 1] });
+  for (const o of outlines) jobs.push({ font: "MSJH", raster: o });
+  const crnd = mulberry32(seed + 5);
+  const edge = [0, 1, -1, 2, -2, 63, 64, 65, 0x7fff, 0x8000, 0x10000, 0x7fffffff, -0x80000000, 46340, 46341, -46340, 176095, 176096, 0x40000000, 0xffff, 0x12345678, -0x12345678];
+  const pick = (): number => {
+    const r = crnd();
+    if (r < 0.3) return edge[Math.floor(crnd() * edge.length)]!;
+    if (r < 0.55) return Math.floor((crnd() - 0.5) * 2000);
+    if (r < 0.8) return Math.floor((crnd() - 0.5) * 2 ** 17);
+    return Math.floor((crnd() - 0.5) * 2 ** 32) | 0;
+  };
+  const calcArgs = (n: number, k: number): number[][] => Array.from({ length: n }, () => Array.from({ length: k }, pick));
+  const calcKinds: [string, number][] = [["mulfix", 2], ["muldiv", 3], ["muldiv_no_round", 3], ["divfix", 2], ["sqrtfixed", 1], ["veclen", 2], ["vtransform", 6]];
+  const calcJobs = calcKinds.map(([kind, k]) => ({ calc: kind, args: calcArgs(300, k) }));
+  jobs.push(...calcJobs);
+  const res = runOracle({ fonts: fontsJson, jobs });
+  const fx: Json = { about: "recorded from x2.exe's FreeType 2.4.11 by tools/oracle-freetype.py (tools/verify-freetype.ts --record); replayed by packages/freetype/test/oracle.test.ts", fonts: {}, faces: {}, chars: [], glyphs: [], embolden: [], raster: [], calc: [] };
+  for (const f of use) {
+    const gulim = f.name.startsWith("GULIM");
+    fx.fonts[f.name] = { file: gulim ? "kom:datai022.kom:gulim.ttc" : f.file.slice(dataDir.length + 1), face: f.face };
+  }
+  const bitmaps: { rows: number; width: number; pitch: number; pixel_mode: number; hex: string }[] = [];
+  let sizeNow = 0;
+  let flagsSeen = 0;
+  let cur: [number, number] = [8, 0];
+  let jobNo = 0;
+  for (const r of res) {
+    if (r.calc) {
+      const j = calcJobs[fx.calc.length]!;
+      fx.calc.push({ kind: j.calc, args: j.args, results: r.results });
+    } else if (r.raster) {
+      fx.raster.push({ outline: outlines[fx.raster.length], expect: r });
+    } else if (r.char_range) {
+      fx.chars.push({ font: r.font, range: r.char_range, ...indicesDigest(r.glyphs) });
+    } else if (r.info !== undefined && r.size === undefined) {
+      fx.faces[r.font] = { info: r.info, sizes: {} };
+    } else if (r.size !== undefined && r.glyph === undefined) {
+      sizeNow = r.size;
+      flagsSeen++;
+      jobNo++;
+      fx.faces[r.font].sizes[r.size] = { metrics: r.metrics };
+      cur = flagSets[(flagsSeen - 1) % flagSets.length]!; // the jobs go font, size, flag set
+    } else if (r.glyph !== undefined && !r.missing) {
+      const [flags, render] = cur;
+      fx.glyphs.push({ job: jobNo, font: r.font, size: r.size ?? sizeNow, flags, render, code: r.code, glyph: r.glyph, expect: compactGlyph(r) });
+      if (flags === 8 && r.bitmap?.hex && r.bitmap.rows && r.bitmap.hex.length <= 2048 && bitmaps.length < 24) bitmaps.push({ rows: r.bitmap.rows, width: r.bitmap.width, pitch: r.bitmap.pitch, pixel_mode: r.bitmap.mode, hex: r.bitmap.hex });
+    }
+  }
+  // emboldened bitmaps: real ones at three strengths, random gray / mono ones with wide pitches at five
+  const ernd = mulberry32(seed + 91);
+  const synth: typeof bitmaps = [];
+  for (let i = 0; i < 24; i++) {
+    const mono = ernd() < 0.3;
+    const width = 1 + Math.floor(ernd() * (mono ? 30 : 20));
+    const rows = 1 + Math.floor(ernd() * 12);
+    const pitch = (mono ? (width + 7) >> 3 : width) + Math.floor(ernd() * 7);
+    const bytes = Buffer.alloc(rows * pitch);
+    for (let k = 0; k < bytes.length; k++) bytes[k] = ernd() < 0.3 ? 0 : Math.floor(ernd() * 256);
+    synth.push({ rows, width, pitch, pixel_mode: mono ? 1 : 2, hex: bytes.toString("hex") });
+  }
+  const ejobs: Json[] = [];
+  for (const b of bitmaps) for (const [x, y] of [[128, 128], [256, 256], [64, 0]]) ejobs.push({ embolden: b, xstr: x, ystr: y });
+  for (const b of synth) for (const [x, y] of [[128, 128], [192, 64], [0, 128], [64, 0], [31, 31]]) ejobs.push({ embolden: b, xstr: x, ystr: y });
+  const eres = runOracle({ fonts: {}, jobs: ejobs }).filter((r) => r.embolden);
+  eres.forEach((r, i) => fx.embolden.push({ b: ejobs[i]!.embolden, xstr: ejobs[i]!.xstr, ystr: ejobs[i]!.ystr, expect: r }));
+  writeFileSync(file, JSON.stringify(fx));
+  console.log(`recorded ${file}: ${Object.keys(fx.fonts).length} fonts, ${fx.glyphs.length} glyph results, ${fx.chars.length} char ranges, ${fx.raster.length} outlines, ${fx.embolden.length} emboldened bitmaps (${(JSON.stringify(fx).length / 1024).toFixed(0)} KB)`);
+}
+
 // ------------------------------------------------------------------------------------------------------------------ main
 const t0 = Date.now();
 const list = await fonts();
@@ -688,6 +670,8 @@ console.log(`fonts: ${list.map((f) => f.name).join(" ")}`);
 if (layers.has("calc")) calcLayer();
 if (layers.has("face")) await faceLayer(list);
 if (layers.has("chars")) await charsLayer(list);
+const recordTo = opt("--record");
+if (recordTo) await record(list, recordTo);
 const glyphLimit = Number(opt("--glyphs") ?? 0);
 if (layers.has("unhinted")) await glyphLayer(list, { name: "unhinted", flags: 10, render: null }, glyphLimit);
 if (layers.has("hinted")) await glyphLayer(list, { name: "hinted", flags: 8, render: null }, glyphLimit);

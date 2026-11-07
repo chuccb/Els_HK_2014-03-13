@@ -1,7 +1,14 @@
 export { FtFace } from "./face.ts";
 export type { BBox, BitmapSize, CharMap } from "./face.ts";
+export { FtLibrary, defaultLibrary } from "./library.ts";
 export { FtSize, setCharSize, requestSize, FT_SIZE_REQUEST_TYPE } from "./size.ts";
 export type { SizeRequest } from "./size.ts";
+export { loadGlyph } from "./glyph.ts";
+export { renderGlyph } from "./render.ts";
+export { bitmapCopy, bitmapEmbolden } from "./bitmap.ts";
 export { GlyphSlot, Bitmap } from "./slot.ts";
+export type { GlyphMetrics } from "./slot.ts";
 export { Outline } from "./outline.ts";
+export { mulFix, mulDiv, mulDivNoRound, divFix } from "./calc.ts";
+export { sqrtFixed, vectorLength, vectorTransform } from "./trig.ts";
 export { FT_LOAD, FT_RENDER_MODE, FT_FACE_FLAG, FT_PIXEL_MODE, FT_GLYPH_FORMAT, FtErr, FtError } from "./types.ts";

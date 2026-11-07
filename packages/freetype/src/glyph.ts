@@ -7,6 +7,7 @@ import { ttSizeReadyBytecode, ttSizeRunPrep } from "./bytecode.ts";
 import type { FtSize } from "./size.ts";
 import type { GlyphSlot } from "./slot.ts";
 import { sqrtFixed, vectorTransform } from "./trig.ts";
+import { renderGlyph } from "./render.ts";
 import { cloneGraphicsState, GlyphZone, newDefaultGraphicsState, TT_CODERANGE } from "./ttypes.ts";
 import { FT_CURVE_TAG, FT_FACE_FLAG, FT_GLYPH_FORMAT, FT_LOAD, FtErr, FtError, loadTargetMode, pixCeil, pixFloor, pixRound } from "./types.ts";
 
@@ -719,9 +720,10 @@ function gridFitMetrics(glyph: GlyphSlot, vertical: boolean): void {
 }
 
 /**
- * FT_Load_Glyph: an FT_Error (0 = ok).  `render` is called when FT_LOAD_RENDER is set (FT_Render_Glyph, render.ts).
+ * FT_Load_Glyph: an FT_Error (0 = ok).  With FT_LOAD_RENDER the glyph is rendered (FT_Render_Glyph, render.ts) -- the exe does not set it, it loads with 8
+ * (FT_LOAD_NO_BITMAP) and renders with its own call.
  */
-export function loadGlyph(face: FtFace, glyphIndex: number, loadFlags: number, render?: (slot: GlyphSlot, mode: number) => number): number {
+export function loadGlyph(face: FtFace, glyphIndex: number, loadFlags: number): number {
   const slot = face.glyph;
   slot.clear();
   if (loadFlags & FT_LOAD.NO_RECURSE) loadFlags |= FT_LOAD.NO_SCALE | FT_LOAD.IGNORE_TRANSFORM;
@@ -758,8 +760,7 @@ export function loadGlyph(face: FtFace, glyphIndex: number, loadFlags: number, r
   if (slot.format !== FT_GLYPH_FORMAT.BITMAP && slot.format !== FT_GLYPH_FORMAT.COMPOSITE && loadFlags & FT_LOAD.RENDER) {
     let mode = loadTargetMode(loadFlags);
     if (mode === 0 && loadFlags & FT_LOAD.MONOCHROME) mode = 2;
-    if (!render) throw new FtError(FtErr.Unimplemented_Feature, "FT_LOAD_RENDER needs the renderer");
-    error = render(slot, mode);
+    error = renderGlyph(slot, mode);
   }
   return error;
 }
