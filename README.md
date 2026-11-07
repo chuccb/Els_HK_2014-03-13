@@ -22,7 +22,7 @@
 | 2 | 資產解碼器（TGA/DDS/X/Y/XET/TET/粒子腳本/KIM/ESS/MPEG-1） | **完成（解碼端）**：圖片（TGA/DDS/BMP/PNG）、XET/TET、字串表（ESS）、物品資料庫（KIM）、X 檔容器（MSZIP）與通用 X 讀取器、KME/KSM/KAC、粒子與 XMeshPlayer 腳本（解析端，37 個檔案、13,882 個區塊與獨立讀取器逐欄位一致）、**AVI + MPEG-1 影片**（30 個 `data/movie/*.avi`、18,514 張畫面與 FFmpeg 逐取樣點完全相同）都已完成並以全部資產驗證；粒子／XMeshPlayer 執行期與播放影片的 Bandi 式播放器需要繪圖，留給後續階段（`CMovieData` 的腳本端——檔名與 render target——已在階段 4 移植，播放本身尚無播放器）；網格語意由階段 3 的 D3DX 實作承接 |
 | 3 | WebGPU 的 D3D9 相容層（`packages/d3d9`） | **進行中，核心已完成**：`IDirect3DDevice9`（固定管線、全部狀態、貼圖格式、render target、可程式化的頂點階段）、D3DX 數學／貼圖／網格／骨架／動畫／影格階層載入器、`XRenderer.fx` 的 effect 模擬（19 個 technique、80 個 `vs_1_1` 著色器 → WGSL）；153 個測試在 Dawn + SwiftShader 上執行（`docs/img/d3d9-demo.png`）。引擎載入器已移植（`packages/engine`：`CKTDXDeviceXSkinMesh` 的影格清單與 KSM／KAC 載入器、`CKTDXDeviceXMesh` 的 KME／X 載入器、KAC 的 `OptimizeKeys`——**與 exe 逐位元相同**，見下）；`CKTDGXRenderer`／`CKTDGEffectStateManager` 尚未移植，也沒有真正的 D3D9／D3DX 可比對（假設列在 `docs/FINDINGS.md` 12.5） |
 | 3＋ | **瀏覽器實測**（`apps/client` + `apps/server` + `tools/browser-test.ts`） | **完成（作為測試台）**：無頭 Chromium 153 + WebGPU（SwiftShader）可在沙箱執行；整個流程（HTTP Range 掛載 KOM → 解碼 → D3D9 層 → WebGPU canvas）有 22 項自動檢查：TGA 與 MPEG-1 畫面與 Bun 端解碼逐像素相同、蒙皮動畫網格會隨動畫時間改變、RGBA 與 BGRA 後緩衝逐像素相同（桌機瀏覽器偏好 BGRA）。**這證明瀏覽器端與 Bun 端一致，不證明畫面等同原版**（沒有參考截圖）；艾爾索德等角色（KSM + KAC）與 109 個 KME 靜態網格已能繪製並播放動畫 |
-| 4 | UI 框架（`DLG_*.lua`，`packages/ui`） | **進行中，腳本端完成**：`CKTDGUIDialog` 與全部控制項（Static、Button、RadioButton、CheckBox、Slot、IME／一般 EditBox、ComboBox、ListBox、ScrollBar、Navigation、Slider、ControlList、`CMovieData`）、slot 管理器與擁有對話框的類別（`CX2PostBox`、`CX2CouponBox`、`CX2MapSelectWindow`）、字型管理器——`docs/UI_COVERAGE.md` 列的 22 個類別、**346 個已註冊的方法全部實作**，註冊在 host binder 上，原版 `DLG_*.lua` 不經修改地執行。普查（`tools/ui-census.ts`）：1,024 支 DLG 腳本中有 992 支能在 host 層跑到結尾，**這 992 支全部完整移植，並在嚴格模式（註冊了卻沒人移植的方法就是錯誤）下無錯誤執行**；其餘 32 支屬於遊戲狀態（村莊／區域／世界地圖、商店、錄影、防禦副本獎勵），需要該狀態啟動時放進 Lua 的表或物件。194 個 UI 測試（含 host 共 229 個）、保證普查數字不會倒退的測試，以及 99 個變異的檢查（97 個被測試抓到，2 個等價；`python3 tools/mutate-ui.py`）。UI 沒有 exe oracle，行為來自反編譯，靠嚴格執行真腳本、單元測試與變異測試把關（`docs/FINDINGS.md` 17）。**尚未移植**：控制項的執行期行為（`MsgProc`／`HandleMouse`／`OnFrame*`）、對話框管理器、繪製、字型的文字路徑（FreeType）、IME 輸入、影片播放 |
+| 4 | UI 框架（`DLG_*.lua`，`packages/ui`） | **進行中，腳本端完成；Static／Button 的圖片已能經 `@els/d3d9` 畫出**：`CKTDGUIDialog` 與全部控制項（Static、Button、RadioButton、CheckBox、Slot、IME／一般 EditBox、ComboBox、ListBox、ScrollBar、Navigation、Slider、ControlList、`CMovieData`）、slot 管理器與擁有對話框的類別（`CX2PostBox`、`CX2CouponBox`、`CX2MapSelectWindow`）、字型管理器——`docs/UI_COVERAGE.md` 列的 22 個類別、**346 個已註冊的方法全部實作**，註冊在 host binder 上，原版 `DLG_*.lua` 不經修改地執行。普查（`tools/ui-census.ts`）：1,024 支 DLG 腳本中有 992 支能在 host 層跑到結尾，**這 992 支全部完整移植，並在嚴格模式（註冊了卻沒人移植的方法就是錯誤）下無錯誤執行**；其餘 32 支屬於遊戲狀態（村莊／區域／世界地圖、商店、錄影、防禦副本獎勵），需要該狀態啟動時放進 Lua 的表或物件。256 個 UI 測試（含 host 共 291 個；另有 6 個要 GPU 的繪圖測試）、保證普查數字不會倒退的測試，以及 99 個變異的檢查（97 個被測試抓到，2 個等價；`python3 tools/mutate-ui.py`）。UI 沒有 exe oracle，行為來自反編譯，靠嚴格執行真腳本、單元測試與變異測試把關（`docs/FINDINGS.md` 17）。**已畫出**：`CKTDGUIDialog::OnFrameRender` 與 Static／Button 的圖片（`UIWorld({ device })`，狀態經 `CKTDGStateManager`、頂點經動態頂點緩衝區管理器，最後由 `Direct3DDevice9` 畫在 WebGPU；`packages/ui/test-gpu`：6 個真實對話框，每個 draw call 都依 Direct3D 9 的規則在 CPU 上重畫一遍，與裝置畫出的圖最多差 1 階）。畫圖時由一張圖找到遊戲的繪圖狀態基線（`CKTDGManager::OnResetDevice` 設的 `akStates`：SRCALPHA／INVSRCALPHA、alpha test 開啟、取樣器 0 線性過濾…；Button 不推任何混合狀態，全靠這個基線，用 Direct3D 預設的 ONE／ZERO 時按鈕的透明部分會變成灰色方塊）。**尚未移植**：控制項的輸入與 `OnFrameMove`（`MsgProc`／`HandleMouse`）、對話框管理器的對話框清單與圖層、其餘繪製（`DrawEdge` 邊框、字串與字型的文字路徑〔FreeType〕、其餘 11 種控制項的 `OnFrameRender`）、IME 輸入、影片播放 |
 | 5 | `lua_tinker` 等價的 host API（`packages/host`） | **進行中，基礎完成**：binder（照反編譯讀出的 `lua_tinker` 語意：類別表當 metatable、`meta_get`／`meta_set`、`__parent`、`read<T>`／`push<T>`、原版的錯誤訊息）、由 `docs/host_api.tsv` 產生的型別化 API（128 個類別、1,418 個方法）、`KLuaManager`、`HostWorld`（`IncludeLua`、`LoadLuaEnum` 的腳本）、第一個真實的 host 類別 `KGCMassFileManager`。全部 4,498 支腳本在型別化 stub 上跑一遍（`docs/HOST_CENSUS.md`）：4,422 支跑到結尾，其餘 76 支需要 23 個連 `x2.exe` 字串表都沒有的名稱。UI 類別（階段 4）與 `KGCMassFileManager` 已移植：4,422 支腳本呼叫的 440 個方法中 263 個已實作，剩下 177 個分屬 42 個類別（`CX2World` 19、`CX2ItemManager` 14、`CX2WorldObjectSkinMesh` 12、`CX2Main` 12、`CKTDGSkyDome` 11⋯），一次移植一個管理器 |
 | 6 | 開機／登入／角色選擇 + `apps/server` | 未開始 |
 
@@ -31,6 +31,10 @@
 ![資產檢視器：艾爾索德（`Motion_Elsword.x`，KSM 骨架 + KAC 動畫「Walk」，0.2 秒；key 經 `OptimizeKeys`）](docs/img/web-viewer-elsword-walk.png)
 
 ![資產檢視器：KME 靜態網格 `Elder_Village_bigsang.Y`（693 個頂點、30 個子集、9 張貼圖）](docs/img/web-viewer-kme.png)
+
+![UI：原版 `DLG_UI_EVENT_BINGO_MAIN.LUA` 不經修改地跑在 Lua VM 上，建出移植的 `CKTDGUIDialog`／Static／Button，再經 `CKTDGStateManager`、動態頂點緩衝區與 `Direct3DDevice9`（WebGPU，SwiftShader）畫在 1024×768 的後緩衝區（75 個四邊形；右下角的 PUSH 按鈕與兩個圖示按鈕的透明邊緣正確；韓文標題與說明字寫在貼圖裡，數字等由 UK 字型畫的字串尚未畫出）](docs/img/ui-DLG_UI_EVENT_BINGO_MAIN.png)
+
+![UI：`DLG_MAP_SELECT_WINDOW.LUA`（49 個四邊形；與 CPU 上依 Direct3D 9 規則重畫的結果最多差 1 階）](docs/img/ui-DLG_MAP_SELECT_WINDOW.png)
 
 ### Lua VM 的驗證結果（誠實版）
 
@@ -94,8 +98,8 @@ npm install --no-audit --no-fund --prefix /home/user/work/boot bun@1.4.4   # npm
 ./tools/setup-oracle.sh                 # 建置 LuaJIT 2.0.2 oracle 到 /home/user/work/luajit-2.0
 python3 tools/kom_extract.py /home/user/work/ex lua,LUA  # 取出 4,498 個腳本
 ./tools/lua-difftest.sh                 # 15 個差異測試（t10–t14 為模糊測試、t15 為載入器）
-ELS_GPU_NATIVE=1 ./tools/test-packages.sh   # 不需要 GPU 的單元測試（618 個通過，139 個需要 GPU 而自行略過）
-./tools/test-packages.sh   # 全部 757 個測試（含 154 個 d3d9 測試，在 Dawn + SwiftShader 上執行）；分兩個 bun 行程執行，因為單一行程在 4 GB 的機器上會被 OOM 殺掉
+ELS_GPU_NATIVE=1 ./tools/test-packages.sh   # 不需要 GPU 的單元測試（719 個通過，145 個需要 GPU 而自行略過）
+./tools/test-packages.sh   # 全部 864 個測試（含 154 個 d3d9 測試，在 Dawn + SwiftShader 上執行）；分三個 bun 行程執行（567 + 291 + 6 個；最後一個是 `packages/ui/test-gpu` 的對話框繪圖測試），因為單一行程在 4 GB 的機器上會被 OOM 殺掉
 ./node_modules/.bin/bun run tools/ui-census.ts --md docs/UI_COVERAGE.md   # 1,024 支 DLG 腳本：992 支跑到結尾、全部完整移植並嚴格執行（約 30 秒）
 python3 tools/mutate-ui.py   # UI 類別的變異測試：99 個變異（約 8 分鐘；97 個被抓到，2 個等價）
 ./node_modules/.bin/bun run tools/verify-ksm.ts   # KME/KSM/KAC 全部資產驗證（約 45 秒）；其餘見 package.json 的 verify:*

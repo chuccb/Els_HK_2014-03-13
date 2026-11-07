@@ -54,7 +54,7 @@ CX2UserSkillTree	68	4649	32A92F30	todo
 CX2World	67	4893	32A27590	todo		
 CX2DamageEffect::CEffect	67	12252	32A28B20	todo		
 CKTDGUIIMEEditBox	63	5163	328A8420	partial	packages/ui/src/imeeditbox.ts	constructor (32935240), all 28 Lua methods (the folded setters shared with CKTDGUIEditBox verified by disassembly); not ported: IME input, caret and selection handling, drawing
-CKTDGUIButton	62	4011	328CD080	partial	packages/ui/src/button.ts	constructor (sounds), all 31 Lua methods incl. the folded one-line setters (offsets verified by disassembly); OnFrameRender (3292ED40): the quad of the current point; not ported: input handling, the edge (DrawEdge 3292D750) and the string (counted in render.undrawn)
+CKTDGUIButton	62	4011	328CD080	partial	packages/ui/src/button.ts	constructor (sounds), all 31 Lua methods incl. the folded one-line setters (offsets verified by disassembly); OnFrameRender (3292ED40): the quad of the current point, drawn with no blend state of its own (it relies on the baseline akStates); not ported: input handling, the edge (DrawEdge 3292D750) and the string (counted in render.undrawn)
 CX2ServerProtocol	61	3987	329E01B0	todo		
 CX2UISkillTreeNew	58	16940	32CB9E40	todo		
 DXUTState	57	785	3289CBD0	todo		
@@ -175,7 +175,7 @@ CX2BuffTemplet	21	1812	32AAC600	todo
 CX2StateTrainingSchool	21	2030	32F3D830	todo		
 CX2DLLManager	21	2269	32F4D260	todo		
 CX2GUEve::EveElectraSystem	21	4798	3308B7A0	todo		
-CKTDGManager	20	2730	328C2250	todo		
+CKTDGManager	20	2730	328C2250	partial	packages/engine/src/statemanager.ts (akStates), packages/ui/src/render.ts (RSI_UI_DIALOG, UIRender)	OnResetDevice (32960880): the RestoreDeviceObjects + akStates part (UIRender sets it on its device; the rest of the function, the font manager reset and FadeInOut.dds, is not ported); the render-state tables m_RSICKTDGUIDialog (akRSICKTDGUIDialog) and the baseline akStates; not ported: the object chains, FrontUIRender / ObjectChainNonAlphaRender (the KD3DStack around the dialog manager), the fade, everything else of the class
 CX2InstanceData	20	1954	329E6070	todo		
 CBandiCaptureLibrary	20	278	32A25BD0	todo		
 CX2KeyPad	20	2197	32E7E560	todo		
@@ -692,7 +692,7 @@ CFirstPersonCamera	3	179	328A6FB0	todo
 CDXUTResourceCache	3	139	328A8430	todo		
 std::basic_stringstream<wchar_t,std::char_traits<wchar_t>,std::allocator<wchar_t>>	3	128	328B8240	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 lua_tinker::mem_functor<CKTDGUIControl,int,void,void,void,void,void,void,void,void,void>	3	84	328BAF80	done	packages/host/src/tinker.ts (makeMethod, MemVar, registerConstructor)	the marshalling thunk of ONE registration (read<T> of the arguments, the call, push<T> of the result): one data-driven binder instead of one C++ template instance per signature; the registered function itself is its own row
-CKTDGStateManager	3	381	328D1AF0	partial	packages/engine/src/statemanager.ts	ms_adwRenderState / TextureStageState / SamplerState / ms_apd3dTextures as the members of one object, the inlined state setters (push the old value, call the device only on a change) as setRenderState / setTextureStageState / setSamplerState; RestoreDeviceObjects (328D1BD0) is the D3D9 layer's default tables (defaultRenderStates ...), not ported as code; CheckDeviceFormat and InvalidateDeviceObjects not ported
+CKTDGStateManager	3	381	328D1AF0	partial	packages/engine/src/statemanager.ts	ms_adwRenderState / TextureStageState / SamplerState / ms_apd3dTextures as the members of one object, the inlined state setters (push the old value, call the device only on a change) as setRenderState / setTextureStageState / setSamplerState; RestoreDeviceObjects (328D1BD0) is the D3D9 layer's default tables (defaultRenderStates ...), not ported as code; set() is the loop of CKTDGManager::OnResetDevice (32960880) that sets a table for good, akStates (L140817) the game's baseline it sets (SRCALPHA / INVSRCALPHA, alpha test on, sampler 0 linear, lighting off); CheckDeviceFormat and InvalidateDeviceObjects not ported
 KGCMassFileBuffer	3	77	328D22B0	todo		
 KGCMassFileManager::CMassFile	3	609	328D57F0	done	packages/kom (archive.ts)	CMassFile / MASSFILE_MEMBERFILEINFO*: the archive container (CRC, adler32, MSZIP / KOM v1-v4, per-entry encryption variants)
 std::map<int,CKTDXDeviceTexture *>	3	115	328E1380	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library

@@ -322,7 +322,7 @@ Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM i
 
 ## C++ engine classes
 
-2879 classes / 26233 methods. Status by class: done 333, n/a 1338, partial 98, todo 1110; by method: done 470, n/a 4225, partial 1793, todo 19745.
+2879 classes / 26233 methods. Status by class: done 333, n/a 1338, partial 99, todo 1109; by method: done 470, n/a 4225, partial 1813, todo 19725.
 
 The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes:
 
@@ -383,7 +383,7 @@ The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes
 | `CX2World` | 67 | 32A27590 | todo |   |
 | `CX2DamageEffect::CEffect` | 67 | 32A28B20 | todo |   |
 | `CKTDGUIIMEEditBox` | 63 | 328A8420 | partial | packages/ui/src/imeeditbox.ts constructor (32935240), all 28 Lua methods (the folded setters shared with CKTDGUIEditBox verified by disassembly); not ported: IME input, caret and selection handling, drawing |
-| `CKTDGUIButton` | 62 | 328CD080 | partial | packages/ui/src/button.ts constructor (sounds), all 31 Lua methods incl. the folded one-line setters (offsets verified by disassembly); OnFrameRender (3292ED40): the quad of the current point; not ported: input handling, the edge (DrawEdge 3292D750) and the string (counted in render.undrawn) |
+| `CKTDGUIButton` | 62 | 328CD080 | partial | packages/ui/src/button.ts constructor (sounds), all 31 Lua methods incl. the folded one-line setters (offsets verified by disassembly); OnFrameRender (3292ED40): the quad of the current point, drawn with no blend state of its own (it relies on the baseline akStates); not ported: input handling, the edge (DrawEdge 3292D750) and the string (counted in render.undrawn) |
 | `CX2ServerProtocol` | 61 | 329E01B0 | todo |   |
 | `CX2UISkillTreeNew` | 58 | 32CB9E40 | todo |   |
 | `DXUTState` | 57 | 3289CBD0 | todo |   |

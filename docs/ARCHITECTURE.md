@@ -203,7 +203,7 @@ Design points that matter for faithfulness:
 | `host-census.ts` | runs every script of the KOMs on the host layer with typed stubs (`--md docs/HOST_CENSUS.md`, `--show SCRIPT`, `--match RE`, `--isolated`) |
 | `ui-census.ts` | the UI counterpart (`bun run census:ui` -> `docs/UI_COVERAGE.md`): which DLG scripts run on the stubs, which are fully ported, the strict run of those, the textures they name, the class table, `--next N` = what to port next (greedy), `--json F` |
 | `mutate-ui.py` | `bun run mutate:ui`: 99 mutants of `packages/ui/src` against `packages/ui/test/widgets.test.ts` (the source is restored after each; a must-kill survivor makes exit code 1; `--list`, name substrings select) |
-| `test-packages.sh` | `bun run test:packages`: every test of `packages/*` in two bun processes (GPU / asset tests; host + ui), because one process peaks above 4 GB |
+| `test-packages.sh` | `bun run test:packages`: every test of `packages/*` in three bun processes (d3d9 / engine / assets / kom / lua; host + `packages/ui/test`; the dialogs drawn through the device in `packages/ui/test-gpu`), because one process peaks above 4 GB |
 | `decomp.py`, `structs.py`, `layout.py`, `vtbl.py`, `vtstr.py`, `cstr-uses.py`, `null-cstr.py`, `disasm.py` | the porting helpers over `data/x2.exe.c` / `x2.exe`: a function cleaned of STL noise (`decomp.py ADDR --clean`), the struct fields of a class and its bases (`structs.py`), the MSVC member layout (`layout.py CLASS --find OFF`), the virtual overrides of a class (`vtbl.py CTOR BASE_CTOR`), the strings behind `vftable[N]` (`vtstr.py`), what a `char*` parameter is used for (`cstr-uses.py`; `null-cstr.py` -> `docs/host_null_cstr.tsv`), the machine code (`disasm.py`); the Python ones that read the exe need `pefile` / `capstone` (`PYTHONPATH=/home/user/work/pycap`) |
 | `komindex.ts` | `indexAllKoms` (every archive's entries by upper-cased name) and `KomMassFileSource` (the synchronous `MassFileSource` of the host layer over them: `load`, `settle`; image files can be cut to a header) |
 | `api-census.ts`, `script-graph.ts` | what the scripts use of the host API (`docs/SCRIPT_API_USAGE.md`) and which scripts the exe loads (`docs/SCRIPT_GRAPH.md`) |
@@ -249,9 +249,9 @@ python3 tools/index_decomp.py data/x2.exe.c /home/user/work/analysis/functions.t
 ./node_modules/.bin/bun run tools/api-census.ts --md docs/SCRIPT_API_USAGE.md --json /home/user/work/analysis/api_census.json --usage /home/user/work/analysis/member_usage.json
 ./node_modules/.bin/bun run tools/script-graph.ts --md docs/SCRIPT_GRAPH.md
 python3 tools/bindings.py && python3 tools/ledger.py                                # docs/HOST_API.md, docs/LEDGER.md
-ELS_GPU_NATIVE=1 ./tools/test-packages.sh                                           # without the software GPU the d3d9 / engine GPU tests skip themselves; everything else runs (two bun processes: one does not fit 4 GB)
+ELS_GPU_NATIVE=1 ./tools/test-packages.sh                                           # without the software GPU the d3d9 / engine GPU tests skip themselves; everything else runs (three bun processes: one does not fit 4 GB)
 ./tools/setup-gpu.sh                                                                   # software Vulkan for Dawn -> /home/user/work/swsh (about 2 s)
-./tools/test-packages.sh                                                              # everything: 757 tests (618 + 139 that need the GPU), incl. the 154 d3d9 tests on Dawn + SwiftShader; two bun processes (528 + 229 tests)
+./tools/test-packages.sh                                                              # everything: 864 tests (719 + 145 that need the GPU), incl. the 154 d3d9 tests on Dawn + SwiftShader; three bun processes (567 + 291 + 6 tests)
 ./node_modules/.bin/bun run tools/gen-d3d9-enums.ts --check                            # enums.generated.ts is current
 ./node_modules/.bin/bun run tools/census-xscene.ts                                     # integrity of all 25,313 X / Y scenes
 ./tools/gpu.sh ./node_modules/.bin/bun run tools/census-skin.ts                        # hierarchy loader + skin conversion + animation over all 7,395 skinned files, ~3 min

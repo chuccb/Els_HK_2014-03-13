@@ -76,6 +76,9 @@ the Hex-Rays export `data/x2.exe.c` / `data/x2.exe.h`, and verify it - not "make
   the class header and listed in FINDINGS 17.4; where the exe would dereference NULL the port throws a plain `Error` instead of reading garbage.
 * **Tests:** one file per class (`widgets.test.ts`, `listbox.test.ts` are the model); real-data tests behind `test.skipIf(!haveData)`; live controls, textures and dialogs are compared through `is()` / `names()` / `some()`, never with `toEqual` /
   `toBe` (a failing comparison prints the whole world graph and bun is killed for memory). The whole suite runs through `tools/test-packages.sh`: `bun test` keeps everything its files load, and one process does not fit 4 GB.
+* **Drawing is checked against a picture, not only against a log.** A device log worked out by hand is only as right as the state it starts from: the first logs of the render tests started from the Direct3D defaults, the exe starts from `akStates` (set by
+  `CKTDGManager::OnResetDevice`), and only a drawn dialog showed it (the buttons' transparent texels came out as grey boxes). So dialogs are drawn through the device (`packages/ui/test-gpu`), every quad is composed again by a CPU reference written from the Direct3D 9 rules
+  (`test-gpu/reference.ts`, itself pinned by hand-worked cases), and the PNG is looked at (`D3D9_TEST_OUT=<dir>`; `docs/img/ui-*.png`). When a picture looks wrong, find who sets the state in the decompile (`grep ms_adwRenderState[N]`, the `KStateID` tables) before touching the drawing code.
 * **Behaviour that has no oracle gets a mutation check** (`tools/mutate-ui.py` is the shape: anchors that must match exactly once, a stated reason for every expected survivor, the source restored after each mutant).
 
 ## 3. How to port a function (checklist)

@@ -76,8 +76,10 @@ Play / Stop / Pause / Seek / GetStatus with PLAYEND / IsNextFrame at 24 fps wall
 Slot, IME edit box, EditBox, ComboBox, ListBox, ScrollBar, Navigation, Slider, ControlList), `CPictureData`, `CMovieData` (the file name and the render target; the Bandi library is a device hook with no player behind it yet), the slot manager and the
 three dialog owners (`CX2PostBox`, `CX2CouponBox`, `CX2MapSelectWindow`), the font manager (`g_pFontManager` and the start-up config) - **all 346 registered methods of the 22 classes in `docs/UI_COVERAGE.md`**. Census (`tools/ui-census.ts`): of the 1,024
 `DLG_*.lua`, 992 run on the host layer, **all 992 are fully ported and run in strict mode without an error**; the other 32 belong to game states (village / local / world map, shop, video recorder, defence-dungeon reward: each reads a table or an
-object that its state puts into Lua). 194 UI tests (229 with `packages/host`), a ratchet over the census (`census.test.ts`) and a 99-mutant check of the later classes (97 killed, 2 equivalent; `bun run mutate:ui`).
-Not done: the run time of the controls (`MsgProc`, `HandleMouse`, `OnFrameMove`, `OnFrameRender`, `ContainsPoint`, focus, `CKTDGUIDialogManager`), drawing a dialog through `@els/d3d9`, the text path of the font manager (FreeType `Load`, the glyph
+object that its state puts into Lua). 256 UI tests (291 with `packages/host`), a ratchet over the census (`census.test.ts`) and a 99-mutant check of the later classes (97 killed, 2 equivalent; `bun run mutate:ui`).
+**Drawing** (FINDINGS 17.7): `UIWorld({ device })` draws the pictures of a dialog's Statics and Buttons through `CKTDGUIDialog::OnFrameRender`, the state manager, the dynamic vertex buffers and `Direct3DDevice9`. Six real dialogs are drawn in
+`packages/ui/test-gpu` and every quad is composed again on the CPU by the Direct3D 9 rules: the device is at most 1 level off (`docs/img/ui-*.png`). On the way: the game's baseline render states (`akStates`, set by `CKTDGManager::OnResetDevice`) - the buttons push no blend state of their own and depend on it.
+Not done: the input and animation of the controls (`MsgProc`, `HandleMouse`, `OnFrameMove`, `ContainsPoint`, focus), the dialog list and layers of `CKTDGUIDialogManager`, the rest of the drawing (`DrawEdge`, strings, the `OnFrameRender` of the other eleven controls, movies), the text path of the font manager (FreeType `Load`, the glyph
 cache, `Draw2DText`, the measuring), IME input, movie playback, and the 32 state scripts.
 
 ## Phase 5 - `lua_tinker`-equivalent host API
