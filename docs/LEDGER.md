@@ -368,7 +368,7 @@ The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes
 | `CX2ChatBox` | 87 | 3299C580 | todo |   |
 | `CX2ItemManager` | 81 | 32B8AC70 | todo |   |
 | `CX2GageManager` | 78 | 32B38A00 | todo |   |
-| `CKTDGUIControl` | 77 | 328C0AE5 | partial | packages/ui/src/control.ts what the controls share: UI_Control_Sound.lua and the sounds (opened only when FMOD is up), textures + UIPointData (USE_TEXTURE_SIZE), offset positions, the internal events 0x466 / 0x467, all 30 Lua methods; the drawing every control shares: UpdateVertex (32927FB0), GetAxisPos (329244F0), UpdateAnimVertex (32927C70), RenderVertex (32925200 / 329252C0), the base OnFrameRender (counted in render.undrawn); not ported: MsgProc / HandleMouse / OnFrameMove / ContainsPoint, the virtual SetMaximize |
+| `CKTDGUIControl` | 77 | 328C0AE5 | partial | packages/ui/src/control.ts what the controls share: UI_Control_Sound.lua and the sounds (opened only when FMOD is up), textures + UIPointData (USE_TEXTURE_SIZE), offset positions, the internal events 0x466 / 0x467, all 30 Lua methods; the drawing every control shares: UpdateVertex (32927FB0), GetAxisPos (329244F0), UpdateAnimVertex (32927C70), RenderVertex (32925200 / 329252C0), the base OnFrameRender (counted in render.undrawn), the four bars of an edge (the loop the DrawEdge functions of the static, the button and the radio button share); not ported: MsgProc / HandleMouse / OnFrameMove / ContainsPoint, the virtual SetMaximize |
 | `CX2SquareUnit` | 77 | 329BB820 | todo |   |
 | `CX2Room` | 76 | 3298FF70 | todo |   |
 | `CX2StateMenu` | 75 | 32EC5080 | todo |   |
@@ -383,7 +383,7 @@ The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes
 | `CX2World` | 67 | 32A27590 | todo |   |
 | `CX2DamageEffect::CEffect` | 67 | 32A28B20 | todo |   |
 | `CKTDGUIIMEEditBox` | 63 | 328A8420 | partial | packages/ui/src/imeeditbox.ts constructor (32935240), all 28 Lua methods (the folded setters shared with CKTDGUIEditBox verified by disassembly); not ported: IME input, caret and selection handling, drawing |
-| `CKTDGUIButton` | 62 | 328CD080 | partial | packages/ui/src/button.ts constructor (sounds), all 31 Lua methods incl. the folded one-line setters (offsets verified by disassembly); OnFrameRender (3292ED40): the quad of the current point, drawn with no blend state of its own (it relies on the baseline akStates); not ported: input handling, the edge (DrawEdge 3292D750) and the string (counted in render.undrawn) |
+| `CKTDGUIButton` | 62 | 328CD080 | partial | packages/ui/src/button.ts constructor (sounds), all 31 Lua methods incl. the folded one-line setters (offsets verified by disassembly); OnFrameRender (3292ED40): the quad of the current point, drawn with no blend state of its own (it relies on the baseline akStates), the edge outside before and inside after, only with the focus; DrawEdge (3292D750); not ported: input handling and the string (counted in render.undrawn) |
 | `CX2ServerProtocol` | 61 | 329E01B0 | todo |   |
 | `CX2UISkillTreeNew` | 58 | 32CB9E40 | todo |   |
 | `DXUTState` | 57 | 3289CBD0 | todo |   |

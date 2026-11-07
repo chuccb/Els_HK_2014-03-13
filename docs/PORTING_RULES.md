@@ -79,7 +79,7 @@ the Hex-Rays export `data/x2.exe.c` / `data/x2.exe.h`, and verify it - not "make
 * **Drawing is checked against a picture, not only against a log.** A device log worked out by hand is only as right as the state it starts from: the first logs of the render tests started from the Direct3D defaults, the exe starts from `akStates` (set by
   `CKTDGManager::OnResetDevice`), and only a drawn dialog showed it (the buttons' transparent texels came out as grey boxes). So dialogs are drawn through the device (`packages/ui/test-gpu`), every quad is composed again by a CPU reference written from the Direct3D 9 rules
   (`test-gpu/reference.ts`, itself pinned by hand-worked cases), and the PNG is looked at (`D3D9_TEST_OUT=<dir>`; `docs/img/ui-*.png`). When a picture looks wrong, find who sets the state in the decompile (`grep ms_adwRenderState[N]`, the `KStateID` tables) before touching the drawing code.
-* **Behaviour that has no oracle gets a mutation check** (`tools/mutate-ui.py` is the shape: anchors that must match exactly once, a stated reason for every expected survivor, the source restored after each mutant).
+* **Behaviour that has no oracle gets a mutation check** (`tools/mutate-ui.py` is the shape: anchors that must match exactly once, a stated reason for every expected survivor, the source restored after each mutant); `tools/mutate-draw.py` does the same for the drawing and for the CPU reference). A mutant that survives because the test inputs were neutral (a factor of 1, an offset of 0, equal colour channels, a rectangle that is not skewed) is a gap in the test, not an equivalent mutant: give every input a different value (`mutate-draw.py` found six such gaps in tests that had passed review).
 
 ## 3. How to port a function (checklist)
 

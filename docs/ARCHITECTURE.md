@@ -134,20 +134,22 @@ All 346 registered methods of the 22 classes in `docs/UI_COVERAGE.md` are implem
 | File | Content |
 |---|---|
 | `world.ts` | `UIWorld`: a `HostWorld` + the devices + the fonts; `boot()` (stub objects, enums, the start-up config `CONFIG_HK_SERVICE.LUA`), `createOwners()` (the globals `g_pPostBoxInventory`, `g_pCouponBox`, `g_pMapSelectWindow`), `openDialog(script, layer, owner)` |
-| `device.ts` | the devices, headless: `OpenTexture` (a texture is its file's size and `.tet` UV table), sounds (gated like the exe: sound system up and `IsValidFile`), `OpenRenderTargetTexture`, the Bandi video library as a hook (`NoVideoLibrary` by default) |
+| `device.ts` | the devices: `OpenTexture` (a texture is its file's size and `.tet` UV table; with a device it also loads the pixels, `_Load`, and draws: `Draw` 329675F0), sounds (gated like the exe: sound system up and `IsValidFile`), `OpenRenderTargetTexture`, the Bandi video library as a hook (`NoVideoLibrary` by default) |
+| `render.ts`, `dialogmanager.ts` | what the UI draws with: `UIRender` (the state manager with the baseline `akStates`, the dynamic vertex buffers, the resolution scale; `noteUndrawn` counts what is not drawn yet), `VertexUI4`, `RSI_UI_DIALOG` / `RSI_DEVICE_TEXTURE`; the part of `CKTDGUIDialogManager` the drawing asks for |
 | `dialog.ts` | `CKTDGUIDialog`: the script run (`OpenScriptFile`), the control map and list (`AddControl` / `ReNameControl` naming, `Get*Control`, `ChangeSequence*`), the radio button groups |
-| `control.ts`, `static.ts` | `CKTDGUIControl` (rectangles, UV tables `setTexureData`, point and string data readers, sounds, the move queue), `CKTDGUIStatic`, `CPictureData` |
-| `button.ts`, `radiobutton.ts`, `checkbox.ts` | button, radio button (+ `RadioButtonGroupInfo`), check box |
+| `control.ts`, `static.ts` | `CKTDGUIControl` (rectangles, UV tables `setTexureData`, point and string data readers, sounds, the move queue; `updateVertex` / `renderVertex` and the bars of an edge, `drawEdgeBars`), `CKTDGUIStatic`, `CPictureData` |
+| `button.ts`, `radiobutton.ts`, `checkbox.ts` | button (+ its `DrawEdge`), radio button (+ `RadioButtonGroupInfo`, `DrawCheckedEdge`), check box; each has its `onFrameRender` |
 | `slot.ts` | `CKTDGUISlot` and the owners that make slots: `CX2SlotManager` (`g_pCX2SlotManager`), `CX2Slot` / `CX2SlotItem`, `CX2PostBox`, `CX2CouponBox` |
 | `imeeditbox.ts`, `editbox.ts`, `unibuffer.ts`, `d3dcolor.ts` | the IME edit box, the plain edit box, `CKTDGUIUniBuffer`, the colour the edit box setters make of four floats |
-| `combobox.ts`, `listbox.ts`, `scrollbar.ts`, `slider.ts`, `controllist.ts`, `navigation.ts` | combo box, list box (+ `CKTDGUIItem`), scroll bar, slider, control list, navigation window |
+| `combobox.ts`, `listbox.ts`, `scrollbar.ts`, `slider.ts`, `controllist.ts`, `navigation.ts` | combo box, list box (+ `CKTDGUIItem`), scroll bar, slider, control list, navigation window; the last four and the scroll bar draw (`onFrameRender`) |
 | `movie.ts`, `mapselect.ts` | `CMovieData` (file name, render target, the video hooks), `CX2MapSelectWindow` (`g_pMapSelectWindow`) |
 | `font.ts`, `fontmanager.ts` | `CUKFont` / `CKTDGFreeTypeFont` as far as the controls read them (sizes), the font manager `g_pFontManager` |
 | `stdmap.ts`, `rect.ts` | `std::map` iteration order (`WStringMap`, `IntPairMap`), the Win32 `RECT` helpers, `idiv` / `ftoi` (x86 integer semantics) |
-| `census.ts` | the steps of `tools/ui-census.ts`: `makeUICensusWorld`, `implementedMethods`, `runStrict` |
+| `census.ts` | the steps of `tools/ui-census.ts`: `makeUICensusWorld`, `implementedMethods`, `runStrict` (also the classes of each dialog and the ones whose `OnFrameRender` is not ported) |
 
-Tests: `bun test packages/ui` (194, no GPU, `data/` needed: `dialog` 14, `controls` 26, `slot` 15, `imeeditbox` 20, `combobox` 33, `listbox` 30, `widgets` 55, `census` 1: the strict run of all 992 scripts, 25 s, 1.2 GB). Checks that have no exe oracle are
-pinned by unit tests and a mutation check (`tools/mutate-ui.py`, 99 mutants: 97 killed, 2 equivalent). Not ported: the run time of the controls (`MsgProc`, `HandleMouse`, `OnFrame*`, the dialog manager), drawing, the text path of the font manager, IME input.
+Tests: `bun test packages/ui/test` (306, no GPU, `data/` needed: `dialog` 14, `controls` 26, `slot` 15, `imeeditbox` 20, `combobox` 33, `listbox` 30, `widgets` 55, `render` 36, `devicetexture` 13, `controldraw` 45, `reference` 18, `census` 1: the strict run of all 992 scripts, 25 s, 1.2 GB) and `packages/ui/test-gpu` (`dialog-draw.test.ts`: 14 real dialogs drawn through `@els/d3d9` and
+composed again on the CPU by `reference.ts`; it needs the GPU). Checks that have no exe oracle are pinned by unit tests and two mutation checks (`tools/mutate-ui.py`, 99 mutants: 97 killed, 2 equivalent; `tools/mutate-draw.py`, 122 mutants: 121 killed, 1 equivalent). Not ported: the run time of the controls (`MsgProc`, `HandleMouse`, `OnFrame*`, the dialog manager),
+the strings and the `OnFrameRender` of Slot, EditBox, IMEEditBox, ComboBox and ListBox, the text path of the font manager, IME input.
 
 ### `@els/lua` (`packages/lua`)
 A register-based interpreter for LuaJIT 2.0.2 bytecode, following `lj_*` of the exe:
@@ -203,6 +205,7 @@ Design points that matter for faithfulness:
 | `host-census.ts` | runs every script of the KOMs on the host layer with typed stubs (`--md docs/HOST_CENSUS.md`, `--show SCRIPT`, `--match RE`, `--isolated`) |
 | `ui-census.ts` | the UI counterpart (`bun run census:ui` -> `docs/UI_COVERAGE.md`): which DLG scripts run on the stubs, which are fully ported, the strict run of those, the textures they name, the class table, `--next N` = what to port next (greedy), `--json F` |
 | `mutate-ui.py` | `bun run mutate:ui`: 99 mutants of `packages/ui/src` against `packages/ui/test/widgets.test.ts` (the source is restored after each; a must-kill survivor makes exit code 1; `--list`, name substrings select) |
+| `mutate-draw.py` | 122 mutants of the drawing: 93 of `packages/ui/src` against `render.test.ts` + `controldraw.test.ts`, 29 of the CPU reference `packages/ui/test-gpu/reference.ts` against `reference.test.ts` (~77 s; the source is restored after each; `--list`, name substrings select; an expected survivor carries a reason) |
 | `test-packages.sh` | `bun run test:packages`: every test of `packages/*` in three bun processes (d3d9 / engine / assets / kom / lua; host + `packages/ui/test`; the dialogs drawn through the device in `packages/ui/test-gpu`), because one process peaks above 4 GB |
 | `decomp.py`, `structs.py`, `layout.py`, `vtbl.py`, `vtstr.py`, `cstr-uses.py`, `null-cstr.py`, `disasm.py` | the porting helpers over `data/x2.exe.c` / `x2.exe`: a function cleaned of STL noise (`decomp.py ADDR --clean`), the struct fields of a class and its bases (`structs.py`), the MSVC member layout (`layout.py CLASS --find OFF`), the virtual overrides of a class (`vtbl.py CTOR BASE_CTOR`), the strings behind `vftable[N]` (`vtstr.py`), what a `char*` parameter is used for (`cstr-uses.py`; `null-cstr.py` -> `docs/host_null_cstr.tsv`), the machine code (`disasm.py`); the Python ones that read the exe need `pefile` / `capstone` (`PYTHONPATH=/home/user/work/pycap`) |
 | `komindex.ts` | `indexAllKoms` (every archive's entries by upper-cased name) and `KomMassFileSource` (the synchronous `MassFileSource` of the host layer over them: `load`, `settle`; image files can be cut to a header) |
@@ -251,7 +254,7 @@ python3 tools/index_decomp.py data/x2.exe.c /home/user/work/analysis/functions.t
 python3 tools/bindings.py && python3 tools/ledger.py                                # docs/HOST_API.md, docs/LEDGER.md
 ELS_GPU_NATIVE=1 ./tools/test-packages.sh                                           # without the software GPU the d3d9 / engine GPU tests skip themselves; everything else runs (three bun processes: one does not fit 4 GB)
 ./tools/setup-gpu.sh                                                                   # software Vulkan for Dawn -> /home/user/work/swsh (about 2 s)
-./tools/test-packages.sh                                                              # everything: 864 tests (719 + 145 that need the GPU), incl. the 154 d3d9 tests on Dawn + SwiftShader; three bun processes (567 + 291 + 6 tests)
+./tools/test-packages.sh                                                              # everything: 922 tests (769 + 153 that need the GPU), incl. the 154 d3d9 tests on Dawn + SwiftShader; three bun processes (567 + 341 + 14 tests)
 ./node_modules/.bin/bun run tools/gen-d3d9-enums.ts --check                            # enums.generated.ts is current
 ./node_modules/.bin/bun run tools/census-xscene.ts                                     # integrity of all 25,313 X / Y scenes
 ./tools/gpu.sh ./node_modules/.bin/bun run tools/census-skin.ts                        # hierarchy loader + skin conversion + animation over all 7,395 skinned files, ~3 min
@@ -270,8 +273,9 @@ pip install --target /home/user/work/pycap unicorn pefile capstone              
 python3 tools/mutate-optimizekeys.py                                  # 22 mutants of kac-keys.ts against the unit tests (4 survivors are expected: equivalent or unreachable, FINDINGS 16.3), ~1 s
 ./node_modules/.bin/bun run tools/verify-ess.ts                       # string table
 ./node_modules/.bin/bun run tools/verify-kim.ts                       # item database, ~2 s
-./node_modules/.bin/bun run tools/ui-census.ts --md docs/UI_COVERAGE.md    # 1,024 DLG scripts: 992 run on the stubs, all 992 fully ported and strict-clean, ~30 s
+./node_modules/.bin/bun run tools/ui-census.ts --md docs/UI_COVERAGE.md    # 1,024 DLG scripts: 992 run on the stubs, all 992 fully ported and strict-clean, 868 of them only with classes that draw, ~30 s
 python3 tools/mutate-ui.py                                            # 99 mutants of packages/ui/src against widgets.test.ts: 97 killed, 2 equivalent survivors, ~8 min (`--list`, name substrings)
+python3 tools/mutate-draw.py                                          # 122 mutants of the drawing (93 of packages/ui/src, 29 of the CPU reference): 121 killed, 1 equivalent survivor, ~77 s (`--list`, name substrings)
 ./node_modules/.bin/bun run tools/verify-effects.ts                   # particle / XMeshPlayer scripts, ~4 s
 pip install --target /home/user/work/pyav av numpy                                      # FFmpeg (libavcodec) bundled in the `av` wheel: the MPEG-1 oracle
 PYTHONPATH=/home/user/work/pyav python3 tools/oracle-mpeg1.py --out /home/user/work/mpeg1_oracle.json data/movie/*.avi
