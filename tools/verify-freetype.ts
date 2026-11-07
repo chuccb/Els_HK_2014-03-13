@@ -15,8 +15,10 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FtFace, setCharSize } from "@els/freetype";
+import { FtFace, FtError, setCharSize } from "@els/freetype";
+import { loadGlyph } from "../packages/freetype/src/glyph.ts";
 import { divFix, mulDiv, mulDivNoRound, mulFix } from "../packages/freetype/src/calc.ts";
+import { sqrtFixed, vectorLength, vectorTransform } from "../packages/freetype/src/trig.ts";
 import { dataDir, indexAllKoms } from "./komindex.ts";
 
 const args = process.argv.slice(2);
@@ -153,6 +155,7 @@ function calcLayer(): void {
   const n = 4000;
   const two = Array.from({ length: n }, () => [pick(), pick()]);
   const three = Array.from({ length: n }, () => [pick(), pick(), pick()]);
+  const vt = Array.from({ length: n }, () => [pick(), pick(), pick(), pick(), pick(), pick()]);
   const res = runOracle({
     fonts: {},
     jobs: [
@@ -160,6 +163,9 @@ function calcLayer(): void {
       { calc: "muldiv", args: three },
       { calc: "muldiv_no_round", args: three },
       { calc: "divfix", args: two },
+      { calc: "sqrtfixed", args: two.map((a) => [a[0]]) },
+      { calc: "veclen", args: two },
+      { calc: "vtransform", args: vt },
     ],
   });
   const fns: [string, (a: number[]) => number, number[][]][] = [
@@ -180,6 +186,48 @@ function calcLayer(): void {
       }
     }
     report(`calc ${name}`, cases.length, bad, firsts);
+  }
+  {
+    const cases = two.map((a) => a[0]!);
+    const want: number[] = res[4]!.results;
+    const firsts: string[] = [];
+    let bad = 0;
+    cases.forEach((c, k) => {
+      const got = sqrtFixed(c);
+      if (got !== want[k]) {
+        bad++;
+        firsts.push(`sqrtfixed(${c}): oracle ${want[k]} vs port ${got}`);
+      }
+    });
+    report("calc sqrtfixed", cases.length, bad, firsts);
+  }
+  {
+    // vector lengths: the cases an interpreter meets (small 26.6 vectors) and the whole range
+    const want: number[] = res[5]!.results;
+    const firsts: string[] = [];
+    let bad = 0;
+    two.forEach((c, k) => {
+      const got = vectorLength(c[0]!, c[1]!);
+      if (got !== want[k]) {
+        bad++;
+        firsts.push(`veclen(${c.join(", ")}): oracle ${want[k]} vs port ${got}`);
+      }
+    });
+    report("calc veclen", two.length, bad, firsts);
+  }
+  {
+    const want: number[][] = res[6]!.results;
+    const firsts: string[] = [];
+    let bad = 0;
+    vt.forEach((c, k) => {
+      const v = new Int32Array([c[0]!, c[1]!]);
+      vectorTransform(v, 0, c[2]!, c[3]!, c[4]!, c[5]!);
+      if (v[0] !== want[k]![0] || v[1] !== want[k]![1]) {
+        bad++;
+        firsts.push(`vtransform(${c.join(", ")}): oracle ${want[k]!.join(",")} vs port ${v[0]},${v[1]}`);
+      }
+    });
+    report("calc vtransform", vt.length, bad, firsts);
   }
 }
 
@@ -252,6 +300,137 @@ async function charsLayer(list: FontSpec[]): Promise<void> {
   report("chars", total, bad, firsts);
 }
 
+// ------------------------------------------------------------------------------------------------------------------ glyphs
+/** the character codes a layer loads from a font: ASCII, Latin-1, punctuation, kana, full-width forms, and strided samples of the CJK / Hangul blocks */
+function codeCorpus(limit: number): number[] {
+  const codes: number[] = [];
+  const range = (lo: number, hi: number, step = 1) => {
+    for (let c = lo; c <= hi; c += step) codes.push(c);
+  };
+  range(0x20, 0x7e);
+  range(0xa1, 0xff, 3);
+  range(0x2010, 0x2027, 2);
+  range(0x2190, 0x2199);
+  range(0x25a0, 0x25cf, 5);
+  range(0x3000, 0x303f, 2);
+  range(0x3041, 0x30ff, 7);
+  range(0xff01, 0xff5e, 4);
+  range(0x4e00, 0x9fa5, 41);
+  range(0xac00, 0xd7a3, 97);
+  range(0x3400, 0x4dbf, 311);
+  range(0xf900, 0xfa2d, 17);
+  // a deterministic shuffle so --glyphs N takes a mixed prefix
+  const rnd = mulberry32(seed + 7);
+  for (let i = codes.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [codes[i], codes[j]] = [codes[j]!, codes[i]!];
+  }
+  return limit > 0 ? codes.slice(0, limit) : codes;
+}
+
+const uiFonts = ["DFT_P7", "MSJH", "MSJHBD", "DFT_P7U", "GULIM_0"];
+
+interface GlyphLayer {
+  name: string;
+  flags: number;
+  render: number | null;
+}
+
+const bufHex = (b: Uint8Array | null, n: number): string => (b ? Buffer.from(b.subarray(0, n)).toString("hex") : "");
+
+/** what the oracle prints for a loaded glyph, from the port's slot */
+function portGlyph(face: FtFace, gi: number, flags: number, render: number | null, withOutline: boolean): Json {
+  const r: Json = { glyph: gi, load_err: 0, render_err: null };
+  let err: number;
+  try {
+    err = loadGlyph(face, gi, flags, render === null ? undefined : (slot, mode) => renderGlyphHook(slot, mode));
+  } catch (e) {
+    if (e instanceof FtError) return { glyph: gi, thrown: e.message };
+    throw e;
+  }
+  r.load_err = err;
+  if (err) return r;
+  const s = face.glyph;
+  const m = s.metrics;
+  r.metrics = [m.width, m.height, m.horiBearingX, m.horiBearingY, m.horiAdvance, m.vertBearingX, m.vertBearingY, m.vertAdvance];
+  r.linear = [s.linearHoriAdvance, s.linearVertAdvance];
+  r.advance = [s.advance.x, s.advance.y];
+  r.format = s.format;
+  if (withOutline && s.format === 0x6f75746c) {
+    const o = s.outline;
+    r.outline = {
+      contours: Array.from(o.contours.subarray(0, o.nContours)),
+      points: Array.from({ length: o.nPoints }, (_, i) => [o.points[2 * i]!, o.points[2 * i + 1]!]),
+      tags: Array.from(o.tags.subarray(0, o.nPoints)),
+      flags: o.flags,
+    };
+  }
+  return r;
+}
+
+// the renderer arrives with render.ts; until then a render layer reports the glyphs it cannot compare
+let renderGlyphHook: (slot: import("@els/freetype").GlyphSlot, mode: number) => number = () => {
+  throw new FtError(7, "FT_Render_Glyph not ported yet");
+};
+
+async function glyphLayer(list: FontSpec[], layer: GlyphLayer, limit: number): Promise<void> {
+  const use = list.filter((f) => uiFonts.includes(f.name));
+  const fontsJson: Json = {};
+  for (const f of use) fontsJson[f.name] = { path: f.file, face: f.face };
+  const codes = codeCorpus(limit);
+  const jobs = use.flatMap((f) => sizes.map((s) => ({ font: f.name, size: s, flags: layer.flags, render: layer.render, codes, outline: true })));
+  const t = Date.now();
+  const res = runOracle({ fonts: fontsJson, jobs });
+  if (verbose) console.log(`  oracle: ${res.length} lines in ${((Date.now() - t) / 1000).toFixed(1)} s`);
+  const faces = new Map<string, FtFace>();
+  for (const f of use) faces.set(f.name, FtFace.open(new Uint8Array(readFileSync(f.file)), f.face));
+  const firsts: string[] = [];
+  let total = 0;
+  let bad = 0;
+  let thrown = 0;
+  let missing = 0;
+  let cur: { font: string; size: number } | undefined;
+  for (const r of res) {
+    if (r.size !== undefined && r.glyph === undefined) {
+      cur = { font: r.font, size: r.size };
+      const face = faces.get(r.font)!;
+      setCharSize(face, r.size << 6, 0, 72, 72);
+      continue;
+    }
+    if (r.info !== undefined || r.calc !== undefined || r.char_range !== undefined) continue;
+    if (r.missing) {
+      missing++;
+      continue;
+    }
+    const face = faces.get(r.font)!;
+    if (!cur || cur.font !== r.font || cur.size !== r.size) {
+      cur = { font: r.font, size: r.size };
+      setCharSize(face, r.size << 6, 0, 72, 72);
+    }
+    total++;
+    const got = portGlyph(face, r.glyph, layer.flags, layer.render, true);
+    if (got.thrown) {
+      thrown++;
+      if (firsts.length < 40) firsts.push(`${r.font}@${r.size} glyph ${r.glyph} (U+${(r.code ?? 0).toString(16)}): port threw: ${got.thrown}`);
+      continue;
+    }
+    const out: string[] = [];
+    const want: Json = { ...r };
+    for (const k of ["font", "size", "code", "metrics_after", "bitmap"]) delete want[k];
+    if (layer.render === null) delete want.render_err;
+    delete got.render_err;
+    if (layer.render === null) delete want.render_err;
+    else delete want.render_err;
+    diff(want, got, `${r.font}@${r.size} glyph ${r.glyph} (U+${(r.code ?? 0).toString(16)})`, out);
+    if (out.length) {
+      bad++;
+      firsts.push(...out.slice(0, 3));
+    }
+  }
+  if (verbose) console.log(`  ${missing} codes unmapped`);
+  report(`${layer.name}`, total, bad + thrown, firsts);
+}
+
 // ------------------------------------------------------------------------------------------------------------------ main
 const t0 = Date.now();
 const list = await fonts();
@@ -259,5 +438,8 @@ console.log(`fonts: ${list.map((f) => f.name).join(" ")}`);
 if (layers.has("calc")) calcLayer();
 if (layers.has("face")) await faceLayer(list);
 if (layers.has("chars")) await charsLayer(list);
+const glyphLimit = Number(opt("--glyphs") ?? 0);
+if (layers.has("unhinted")) await glyphLayer(list, { name: "unhinted", flags: 10, render: null }, glyphLimit);
+if (layers.has("hinted")) await glyphLayer(list, { name: "hinted", flags: 8, render: null }, glyphLimit);
 console.log(`${failures === 0 ? "all layers agree" : `${failures} differences`} (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
 process.exit(failures === 0 ? 0 : 1);

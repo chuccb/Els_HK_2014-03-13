@@ -17,7 +17,9 @@ JOBS.json:
                   "outline": BOOL, "hres": 72, "vres": 72 },
                 { "embolden": { "rows", "width", "pitch", "pixel_mode", "hex" }, "xstr": 26.6, "ystr": 26.6 },
                 { "font": NAME, "char_range": [LO, HI, STEP] }                      # FT_Get_Char_Index only, no size needed
-                { "calc": "mulfix" | "muldiv" | "muldiv_no_round" | "divfix", "args": [[a, b(, c)]...] } ] }
+                { "calc": "mulfix" | "muldiv" | "muldiv_no_round" | "divfix" | "sqrtfixed", "args": [[a, b(, c)]...] },
+                { "calc": "veclen", "args": [[x, y]...] },                          # FT_Vector_Length
+                { "calc": "vtransform", "args": [[x, y, xx, xy, yx, yy]...] } ] }  # FT_Vector_Transform: results are [x, y] pairs
 RESULTS.jsonl: one line per font (its face and size metrics, `size` = the size of the job), then one line per glyph:
   { "font", "size", "code", "glyph", "load_err", "render_err", "metrics": [8 ints of FT_Glyph_Metrics], "linear": [hori, vert], "advance": [x, y], "format",
     "bitmap": { "rows", "width", "pitch", "mode", "left", "top", "hex" }, "outline": { "contours": [...], "points": [[x, y]...], "tags": [...] } }
@@ -41,7 +43,8 @@ FT_NEW_LIBRARY, FT_ADD_DEFAULT_MODULES = 0x32835EE0, 0x328319F0
 FT_NEW_MEMORY_FACE, FT_SET_CHAR_SIZE, FT_GET_CHAR_INDEX = 0x328377B0, 0x32832950, 0x32832A70
 FT_LOAD_GLYPH, FT_RENDER_GLYPH, FT_DONE_FACE = 0x328350B0, 0x32834780, 0x32835BF0
 FT_BITMAP_EMBOLDEN, FT_BITMAP_COPY, FT_BITMAP_NEW = 0x32837EE0, 0x32837840, 0x32837800
-FT_CALC = {"mulfix": 0x32831CE0, "muldiv": 0x32831B90, "muldiv_no_round": 0x32831C50, "divfix": 0x32831D10}
+FT_CALC = {"mulfix": 0x32831CE0, "muldiv": 0x32831B90, "muldiv_no_round": 0x32831C50, "divfix": 0x32831D10, "sqrtfixed": 0x32831F90}
+FT_VECTOR_LENGTH, FT_VECTOR_TRANSFORM = 0x32833C90, 0x328333A0
 TRAP = 0x0B100000  # one 4-byte `ret` per import
 MEMSTUB = 0x0B200000
 
@@ -303,8 +306,25 @@ def main():
             out.write(json.dumps({"font": name, "info": o.face_info(face)}) + "\n")
         for job in spec["jobs"]:
             if "calc" in job:
-                fn = FT_CALC[job["calc"]]
                 res = []
+                if job["calc"] == "veclen":
+                    buf = o.emu.alloc(16)
+                    for x, y in job["args"]:
+                        o.emu.write(buf, struct.pack("<ii", x, y))
+                        v = o.emu.call(FT_VECTOR_LENGTH, (buf,))
+                        res.append(v - (1 << 32) if v & 0x80000000 else v)
+                    out.write(json.dumps({"calc": job["calc"], "results": res}) + "\n")
+                    continue
+                if job["calc"] == "vtransform":
+                    buf = o.emu.alloc(32)
+                    for x, y, xx, xy, yx, yy in job["args"]:
+                        o.emu.write(buf, struct.pack("<2i", x, y))
+                        o.emu.write(buf + 8, struct.pack("<4i", xx, xy, yx, yy))
+                        o.emu.call(FT_VECTOR_TRANSFORM, (buf, buf + 8))
+                        res.append(list(struct.unpack("<2i", o.emu.read(buf, 8))))
+                    out.write(json.dumps({"calc": job["calc"], "results": res}) + "\n")
+                    continue
+                fn = FT_CALC[job["calc"]]
                 for a in job["args"]:
                     v = o.emu.call(fn, tuple(x & 0xFFFFFFFF for x in a))
                     res.append(v - (1 << 32) if v & 0x80000000 else v)

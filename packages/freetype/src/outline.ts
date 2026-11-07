@@ -23,7 +23,7 @@ export class Outline {
   nPoints = 0;
   points: Int32Array = new Int32Array(0);
   tags: Uint8Array = new Uint8Array(0);
-  contours: Int32Array = new Int32Array(0);
+  contours: Uint16Array = new Uint16Array(0);
   flags = 0;
 
   /** the same outline over the same arrays (FT_Outline is copied by value in C: `glyph->outline = loader->gloader->base.outline`) */
@@ -41,7 +41,7 @@ export class Outline {
     this.nPoints = 0;
     this.points = new Int32Array(0);
     this.tags = new Uint8Array(0);
-    this.contours = new Int32Array(0);
+    this.contours = new Uint16Array(0);
     this.flags = 0;
   }
 }

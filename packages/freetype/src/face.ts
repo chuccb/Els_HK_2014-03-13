@@ -1,5 +1,6 @@
 import { Bytes } from "./bytes.ts";
 import { buildCmap, type TtCmap } from "./cmap.ts";
+import { type FtLibrary, defaultLibrary } from "./library.ts";
 import { FtSize } from "./size.ts";
 import { GlyphSlot } from "./slot.ts";
 import { FT_ENCODING, FT_FACE_FLAG, FtErr, FtError, tag4 } from "./types.ts";
@@ -237,7 +238,10 @@ export class FtFace {
   cvtProgram: Uint8Array = new Uint8Array(0);
   locaLen = 0;
 
-  private constructor(data: Uint8Array) {
+  private constructor(
+    data: Uint8Array,
+    readonly lib: FtLibrary,
+  ) {
     this.stream = new Bytes(data);
   }
 
@@ -247,8 +251,8 @@ export class FtFace {
    * The other drivers cannot open a font that the truetype driver rejects with Unknown_File_Format and that is not Type 1 / CFF / ...: the
    * HK client only opens TrueType fonts, so that case is reported as FT_Err_Unknown_File_Format.)
    */
-  static open(data: Uint8Array, faceIndex: number): FtFace {
-    const f = new FtFace(data);
+  static open(data: Uint8Array, faceIndex: number, lib: FtLibrary = defaultLibrary()): FtFace {
+    const f = new FtFace(data, lib);
     f.init(faceIndex);
     f.glyph = new GlyphSlot(f);
     f.size = new FtSize(f);

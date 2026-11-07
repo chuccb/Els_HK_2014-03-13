@@ -1,4 +1,5 @@
 import type { FtFace } from "./face.ts";
+import { GlyphLoader } from "./loader.ts";
 import { Outline } from "./outline.ts";
 import { FT_GLYPH_FORMAT } from "./types.ts";
 
@@ -51,6 +52,8 @@ export class GlyphSlot {
   controlLen = 0;
   lsbDelta = 0;
   rsbDelta = 0;
+  /** slot->internal->loader (FT_GlyphLoader_New + tt_slot_init's CreateExtra) */
+  readonly loader = new GlyphLoader();
 
   constructor(readonly face: FtFace) {}
 
