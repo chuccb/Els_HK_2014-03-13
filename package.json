@@ -40,6 +40,7 @@
     "@els/assets": "workspace:*",
     "@els/d3d9": "workspace:*",
     "@els/engine": "workspace:*",
+    "@els/freetype": "workspace:*",
     "@els/host": "workspace:*",
     "@els/kom": "workspace:*",
     "@els/lua": "workspace:*",

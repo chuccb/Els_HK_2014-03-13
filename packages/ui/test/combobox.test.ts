@@ -429,8 +429,9 @@ describe("CKTDGFontManager (g_pFontManager)", () => {
   });
 
   test("CreateNewUIUKFont lists the font and enters it under its id; MapUIFontToUKFont maps to a font that exists; CreateNewUIFont does nothing", () => {
+    const { w } = setup();
     const fonts = new UIFonts();
-    const mgr = new CKTDGFontManager(fonts);
+    const mgr = new CKTDGFontManager(fonts, w); // no font is installed in this world: each new font reports that its face is missing (font.test.ts)
     mgr.CreateNewUIFont(1, "Face", 13, 600);
     expect([mgr.m_UKFontList.length, fonts.m_mapUKFontList.size]).toEqual([0, 0]);
     mgr.CreateNewUIUKFont(30, "Face", 13, 600, 1, 1, true);
@@ -504,9 +505,14 @@ describe("the start-up config and the combo boxes of the real scripts", () => {
       // MapUIFontToUKFont
       expect(w.fonts.getMappedUKFont(id("XF_DODUM_11_NORMAL"))).toBe(w.fonts.getUKFont(id("XUF_DODUM_11_NORMAL_MAPPED")));
       expect(w.fonts.getMappedUKFont(id("XF_DODUM_15_NORMAL"))).toBe(w.fonts.getUKFont(id("XUF_DODUM_15_NORMAL_MAPPED")));
-      // what the script asked of g_pMain went to the recorder (and the world is strict again)
+      // g_pMain:InstallFont is ported (the three fonts of the script and, from C++, GULIM); what else the script asked of g_pMain went to the recorder
       const calls = w.world.rt.notPortedCalls;
-      expect([...calls.entries()].filter(([k]) => k.startsWith("CX2Main.")).map(([k, v]) => [k.replace(/ @.*/, ""), v]).sort()).toContainEqual(["CX2Main.InstallFont", 3]);
+      const mainCalls = [...calls.entries()].filter(([k]) => k.startsWith("CX2Main.")).map(([k, v]) => [k.replace(/ @.*/, ""), v] as const);
+      expect(mainCalls.map(([k]) => k)).not.toContain("CX2Main.InstallFont");
+      expect(mainCalls.length).toBeGreaterThan(0);
+      expect([...w.fontManager.m_mapFontNameFile.entries()].sort()).toEqual([
+        ["DFPPOP1W7U-B5", "DFT_P7.TTC"], ["GULIM", "GULIM.TTC"], ["JHENGHEI", "MSJH.TTF"], ["JHENGHEIBOLD", "MSJHBD.TTF"],
+      ]);
       expect(w.world.rt.notPorted).toBe("throw");
       return 0;
     });

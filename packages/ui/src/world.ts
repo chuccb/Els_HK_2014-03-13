@@ -20,6 +20,7 @@ import { CKTDGUIItem, CKTDGUIStatic } from "./static.ts";
 import { CKTDGUISlot, CX2CouponBox, CX2PostBox, CX2Slot, CX2SlotManager } from "./slot.ts";
 import { CKTDGUIIMEEditBox, ImeSystem } from "./imeeditbox.ts";
 import { CKTDGFontManager } from "./fontmanager.ts";
+import { CX2Main } from "./main.ts";
 import { CKTDGUIComboBox } from "./combobox.ts";
 import { CKTDGUIListBox } from "./listbox.ts";
 import { CMovieData } from "./movie.ts";
@@ -45,6 +46,11 @@ export interface UIWorldOptions extends HostOptions {
   device?: Direct3DDevice9;
   /** the size of the back buffer the layout (1024 x 768) is scaled to (`m_ResolutionScale`; default: no scaling) */
   backBuffer?: { width: number; height: number };
+  /**
+   * Whether a file is on disk next to the exe (`KGCMassFileManager::GetPullPath` is an `fopen` of it): `g_pMain:InstallFont` answers true
+   * for such a font file (and false for one that only exists in a KOM).  Default: none.
+   */
+  hasLocalFile?: (fileName: string) => boolean;
 }
 
 /** the Lua classes (C++ names) the UI classes implement */
@@ -59,6 +65,7 @@ const IMPLEMENTATIONS: [string, object][] = [
   ["CKTDGUISlot", CKTDGUISlot],
   ["CKTDGUIIMEEditBox", CKTDGUIIMEEditBox],
   ["CKTDGFontManager", CKTDGFontManager],
+  ["CX2Main", CX2Main],
   ["CKTDGUIComboBox", CKTDGUIComboBox],
   ["CKTDGUIListBox", CKTDGUIListBox],
   ["CX2StatePVPRoom::CX2MapSelectWindow", CX2MapSelectWindow],
@@ -83,7 +90,9 @@ export class UIWorld implements UIContext {
   controlFocus: CKTDGUIControl | null = null;
   readonly fonts = new UIFonts();
   /** `g_pKTDXApp->m_pDGManager->m_pFontManager`, the global `g_pFontManager` */
-  readonly fontManager = new CKTDGFontManager(this.fonts);
+  readonly fontManager: CKTDGFontManager;
+  /** `g_pMain`: what the UI reaches of `CX2Main` (`InstallFont`) */
+  readonly main: CX2Main;
   readonly ime: ImeSystem;
   /** the message boxes the UI code opened, in order (the exe shows them modally) */
   readonly messageBoxes: { text: string; caption: string }[] = [];
@@ -109,7 +118,10 @@ export class UIWorld implements UIContext {
     this.world = new HostWorld({ readScript: (name) => massFiles.loadDataFile(name), massFiles, notPorted: opts.notPorted });
     const rt = this.world.rt;
     for (const [cpp, impl] of IMPLEMENTATIONS) rt.registerImpl(cpp, impl);
+    this.fontManager = new CKTDGFontManager(this.fonts, this);
+    this.main = new CX2Main(this.fontManager, opts.hasLocalFile);
     rt.setObject("g_pFontManager", this.fontManager, "CKTDGFontManager");
+    rt.setObject("g_pMain", this.main, "CX2Main");
   }
 
   messageBox(text: string, caption: string): void {
@@ -146,6 +158,8 @@ export class UIWorld implements UIContext {
   boot(): void {
     this.world.publishStubObjects();
     this.loadEnums();
+    // CX2Main::Init (329EB2A0): after LoadLuaEnum and MassFileMapping the C++ installs the Korean font, before the config script runs
+    this.main.InstallFont("GULIM", "Gulim.ttc");
     this.loadConfig();
   }
 

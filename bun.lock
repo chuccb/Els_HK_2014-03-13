@@ -8,6 +8,7 @@
         "@els/assets": "workspace:*",
         "@els/d3d9": "workspace:*",
         "@els/engine": "workspace:*",
+        "@els/freetype": "workspace:*",
         "@els/host": "workspace:*",
         "@els/kom": "workspace:*",
         "@els/lua": "workspace:*",
@@ -60,6 +61,10 @@
         "@els/d3d9": "workspace:*",
       },
     },
+    "packages/freetype": {
+      "name": "@els/freetype",
+      "version": "0.0.0",
+    },
     "packages/host": {
       "name": "@els/host",
       "version": "0.0.0",
@@ -85,6 +90,7 @@
         "@els/assets": "workspace:*",
         "@els/d3d9": "workspace:*",
         "@els/engine": "workspace:*",
+        "@els/freetype": "workspace:*",
         "@els/host": "workspace:*",
         "@els/lua": "workspace:*",
       },
@@ -98,6 +104,8 @@
     "@els/d3d9": ["@els/d3d9@workspace:packages/d3d9"],
 
     "@els/engine": ["@els/engine@workspace:packages/engine"],
+
+    "@els/freetype": ["@els/freetype@workspace:packages/freetype"],
 
     "@els/host": ["@els/host@workspace:packages/host"],
 

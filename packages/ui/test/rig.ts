@@ -5,6 +5,7 @@
  */
 import { StringTable } from "@els/assets";
 import type { Direct3DDevice9, Direct3DTexture9 } from "@els/d3d9";
+import type { MassFileSource } from "@els/host";
 import { UIPointData, UITextureData, VertexUI4 } from "../src/index.ts";
 import type { UIContext } from "../src/index.ts";
 import { setup } from "./harness.ts";
@@ -26,12 +27,52 @@ export class FakeVB {
   Release(): number { return 0; }
 }
 
+/** a texture `D3DXCreateTexture` made on the recorder (the pages of a glyph font): its pixels, whether it is locked and with which flags */
+export class FakePageTexture {
+  refs = 1;
+  locked = false;
+  lockFlags = -1;
+  lockCount = 0;
+  readonly bits: Uint8Array;
+  constructor(readonly id: number, readonly pool: number, readonly width: number, readonly height: number) {
+    this.bits = new Uint8Array(width * height * 4);
+  }
+  get name(): string { return `page${this.id}`; }
+  AddRef(): number { return ++this.refs; }
+  Release(): number { return --this.refs; }
+  LockRect(_level: number, _rect: unknown, flags: number): { hr: number; pBits: Uint8Array; pitch: number } {
+    this.locked = true;
+    this.lockFlags = flags;
+    this.lockCount++;
+    return { hr: 0, pBits: this.bits, pitch: this.width * 4 };
+  }
+  UnlockRect(): number { this.locked = false; return 0; }
+}
+
 /** a Direct3D device that writes down the calls that change something */
 export class Recorder {
   readonly log: string[] = [];
   readonly vbs: FakeVB[] = [];
+  readonly textures: FakePageTexture[] = [];
+  /** the HRESULT `CreateTexture` answers for the next calls (a queue; empty: success) */
+  readonly textureResults: number[] = [];
   readonly declaration = { released: 0, Release: () => ++this.declaration.released };
-  GetDeviceCaps(): { MaxPrimitiveCount: number } { return { MaxPrimitiveCount: 0xfffff }; }
+  GetDeviceCaps(): { MaxPrimitiveCount: number; MaxTextureWidth: number; MaxTextureHeight: number } {
+    return { MaxPrimitiveCount: 0xfffff, MaxTextureWidth: 4096, MaxTextureHeight: 4096 };
+  }
+  CreateTexture(width: number, height: number, _levels: number, _usage: number, _format: number, pool: number): { hr: number; tex: FakePageTexture | null } {
+    const hr = this.textureResults.shift() ?? 0;
+    if (hr < 0) return { hr, tex: null };
+    const tex = new FakePageTexture(this.textures.length, pool, width, height);
+    this.textures.push(tex);
+    this.log.push(`create ${tex.id} pool ${pool} ${width}x${height}`);
+    return { hr: 0, tex };
+  }
+  UpdateTexture(src: FakePageTexture, dst: FakePageTexture): number {
+    this.log.push(`update ${src.id} ${dst.id}`);
+    dst.bits.set(src.bits);
+    return 0;
+  }
   CreateVertexBuffer(length: number): { hr: number; vb: FakeVB } {
     const vb = new FakeVB(this.vbs.length, length);
     this.vbs.push(vb);
@@ -50,7 +91,7 @@ export class Recorder {
 }
 
 /** a world that draws on the recorder, with textures of 64 x 32 texels that each hold a fake Direct3D texture named after the file */
-export function rig(extra: { backBuffer?: { width: number; height: number }; tickCount?: () => number } = {}) {
+export function rig(extra: { backBuffer?: { width: number; height: number }; tickCount?: () => number; source?: MassFileSource } = {}) {
   const dev = new Recorder();
   const s = setup(new StringTable([]), { device: dev as unknown as Direct3DDevice9, backBuffer: { width: 1536, height: 1536 }, ...extra });
   const open = s.w.devices.openTexture.bind(s.w.devices);
@@ -86,3 +127,46 @@ export function quad(w: UIContext, x: number, y: number, texture = "QUAD.TGA"): 
 }
 
 export const verts = (v: VertexUI4) => [0, 1, 2, 3].map((i) => [v.x(i), v.y(i), v.z(i), v.rhw(i), v.color(i), v.u(i), v.v(i)]);
+
+/**
+ * The triangles of the `DrawPrimitive` calls the recorder saw from `from` on (an index into `log`): the vertex bytes the dynamic vertex
+ * buffer wrote (`src <buffer> <stride>` names the buffer a `draw <type> <start> <count>` reads).  A vertex of stride 28 is
+ * `[x, y, z, rhw, color, u, v]`, one of stride 24 `[x, y, z, color, u, v]`; the colour is the 32-bit value.
+ */
+export interface DrawnCall {
+  /** the primitive type (4: triangle list) */
+  type: number;
+  prims: number;
+  stride: number;
+  /** `3 * prims` vertices for a list */
+  vertices: number[][];
+}
+export function drawnCalls(dev: Recorder, from = 0): DrawnCall[] {
+  const out: DrawnCall[] = [];
+  let vb = -1;
+  let stride = 0;
+  for (const line of dev.log.slice(from)) {
+    const w = line.split(" ");
+    if (w[0] === "src") {
+      vb = Number(w[1]);
+      stride = Number(w[2]);
+    } else if (w[0] === "draw") {
+      const type = Number(w[1]), start = Number(w[2]), prims = Number(w[3]);
+      const data = dev.vbs[vb]!.data;
+      const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+      const n = type === 4 ? prims * 3 : prims + 2;
+      const vertices: number[][] = [];
+      for (let i = 0; i < n; i++) {
+        const at = (start + i) * stride;
+        const v: number[] = [];
+        for (let k = 0; k < stride / 4; k++) {
+          const colorSlot = stride === 28 ? 4 : 3;
+          v.push(k === colorSlot ? view.getUint32(at + 4 * k, true) : view.getFloat32(at + 4 * k, true));
+        }
+        vertices.push(v);
+      }
+      out.push({ type, prims, stride, vertices });
+    }
+  }
+  return out;
+}
