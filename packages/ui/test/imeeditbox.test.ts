@@ -61,14 +61,14 @@ describe("CKTDGUIUniBuffer (32963A70)", () => {
     expect(b.m_pwszBuffer).toBe("ab");
   });
 
-  test("Clear needs an allocated buffer; CPtoX and XtoCP without a font answer 0, with a font they need the font manager", () => {
+  test("Clear needs an allocated buffer; CPtoX and XtoCP without a font answer 0, with a font they need the buffer (unibuffer.test.ts measures)", () => {
     const b = new CKTDGUIUniBuffer(log, 0);
     expect(() => b.Clear()).toThrow(/no buffer/);
     expect(b.CPtoX(3, false)).toBe(0);
     expect(b.XtoCP(100)).toEqual({ cp: 0, trail: 0 });
     b.m_pFontNode = new UKFont(1);
-    expect(() => b.CPtoX(3, false)).toThrow(/not ported/);
-    expect(() => b.XtoCP(1)).toThrow(/not ported/);
+    expect(() => b.CPtoX(3, false)).toThrow(/no buffer/);
+    expect(() => b.XtoCP(1)).toThrow(/no buffer/);
   });
 });
 

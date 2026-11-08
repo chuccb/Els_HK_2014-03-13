@@ -1,5 +1,5 @@
 /**
- * The Win32 `RECT` and the helpers of user32 that the controls use (`SetRect`, `OffsetRect`), and `CKTDGUIControl::VERTEX_UI`.  Every
+ * The Win32 `RECT` and the helpers of user32 that the controls use (`SetRect`, `OffsetRect`, `IntersectRect`, ...), and `CKTDGUIControl::VERTEX_UI`.  Every
  * coordinate is a 32-bit `int`: the helpers wrap like the API does.
  */
 
@@ -43,6 +43,26 @@ export function offsetRect(rc: Rect, dx: number, dy: number): void {
   rc.right = (rc.right + dx) | 0;
   rc.top = (rc.top + dy) | 0;
   rc.bottom = (rc.bottom + dy) | 0;
+}
+
+/**
+ * `IntersectRect(dst, src1, src2)`: `dst` becomes the rectangle the two have in common, and the answer is true; when they have none (or
+ * one of them has no area) `dst` is (0, 0, 0, 0) and the answer false.  `dst` may be one of the sources.
+ */
+export function intersectRect(dst: Rect, src1: Rect, src2: Rect): boolean {
+  const left = Math.max(src1.left, src2.left);
+  const right = Math.min(src1.right, src2.right);
+  const top = Math.max(src1.top, src2.top);
+  const bottom = Math.min(src1.bottom, src2.bottom);
+  if (left < right && top < bottom) {
+    dst.left = left;
+    dst.top = top;
+    dst.right = right;
+    dst.bottom = bottom;
+    return true;
+  }
+  dst.left = dst.top = dst.right = dst.bottom = 0;
+  return false;
 }
 
 /** `InflateRect(rc, dx, dy)`: every side moves outwards (a negative amount shrinks the rectangle) */

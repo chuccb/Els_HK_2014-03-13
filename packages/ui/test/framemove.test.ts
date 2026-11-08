@@ -15,6 +15,7 @@ import {
 import type { CKTDGUIControl, ListBoxItem } from "../src/index.ts";
 import { wstringFind } from "../src/static.ts";
 import { rig } from "./rig.ts";
+import { fontWorld } from "./fontworld.ts";
 import { setup } from "./harness.ts";
 
 const f = Math.fround;
@@ -1417,22 +1418,33 @@ describe("CKTDGUIEditBox::OnFrameMove (329342D0) and CKTDGUIIMEEditBox::OnFrameM
     expect(e.m_ptTextAlignOffset.x).toBe(f(20.5 - 50) | 0); // (51 - 10) * 0.5 - (100 - 0) * 0.5 = -29.5, cut towards 0: -29
   });
 
-  test("IME edit box: a buffer with a font is measured by CKTDGUIUniBuffer::CPtoX, which is not ported (it throws); a hidden box does nothing; missing points are Errors", () => {
-    const { w } = setup();
+  test("IME edit box: a buffer with a font is centred by the widths the font gives (CKTDGUIUniBuffer::CPtoX); a hidden box does nothing; missing points are Errors", () => {
+    const fw = fontWorld();
+    const w = fw.w;
     const e = new CKTDGUIIMEEditBox(w);
     e.m_bShow = false;
     e.onFrameMove(0, 0.5);
     expect(e.m_fElapsedTime).toBe(0);
     e.m_bShow = true;
     expect(() => e.onFrameMove(0, 0.5)).toThrow("text point");
-    e.m_pTextPoint = point([0, 0, 0, 0, 0, 0, 1, 1]);
-    e.m_Buffer.m_pFontNode = new UKFont(1, new CKTDGFreeTypeFont("F", 15, 0, true, 400, 1, false));
+    e.m_pTextPoint = point([10, 20, 51, 20, 10, 40, 110, 40]); // the rectangle is 10 .. 110, the point 41 wide
+    const ft = fw.font(16, 0, 1, true); // the box font: A is 9 wide, B 11 (back buffer pixels, the scale is 1.5)
+    expect(ft.Load()).toBe(true);
+    e.m_Buffer.m_pFontNode = w.fonts.addUKFont(1, ft);
+    e.m_Buffer.SetText("AB");
     e.m_DefTextAlign = 2; // no centring: the font is not asked
     e.onFrameMove(0, 0.5);
+    expect(e.m_ptTextAlignOffset.x).toBe(0);
     e.m_DefTextAlign = 1;
-    expect(() => e.onFrameMove(0, 0.5)).toThrow("CPtoX");
+    // CPtoX(2) = 20 / 1.5 = 13.33 -> 13 at the end, 0 at the first visible character: (51 - 10) * 0.5 - (13 - 0) * 0.5 = 20.5 - 6.5 = 14
+    e.onFrameMove(0, 0.5);
+    expect(e.m_ptTextAlignOffset.x).toBe(14);
+    e.m_nFirstVisible = 1; // CPtoX(1) = 9 / 1.5 = 6: 20.5 - (13 - 6) * 0.5 = 17
+    e.onFrameMove(0, 0.5);
+    expect(e.m_ptTextAlignOffset.x).toBe(17);
     e.m_DefTextAlign = 3;
-    expect(() => e.onFrameMove(0, 0.5)).toThrow("CPtoX");
+    e.onFrameMove(0, 0.5);
+    expect(e.m_ptTextAlignOffset.x).toBe(17);
     e.m_DefTextAlign = 0xffffffff;
     e.m_bBGCheck = true;
     expect(() => e.onFrameMove(0, 0.5)).toThrow("point for its state");

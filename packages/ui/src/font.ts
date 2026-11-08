@@ -108,8 +108,8 @@ export class UKFont {
     return (idiv(ft.m_iFontSize, ft.m_EnlargeNum) + 1) | 0;
   }
 
-  /** `g_pKTDXApp->m_ResolutionScale` */
-  private get scale(): { x: number; y: number } {
+  /** `g_pKTDXApp->m_ResolutionScale` (the app's global: the text boxes' measuring, `CKTDGUIUniBuffer::CPtoX`, divides by it too) */
+  get scale(): { x: number; y: number } {
     return this.ft.resolutionScale;
   }
 

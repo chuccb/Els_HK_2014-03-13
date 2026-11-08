@@ -1,14 +1,24 @@
 /**
  * `CKTDGUIUniBuffer`: the text of an edit box (DXUT's `CUniBuffer`) with the limits the game added: a length limit, a byte limit, a width
  * and a line limit, and the modes that let only digits, only digits and letters, or one character through.  Constructor 32963A70,
- * Clear 32964210, SetBufferSize 32965870, SetText 329659E0, SetHideChar 329659C0, CPtoX 32963BA0, XtoCP 32965CC0.
+ * Clear 32964210, SetBufferSize 32965870, SetText 329659E0, SetHideChar 329659C0, CPtoX 32963BA0, CPtoY 32963E60, GetLineWidth 329648B0,
+ * XtoCP 32965CC0.
  *
  * The buffer is a pair of `wchar_t` arrays in the exe (the text and the text with the hide character); here the text is a string and the
- * capacity (`m_nBufferSize`, in characters) is a number, which is all the limits look at.  The text layout (`CPtoX`, `XtoCP`, the line
- * functions) measures with the font (`m_pFontNode`); a buffer without a font answers the way the exe does, and one with a font needs the
- * font manager, which is not ported.
+ * capacity (`m_nBufferSize`, in characters) is a number, which is all the limits look at.
+ *
+ * The measuring (`CPtoX`, `CPtoY`, `GetLineWidth`, `XtoCP`) asks the UK font of the box (`m_pFontNode`, set by the box before it draws) for
+ * the width and the height of pieces of the text, and divides by the app's resolution scale to get layout pixels; a buffer without a font
+ * answers 0.  All of them work on a copy of the text, `std::wstring(m_pwszBuffer, wcslen)`; all but `XtoCP` fill it with the hide character
+ * first when the buffer hides its text (so a password's width is that of its mask).  Three of the exe's habits are kept: a trailing
+ * line break is counted as a line by `CPtoY` and as part of the line by `GetLineWidth`; `bTrail` is never looked at, so the width up to
+ * a character and up to its trailing edge are the same; the HRESULT of `XtoCP` (1 without a font, else 0) is never below 0, so no
+ * caller can tell the two apart (the port does not return it).  A buffer that was never allocated is `wcslen(NULL)` in the exe.
  */
 import type { UKFont } from "./font.ts";
+import { ftoi } from "./rect.ts";
+
+const f = Math.fround;
 
 /** where the buffer reports its errors (the exe's `g_CKTDXLog.PushErrorLog`) */
 export interface UniBufferLog {
@@ -93,15 +103,96 @@ export class CKTDGUIUniBuffer {
     return this.m_pwszBuffer?.length ?? 0;
   }
 
-  /** `CPtoX(nCP, bTrail, &x)` (32963BA0): without a font the x is 0 */
-  CPtoX(_nCP: number, _bTrail: boolean): number {
-    if (this.m_pFontNode === null) return 0;
-    throw new Error("CKTDGUIUniBuffer::CPtoX: measuring text with a font (CUKFont::GetWidth) is not ported");
+  /**
+   * The text the measuring works on: `std::wstring(m_pwszBuffer, wcslen(m_pwszBuffer))`, every character the hide character
+   * (`std::fill`) when `m_bUseHideChar`.  A buffer nobody allocated is the exe's `wcslen(NULL)`.
+   */
+  private measured(): string {
+    const text = this.m_pwszBuffer;
+    if (text === null) throw new Error("CKTDGUIUniBuffer: no buffer is allocated; the exe measures a null pointer (wcslen)");
+    return this.m_bUseHideChar ? String.fromCharCode(this.m_cHideChar).repeat(text.length) : text;
   }
 
-  /** `XtoCP(nX, &cp, &trail)` (32965CC0): without a font the character position is 0 (and the call reports failure) */
-  XtoCP(_nX: number): { cp: number; trail: number } {
-    if (this.m_pFontNode === null) return { cp: 0, trail: 0 };
-    throw new Error("CKTDGUIUniBuffer::XtoCP: measuring text with a font (CUKFont::GetWidth) is not ported");
+  /** `(int)(float)((float)GetWidth(text) / g_pKTDXApp->m_ResolutionScale.x)`: the width of a text in layout pixels */
+  private layoutWidth(font: UKFont, text: string): number {
+    return ftoi(f(f(font.GetWidth(text)) / font.scale.x));
+  }
+
+  /**
+   * `CPtoX(nCP, bTrail, &x)` (32963BA0): the x of character `nCP` in layout pixels, 0 without a font.  Of the first `nCP` characters (an
+   * unsigned count, all of the text when it is larger) only what follows the last line break is measured, as one line.  `bTrail` is not
+   * looked at.
+   */
+  CPtoX(nCP: number, bTrail: boolean): number {
+    void bTrail;
+    const font = this.m_pFontNode;
+    if (font === null) return 0;
+    let text = this.measured().slice(0, nCP >>> 0);
+    const lf = text.lastIndexOf("\n");
+    if (lf >= 0) text = text.slice(lf + 1);
+    return this.layoutWidth(font, text);
+  }
+
+  /**
+   * `CPtoY(nCP, bTrail, &y)` (32963E60): the y of character `nCP` in layout pixels, 0 without a font: the height of the text after the
+   * last line break among the first `nCP` characters (one line, in layout pixels) times the number of line breaks.  The count stops at a
+   * line break that is the last character (it is counted, the text it ends is what is measured, without it).  `bTrail` is not looked at.
+   */
+  CPtoY(nCP: number, bTrail: boolean): number {
+    void bTrail;
+    const font = this.m_pFontNode;
+    if (font === null) return 0;
+    let text = this.measured().slice(0, nCP >>> 0);
+    let lines = 0;
+    let lf = text.indexOf("\n");
+    while (lf >= 0) {
+      lines++;
+      if (text.length - 1 <= lf) break;
+      text = text.slice(lf + 1);
+      lf = text.indexOf("\n");
+    }
+    if (text.length !== 0 && text.charCodeAt(text.length - 1) === 10) text = text.slice(0, -1);
+    return ftoi(f(f(f(font.GetHeight(text)) / font.scale.y) * f(lines)));
+  }
+
+  /**
+   * `GetLineWidth(nCP)` (329648B0): the width in layout pixels of the line `nCP` is in (0 without a font): from the character after the
+   * last line break before `nCP` (or the start) to the first line break at or after `nCP` (or the end).  The exe takes one character too
+   * many when the line starts after a line break and ends at one (the break itself, which is 0 wide).  `nCP` beyond the text is the
+   * `std::out_of_range` of `substr` (the exe does not catch it).
+   */
+  GetLineWidth(nCP: number): number {
+    const font = this.m_pFontNode;
+    if (font === null) return 0;
+    const n = nCP >>> 0;
+    const text = this.measured();
+    if (text.length < n) throw new RangeError("CKTDGUIUniBuffer::GetLineWidth: invalid string position (std::out_of_range)");
+    const last = text.slice(0, n).lastIndexOf("\n");
+    const first = text.slice(n).indexOf("\n");
+    // the exe cuts the line at `first + n` (the break itself left out) when it starts at the text's start, and one character
+    // further (the break included) when it starts after a break
+    let line: string;
+    if (last < 0) line = first >= 0 ? text.slice(0, n + first) : text;
+    else line = first >= 0 ? text.slice(last + 1, n + first + 1) : text.slice(last + 1);
+    return this.layoutWidth(font, line);
+  }
+
+  /**
+   * `XtoCP(nX, &cp, &trail)` (32965CC0): the first character whose end is at or beyond `nX` (layout pixels, turned into the back buffer's
+   * by the scale and cut): the widths of the prefixes of the text (the text itself, not the hidden one) are asked of the font one by one;
+   * the text's length when none reaches it.  The trail is always 0.  Without a font the answer is 0 (and the call fails, which nobody
+   * looks at).
+   */
+  XtoCP(nX: number): { cp: number; trail: number } {
+    const font = this.m_pFontNode;
+    if (font === null) return { cp: 0, trail: 0 };
+    const text = this.m_pwszBuffer;
+    if (text === null) throw new Error("CKTDGUIUniBuffer::XtoCP: no buffer is allocated; the exe measures a null pointer (wcslen)");
+    const x = ftoi(f(f(nX) * font.scale.x));
+    const size = text.length;
+    for (let i = 0; i < size; i++) {
+      if (font.GetWidth(text.slice(0, i + 1)) >= x) return { cp: i, trail: 0 };
+    }
+    return { cp: size, trail: 0 };
   }
 }
