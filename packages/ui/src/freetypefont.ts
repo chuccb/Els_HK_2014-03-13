@@ -13,8 +13,9 @@
  * `GetFontCache` (328DA870) hashes by character code (`m_FontCacheHashTable[65536]`); a character that is not cached takes the next
  * free cell, and when all `m_iTotalCache` cells are used the least recently used one (`dwLastUse`; `OutTextXY` restarts the stamp at
  * `timeGetTime()`).  `m_iTotalCache = 4 * 256 / cell * (256 / cell)` is NOT `4 * (256 / cell)^2` for every cell (it is more for 19:
- * 689 against 676): the cells past the fourth page take `m_pTexture[4]`, which is `m_pTextureOutLine[0]` in the object (null for a font
- * without outline): the exe dereferences it and crashes, here it is a thrown error.
+ * 689 against 676, for 27: 333 against 324, for 37: 162 against 144: four of the client's seven fonts): the cells past the fourth page
+ * take `m_pTexture[4]`, which is `m_pTextureOutLine[0]` in the object (null for a font without outline): the exe dereferences it and
+ * crashes on the 677th / 325th / 145th distinct character of such a font, here it is a thrown error.
  *
  * **Drawing.**  `Buffering` (328D9D40) writes a quad (two triangles, six vertices) per character into the page's vertex memory and
  * counts it in `m_iCandidate[page]`; `Flush` (328DA610) draws the counted quads of the pages with the font's render states

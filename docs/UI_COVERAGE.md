@@ -57,6 +57,7 @@ Textures named by the strict runs: 27804 references resolve (file in the archive
 | `CX2StatePVPRoom::CX2MapSelectWindow` (CX2MapSelectWindow) | 1 | 1 | 1 |
 | `CKTDGFontManager` (CKTDGFontManager) | 3 | 3 | 0 |
 | `KGCMassFileManager` (KGCMassFileManager) | 2 | 2 | 0 |
+| `CX2Main` (CX2Main) | 46 | 1 | 0 |
 
 ## What to port next
 

@@ -23,7 +23,7 @@ KSerializer	230	5948	32A5AA00	todo	-	packet (de)serialisation: the wire format i
 CX2State	217	24473	328C0AF0	todo		
 CX2Community	161	29693	32BA48B0	todo		
 CX2UIInventory	144	37627	32BCE1C0	todo		
-CX2Main	132	28306	329E5AE0	todo		
+CX2Main	132	28306	329E5AE0	partial	packages/ui/src/main.ts	1 of 132 functions: InstallFont 329F3F50 (and the GULIM install of Init, 329EB2A0, which the world does at boot); the rest of CX2Main (client version, server addresses, DeleteFile, ...) goes through the host layer's notPorted policy
 CX2StateServerSelect	113	24663	32D94900	todo		
 CX2Data	110	4151	32A27F00	todo		
 CX2UIQuestNew	103	17145	32CE0E10	todo		
@@ -216,8 +216,8 @@ CX2StateTrainingGame	16	1145	32F40590	todo
 CX2WeddingManager	16	2565	32F494E0	todo		
 CX2GUNPCAI	16	3428	3327D740	todo		
 CryptoPP::ByteQueue	16	544	333CB4C0	todo	-	crypto primitives of the protocol: WebCrypto or a port, decided with the network layer
-CKTDGFontManager::CUKFont	15	1915	328B4850	partial	packages/ui/src/font.ts	the constructor (328D9620) and the line height the list and combo boxes use (idiv(size, enlarge) + 1); not ported: Load, glyphs, drawing, measuring
-CKTDGFreeTypeFont	15	3757	328D9620	partial	packages/ui/src/font.ts	the constructor (328D9620) and the line height the list and combo boxes use (idiv(size, enlarge) + 1); not ported: Load, glyphs, drawing, measuring
+CKTDGFontManager::CUKFont	15	1915	328B4850	partial	packages/ui/src/font.ts	9 of 15 functions (and the deleting destructor 328B4F30, `Destroy`): constructor 328B4850, CalcTextRect 328B5010, Draw2DText 328B53C0, GetHeight 328B6EF0, GetPaddedHeight 328B7020, GetWidth (wchar_t *) 328B7150 and (wchar_t) 328B7170, OutTextMultiline 328B7C50, OutTextXY 328B7D80; not ported: Delete2DFont 328B5320, DrawFontStyle 328B5890, DrawTextFont 328B6610, Get2DArticle 328B6D20, OutProjectionText 328B7A60, Push2DText 328B7EA0
+CKTDGFreeTypeFont	15	3757	328D9620	done	packages/ui/src/freetypefont.ts	all 15 functions (and the deleting destructor 328D9C90, which `UKFont.Destroy` runs): constructor 328D9620, Buffering 328D9D40, CharToSystemTexture 328DA300, Flush 328DA610, GetFontCache 328DA870, GetWidth 328DAAD0, Load 328DAC90, OnLostDevice 328DB240, OnResetDevice 328DB270, OutTextMultiline 328DB3F0, OutTextXY 328DC670, UnLoad 328DCE70, _EstimateFontSize / _EstimateStringHeight / _EstimateStringWidth; the exe bug of the fifth page is kept (four of the seven fonts: FINDINGS 17.12)
 CX2WorldLayer	15	501	32A2AB70	todo		
 CX2CubeOpenImageManager	15	1917	32E95290	todo		
 CX2UIComboTree	15	3115	331DF540	todo		
@@ -304,7 +304,7 @@ CX2SubEquip	10	381	3327B450	todo
 CX2TalkBoxManagerUI	10	142	3328D6A0	todo		
 CryptoPP::CipherModeBase	10	138	333CB430	todo	-	crypto primitives of the protocol: WebCrypto or a port, decided with the network layer
 KncSecurity::KSecurityAssociation	10	627	333CC8F0	todo		
-CKTDGFontManager	9	972	328B45A0	partial	packages/ui/src/fontmanager.ts	CreateNewUIFont (328B5100, a no-op), CreateNewUIUKFont (328B5110), MapUIFontToUKFont (328B7800), GetUKFont; not ported: InstallFont (328B71A0), FreeType loading, glyph cache, drawing and measuring
+CKTDGFontManager	9	972	328B45A0	partial	packages/ui/src/fontmanager.ts	8 of 9 functions: constructor 328B45A0 (the FT_Library), ~ 328B4D90 (Destroy), CreateNewUIFont (328B5100, a no-op), CreateNewUIUKFont 328B5110, GetFontMemory 328B6D80, InstallFont 328B71A0, MapUIFontToUKFont 328B7800, OnLostDevice 328B79E0, OnResetDevice 328B7A20; not ported: OnFrameMove 328B7940 (the queued 2D texts)
 KFileSerializer	9	319	328E5DB0	todo		
 CKTDXDeviceRenderTargetTexture	9	509	32970D60	todo	packages/d3d9 (device side)	the class is not ported; the D3D calls it makes (D3DXCreateTexture RENDERTARGET, depth surface, SetRenderTarget / SetDepthStencilSurface, StretchRect LINEAR) are implemented and tested (packages/d3d9/test/rendertarget.test.ts)
 CX2Stat::Stat	9	523	3299B0E0	todo		
@@ -376,7 +376,7 @@ KLuabinder	7	99	328C1A30	todo
 boost::io::basic_altstringbuf<char,std::char_traits<char>,std::allocator<char>>	7	489	328E9490	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDGParticleSystem::CParticleEmitterTokenizer	7	1439	328F5460	done	packages/assets/src/effectscript.ts (tokenize), particle.ts (classifyParticleToken)	Tokenize, AddToken, DetermineTokenType, NextToken and the ProcessNumber / ProcessVector / ProcessColor helpers, with the exe's quirks kept (repeated last token, `{abc` glue, `//` inside a word, quote after a word); no native oracle exists, the independent reader checks every parsed field
 std::vector<CX2GameUnit::SoundPlayData>	7	358	32913E10	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDGDynamicTexture	7	265	32963200	todo	packages/d3d9 (device side)	the class is not ported; SYSTEMMEM LockRect + UpdateTexture to a DEFAULT texture is implemented and tested (packages/d3d9/test/texture.test.ts)
+CKTDGDynamicTexture	7	265	32963200	done	packages/ui/src/dynamictexture.ts	all 7 functions: constructor 32963200, ~ 32963240 (Destroy), CreateTexture 329632C0, LostDevice 32963490, ResetDevice 329634B0, SetChange 329635D0, SetTexture 32963600; UpdateTexture copies the whole texture (@els/d3d9 has no AddDirtyRect: the same pixels); without a device the pixels stay in an array (the port's own mode)
 std::vector<KPetInfo>	7	332	32996480	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<KRoomSlotInfo>	7	506	32996620	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<KBuffFactor>	7	513	329E3CF0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library

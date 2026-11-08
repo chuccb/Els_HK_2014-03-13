@@ -322,7 +322,7 @@ Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM i
 
 ## C++ engine classes
 
-2879 classes / 26233 methods. Status by class: done 333, n/a 1338, partial 100, todo 1108; by method: done 470, n/a 4225, partial 1835, todo 19703.
+2879 classes / 26233 methods. Status by class: done 335, n/a 1338, partial 100, todo 1106; by method: done 492, n/a 4225, partial 1952, todo 19564.
 
 The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes:
 
@@ -352,7 +352,7 @@ The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes
 | `CX2State` | 217 | 328C0AF0 | todo |   |
 | `CX2Community` | 161 | 32BA48B0 | todo |   |
 | `CX2UIInventory` | 144 | 32BCE1C0 | todo |   |
-| `CX2Main` | 132 | 329E5AE0 | todo |   |
+| `CX2Main` | 132 | 329E5AE0 | partial | packages/ui/src/main.ts 1 of 132 functions: InstallFont 329F3F50 (and the GULIM install of Init, 329EB2A0, which the world does at boot); the rest of CX2Main (client version, server addresses, DeleteFile, ...) goes through the host layer's notPorted policy |
 | `CX2StateServerSelect` | 113 | 32D94900 | todo |   |
 | `CX2Data` | 110 | 32A27F00 | todo |   |
 | `CX2UIQuestNew` | 103 | 32CE0E10 | todo |   |
