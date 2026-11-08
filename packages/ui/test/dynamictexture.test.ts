@@ -199,3 +199,122 @@ describe("CKTDGDynamicTexture with a device", () => {
     expect(dev.log).toEqual([]);
   });
 });
+
+describe("the life of the device (~CKTDGDynamicTexture 32963240, LostDevice 32963490, ResetDevice 329634B0)", () => {
+  /** a texture made on a recorder (`w` x `h`), the log cleared: the system texture is 0, the video texture 1 */
+  const made = (w = 256, h = 256) => {
+    const dev = new Recorder();
+    const hh = host(dev);
+    const t = new CKTDGDynamicTexture(hh.h);
+    t.CreateTexture(w, h, 21);
+    dev.log.length = 0;
+    return { dev, t, log: hh.log };
+  };
+
+  test("Destroy unlocks the system texture BEFORE it releases it, and releases the video texture: both go, the pointers are null; the second Destroy has nothing to do", () => {
+    const { dev, t } = made();
+    const [sys, vid] = dev.textures;
+    expect([sys!.locked, sys!.refs, vid!.refs]).toEqual([true, 1, 1]);
+    let lockedAtRelease: boolean | undefined;
+    const release = sys!.Release.bind(sys);
+    sys!.Release = () => {
+      lockedAtRelease = sys!.locked;
+      return release();
+    };
+    t.Destroy();
+    expect(lockedAtRelease).toBe(false);
+    expect([sys!.locked, sys!.refs, vid!.refs]).toEqual([false, 0, 0]);
+    expect([t.m_pTextureSys, t.m_pTextureVid]).toEqual([null, null]);
+    t.Destroy();
+    expect([sys!.refs, vid!.refs]).toEqual([0, 0]);
+  });
+
+  test("Destroy of a texture whose video texture could not be made releases the system one only; of one that was never made it does nothing", () => {
+    const dev = new Recorder();
+    dev.textureResults.push(0, E_OUTOFMEMORY);
+    const t = new CKTDGDynamicTexture(host(dev).h);
+    expect(t.CreateTexture(256, 256, 21)).toBe(false);
+    expect(dev.textures[0]!.refs).toBe(1);
+    t.Destroy();
+    expect([dev.textures[0]!.refs, t.m_pTextureSys, t.m_pTextureVid]).toEqual([0, null, null]);
+    new CKTDGDynamicTexture(host(dev).h).Destroy(); // no textures at all: no failure
+    expect(dev.textures.length).toBe(1);
+  });
+
+  test("LostDevice releases the video texture only: the system texture stays, locked, with its pixels; a second LostDevice has nothing to do", () => {
+    const { dev, t } = made();
+    const [sys, vid] = dev.textures;
+    t.pBits![9] = 0x80ffffff;
+    t.LostDevice();
+    expect([vid!.refs, t.m_pTextureVid]).toEqual([0, null]);
+    expect([sys!.refs, sys!.locked, sys!.lockCount, t.m_pTextureSys === null, t.pBits![9]]).toEqual([1, true, 1, false, 0x80ffffff]);
+    t.LostDevice();
+    expect(vid!.refs).toBe(0);
+    expect(dev.log).toEqual([]);
+  });
+
+  test("ResetDevice makes a new video texture of the same size (width first) and format, one level, in the default pool, and fills it from the system texture: unlock, UpdateTexture, lock again with D3DLOCK_NO_DIRTY_UPDATE; the update flag is cleared, the pixels are the same", () => {
+    const { dev, t, log } = made(128, 64);
+    t.pBits![7] = 0xff112233;
+    t.pBits![128 * 64 - 1] = 0x80402010;
+    t.SetChange(rect(0, 0, 8, 1)); // a change nobody has uploaded
+    expect(t.m_bUpdateTexture).toBe(true);
+    t.LostDevice();
+    t.ResetDevice();
+    expect(dev.log).toEqual(["create 2 pool 0 128x64", "update 0 2"]);
+    const [sys, , vid] = dev.textures;
+    expect([vid!.levels, vid!.usage, vid!.format, log.length]).toEqual([1, 0, 21, 0]);
+    expect(t.m_pTextureVid).toBe(vid as unknown as Direct3DTexture9);
+    const px = new Uint32Array(vid!.bits.buffer);
+    expect([px[7], px[128 * 64 - 1], px[8]]).toEqual([0xff112233, 0x80402010, 0]);
+    expect([sys!.locked, sys!.lockCount, sys!.lockFlags, dev.lockedUpdates]).toEqual([true, 2, 0x8000, []]);
+    expect([t.m_bUpdateTexture, t.dirtyRects.length]).toEqual([false, 0]);
+    expect([vid!.refs, dev.textures[1]!.refs]).toEqual([1, 0]); // the lost one stays released, the new one is held by the texture
+  });
+
+  test("ResetDevice of a texture that still has its video texture releases that one first, then does the same", () => {
+    const { dev, t } = made();
+    t.ResetDevice();
+    expect(dev.log).toEqual(["create 2 pool 0 256x256", "update 0 2"]);
+    expect([dev.textures[1]!.refs, dev.textures[2]!.refs, t.m_pTextureVid]).toEqual([0, 1, dev.textures[2] as unknown as Direct3DTexture9]);
+  });
+
+  test("a video texture that cannot be made is error 0xB, named like CreateTexture's (four are, the others have no text); the texture stays without one, the system texture is left locked as it was", () => {
+    for (const [hr, text] of [[D3DERR_NOTAVAILABLE, "D3DERR_NOTAVAILABLE"], [E_OUTOFMEMORY, "E_OUTOFMEMORY"], [D3DERR_OUTOFVIDEOMEMORY, "D3DERR_OUTOFVIDEOMEMORY"], [D3DERR_INVALIDCALL, "D3DERR_INVALIDCALL"], [-5, undefined]] as const) {
+      const { dev, t, log } = made();
+      dev.textureResults.push(hr);
+      t.ResetDevice();
+      expect(log).toEqual([{ id: 0xb, text }]);
+      expect([t.m_pTextureVid, dev.textures[1]!.refs, dev.textures[0]!.locked, dev.textures[0]!.lockCount, dev.log]).toEqual([null, 0, true, 1, []]);
+    }
+  });
+
+  test("an UpdateTexture that fails is error 0xC (\"D3DERR_INVALIDCALL.\", with the full stop) and the rest goes on: the flag is cleared and the system texture locked again", () => {
+    const { dev, t, log } = made();
+    dev.UpdateTexture = (() => D3DERR_INVALIDCALL) as typeof dev.UpdateTexture;
+    t.SetChange(rect(0, 0, 2, 2));
+    t.ResetDevice();
+    expect(log).toEqual([{ id: 0xc, text: "D3DERR_INVALIDCALL." }]);
+    expect([t.m_bUpdateTexture, dev.textures[0]!.locked, dev.textures[0]!.lockCount, t.m_pTextureVid === null]).toEqual([false, true, 2, false]);
+  });
+
+  test("a texture with no system texture is given a video texture and nothing to copy", () => {
+    const { dev, t, log } = made();
+    t.m_pTextureSys = null;
+    t.ResetDevice();
+    expect(dev.log).toEqual(["create 2 pool 0 256x256"]);
+    expect([t.m_pTextureVid === null, log]).toEqual([false, []]);
+  });
+
+  test("without a device the pixels are on the CPU only: LostDevice, ResetDevice and Destroy leave them alone and cost nothing", () => {
+    const { h, log } = host(null);
+    const t = new CKTDGDynamicTexture(h);
+    t.CreateTexture(256, 256, 21);
+    t.pBits![3] = 0x12345678;
+    t.SetChange(rect(0, 0, 4, 4));
+    t.LostDevice();
+    t.ResetDevice();
+    t.Destroy();
+    expect([t.pBits![3], t.m_bUpdateTexture, log.length]).toEqual([0x12345678, true, 0]);
+  });
+});

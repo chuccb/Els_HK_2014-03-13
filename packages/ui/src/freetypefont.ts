@@ -34,9 +34,16 @@
  * | `GetFontCache` | 328DA870 |
  * | `GetWidth` | 328DAAD0 |
  * | `Load` | 328DAC90 |
+ * | `OnLostDevice` / `OnResetDevice` | 328DB240 / 328DB270 |
  * | `OutTextMultiline` | 328DB3F0 |
  * | `OutTextXY` | 328DC670 |
+ * | `UnLoad` | 328DCE70 |
  * | `_EstimateFontSize` / `_EstimateStringHeight` / `_EstimateStringWidth` | 328DCFA0 / 328DD020 / 328DD090 |
+ *
+ * **Device life.**  A reset of the device (`OnLostDevice` then `OnResetDevice`, which the font manager passes on) drops the default-pool
+ * page textures and makes them again from the system ones, so the glyphs stay; only when the resolution scale has changed the size of the
+ * font (`m_iFontSize`) is a new one and everything is made anew (`UnLoad`, `Load`).  `UnLoad` (the `CUKFont` destructor's call) gives the
+ * pages, the cells, the hash table and the vertex memory back; the faces are not closed (the exe leaks them; the next `Load` opens new ones).
  */
 import { FtError, FtErr, FtFace, bitmapCopy, bitmapEmbolden, loadGlyph, renderGlyph, setCharSize, Bitmap } from "@els/freetype";
 import type { FtLibrary } from "@els/freetype";
@@ -345,6 +352,66 @@ export class CKTDGFreeTypeFont {
     }
     this.m_bLoad = true;
     return true;
+  }
+
+  // ---- device life (328DCE70, 328DB240, 328DB270) ---------------------------------------------------------------------------------------
+
+  /**
+   * `UnLoad(bComplete)` (328DCE70; `bComplete` is not looked at): when loaded, the font is not any more; the eight page textures are
+   * destroyed and dropped, the cells and their array are given back, the hash table is cleared (no cell, no size known, 0 x 0) and the
+   * page vertex memory freed.  The faces, the counts (`m_iCandidate`, `m_iTotalCache`, `m_iSizeArray`) and the stamp stay as they are.  A font
+   * that is not loaded keeps everything it has.
+   */
+  UnLoad(bComplete: boolean): void {
+    void bComplete;
+    if (!this.m_bLoad) return;
+    this.m_bLoad = false;
+    for (let i = 0; i < 4; i++) {
+      this.m_pTexture[i]?.Destroy();
+      this.m_pTexture[i] = null;
+      this.m_pTextureOutLine[i]?.Destroy();
+      this.m_pTextureOutLine[i] = null;
+    }
+    this.m_FontCacheArray = null;
+    this.hashCell.fill(-1);
+    this.hashSizeKnown.fill(0);
+    this.hashCx.fill(0);
+    this.hashCy.fill(0);
+    for (let i = 0; i < 4; i++) {
+      this.m_apPageVertex[i] = null;
+      this.pageF32[i] = null;
+      this.pageU32[i] = null;
+    }
+  }
+
+  /** `OnLostDevice()` (328DB240): every page texture (main and outline, for each of the four pages that exist) loses its video texture */
+  OnLostDevice(): void {
+    for (let i = 0; i < 4; i++) {
+      this.m_pTexture[i]?.LostDevice();
+      this.m_pTextureOutLine[i]?.LostDevice();
+    }
+  }
+
+  /**
+   * `OnResetDevice()` (328DB270): a font that is not loaded is loaded.  A loaded one whose size is not what the resolution scale makes of
+   * `m_iOrgFontSize` now (`(int)((float)org * scale.y)`, the scale left out for `m_bNoRes`) is unloaded (the exe repeats `UnLoad`'s body: the
+   * pages are deleted too) and loaded again; then every page texture makes its video texture again (also the pages `Load` has just made).
+   */
+  OnResetDevice(): void {
+    if (this.m_bLoad) {
+      let org = f(this.m_iOrgFontSize);
+      if (!this.m_bNoRes) org = f(org * this.resolutionScale.y);
+      if (this.m_iFontSize !== ftoi(org)) {
+        this.UnLoad(true);
+        this.Load();
+      }
+      for (let i = 0; i < 4; i++) {
+        this.m_pTexture[i]?.ResetDevice();
+        this.m_pTextureOutLine[i]?.ResetDevice();
+      }
+    } else {
+      this.Load();
+    }
   }
 
   // ---- the glyph cache ----------------------------------------------------------------------------------------------------------------

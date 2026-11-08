@@ -14,9 +14,14 @@
  *
  * | member | address |
  * |---|---|
+ * | `~CKTDGDynamicTexture` (`Destroy`) | 32963240 |
  * | `CreateTexture` | 329632C0 |
+ * | `LostDevice` | 32963490 |
+ * | `ResetDevice` | 329634B0 |
  * | `SetChange` | 329635D0 |
  * | `SetTexture` | 32963600 |
+ *
+ * A C++ destructor is a method `Destroy()` (a TypeScript class has none): the exe's own `delete` / `~X()` call sites call it.
  */
 import { D3DLOCK, D3DPOOL, D3DXCreateTexture } from "@els/d3d9";
 import type { Direct3DDevice9, Direct3DTexture9 } from "@els/d3d9";
@@ -155,5 +160,63 @@ export class CKTDGDynamicTexture {
       hr = target.device.SetTexture(iStage, vid);
     }
     if (hr < 0) this.host.log.push(0xd);
+  }
+
+  /**
+   * `~CKTDGDynamicTexture` (32963240): the system texture is unlocked and released, the video one released (the exe's `delete` then frees the
+   * object).  The pixel array the object still holds is the exe's dangling `m_LockedRect`: nothing may use it any more.
+   */
+  Destroy(): void {
+    const sys = this.m_pTextureSys;
+    if (sys) {
+      sys.UnlockRect(0);
+      sys.Release();
+      this.m_pTextureSys = null;
+    }
+    const vid = this.m_pTextureVid;
+    if (vid) {
+      vid.Release();
+      this.m_pTextureVid = null;
+    }
+  }
+
+  /**
+   * `LostDevice()` (32963490): the device is going to be reset: the default-pool texture is released (it cannot survive a `Reset`).  The
+   * system texture, which holds the pixels, stays, still locked.
+   */
+  LostDevice(): void {
+    const vid = this.m_pTextureVid;
+    if (vid) {
+      vid.Release();
+      this.m_pTextureVid = null;
+    }
+  }
+
+  /**
+   * `ResetDevice()` (329634B0): the device is back.  The old video texture (if any) is released, a new one made (`D3DXCreateTexture`, one
+   * level, usage 0, pool 0, the size and format `CreateTexture` was given) and filled from the system texture: unlock, mark it all dirty
+   * (`AddDirtyRect(NULL)`; `UpdateTexture` here copies all of it anyway), `UpdateTexture` (a failure is error 0xC with the text
+   * `"D3DERR_INVALIDCALL."`, and goes on), the update flag cleared, locked again (`D3DLOCK_NO_DIRTY_UPDATE`).  A texture that cannot be made
+   * is error 0xB (named like `CreateTexture`'s) and stays without a video texture.  Without a device (the pixels on the CPU only) nothing is
+   * to be done.
+   */
+  ResetDevice(): void {
+    const device = this.host.device;
+    if (!device) return;
+    this.LostDevice(); // the exe releases the old texture first, the same two lines
+    const made = D3DXCreateTexture(device, this.m_dwWidth, this.m_dwHeight, 1, 0, this.m_d3dFormat, D3DPOOL.DEFAULT);
+    if (made.hr < 0 || !made.tex) {
+      this.host.log.push(0xb, hresultName(made.hr));
+      return;
+    }
+    this.m_pTextureVid = made.tex;
+    const sys = this.m_pTextureSys;
+    if (sys) {
+      sys.UnlockRect(0);
+      if (device.UpdateTexture(sys, made.tex) < 0) this.host.log.push(0xc, "D3DERR_INVALIDCALL.");
+      this.m_bUpdateTexture = false;
+      this.dirtyRects.length = 0; // (the port's list of what AddDirtyRect collected: all of it went)
+      this.lock();
+    }
   }
 }

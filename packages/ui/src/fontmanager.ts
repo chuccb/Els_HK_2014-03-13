@@ -13,6 +13,10 @@
  * Not a Lua method but what the scripts reach through `g_pMain:InstallFont` (main.ts): `InstallFont(name, path)` (328B71A0) reads a font
  * file and files it under the upper-cased name; `GetFontMemory(name)` (328B6D80) is how a glyph font finds its bytes.  The manager
  * also owns the one `FT_Library` (`m_FreeTypeLibrary`, made by its constructor 328B45A0) every face of every font is opened with.
+ *
+ * The life of the device: `OnLostDevice` (328B79E0) / `OnResetDevice` (328B7A20) pass a reset on to the glyph font of every UK font of
+ * the list (freetypefont.ts); the destructor `~CKTDGFontManager` (328B4D90) is `Destroy()` here (a C++ destructor is a TypeScript
+ * `Destroy()`): every UK font is deleted (`~CUKFont`, 328B4F30, gives the pages back) and the lists and maps are emptied.
  */
 import { FtLibrary } from "@els/freetype";
 import type { CKTDGFontManager_Methods } from "@els/host";
@@ -94,5 +98,30 @@ export class CKTDGFontManager implements Partial<CKTDGFontManager_Methods>, Font
   /** `MapUIFontToUKFont(fontID, ukFontID)` (328B7800) */
   MapUIFontToUKFont(fontID: number, ukFontID: number): void {
     this.fonts.mapUIFontToUKFont(fontID, ukFontID);
+  }
+
+  /**
+   * `~CKTDGFontManager` (328B4D90): the `FT_Library` is done (`FT_Done_FreeType`: the port's library is plain memory), every UK font of
+   * the list is deleted (`~CUKFont`: its glyph font gives the page textures back) and the list emptied, then the maps of the font
+   * names and files are erased.  The dialog manager's lookups still hold the deleted fonts (the exe's dangling pointers): a font used
+   * after this has no glyph font and throws.
+   */
+  Destroy(): void {
+    for (const font of this.m_UKFontList) font.Destroy();
+    this.m_UKFontList.length = 0;
+    this.m_mapFontFileMemory.clear();
+    this.m_mapFontNameFile.clear();
+  }
+
+  /** `OnLostDevice()` (328B79E0): the glyph font of every UK font of the list loses its video textures; S_OK */
+  OnLostDevice(): number {
+    for (const font of this.m_UKFontList) font.m_pUKFont?.OnLostDevice();
+    return 0;
+  }
+
+  /** `OnResetDevice()` (328B7A20): the glyph font of every UK font of the list makes its video textures again; S_OK */
+  OnResetDevice(): number {
+    for (const font of this.m_UKFontList) font.m_pUKFont?.OnResetDevice();
+    return 0;
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { UIFonts } from "../src/font.ts";
+import { UIFonts, UKFont } from "../src/font.ts";
 import { CKTDGFontManager } from "../src/fontmanager.ts";
 import { CX2Main } from "../src/main.ts";
 import { fontWorld } from "./fontworld.ts";
@@ -134,5 +134,61 @@ describe("CX2Main::InstallFont (329F3F50)", () => {
     const main = new CX2Main(fm);
     expect(main.InstallFont("F", "f.ttf")).toBe(false);
     expect(main.m_UseFontNameList).toEqual([]);
+  });
+});
+
+describe("the life of the device: ~CKTDGFontManager (328B4D90), OnLostDevice (328B79E0), OnResetDevice (328B7A20), ~CUKFont (328B4F30)", () => {
+  /** a world with two UK fonts: `a` (an outline: 8 page textures, 16 Direct3D textures 0..15) and `b` (none: 4 pages, textures 16..23) */
+  const twoFonts = () => {
+    const world = fontWorld();
+    const fm = world.w.fontManager;
+    fm.CreateNewUIUKFont(1, "BOXFONT", 16, 400, 1, 1, true);
+    fm.CreateNewUIUKFont(2, "BOXFONT", 12, 400, 1, 0, true);
+    return { ...world, fm, dev: world.dev!, a: world.w.fonts.getUKFont(1)!, b: world.w.fonts.getUKFont(2)! };
+  };
+
+  test("~CUKFont unloads the glyph font (its pages go) and deletes it; a font without a glyph font is a null dereference", () => {
+    const { a, dev } = twoFonts();
+    const ft = a.m_pUKFont!;
+    expect(ft.m_bLoad).toBe(true);
+    a.Destroy();
+    expect([a.m_pUKFont, ft.m_bLoad, ft.m_pTexture[0]]).toEqual([null, false, null]);
+    expect(dev.textures.slice(0, 16).every((t) => t.refs === 0)).toBe(true);
+    expect(dev.textures.slice(16).every((t) => t.refs === 1)).toBe(true); // the other font's are as they were
+    expect(() => a.Destroy()).toThrow(/m_pUKFont is null/);
+    expect(() => new UKFont(5).Destroy()).toThrow(/m_pUKFont is null/);
+  });
+
+  test("~CKTDGFontManager deletes every UK font of its list (their pages go), empties the list and erases the maps of the names and the files; again it has nothing to do", () => {
+    const { fm, a, b, dev, w } = twoFonts();
+    expect([fm.m_UKFontList.length, fm.m_mapFontNameFile.size > 0, fm.m_mapFontFileMemory.size > 0]).toEqual([2, true, true]);
+    fm.Destroy();
+    expect([a.m_pUKFont, b.m_pUKFont]).toEqual([null, null]);
+    expect(dev.textures.length).toBe(24);
+    expect(dev.textures.every((t) => t.refs === 0)).toBe(true);
+    expect([fm.m_UKFontList.length, fm.m_mapFontNameFile.size, fm.m_mapFontFileMemory.size]).toEqual([0, 0, 0]);
+    // the dialog manager's lookup still holds them (the exe's dangling pointers); used, they have no glyph font
+    expect(w.fonts.getUKFont(1)).toBe(a);
+    expect(() => a.lineHeight()).toThrow(/m_pUKFont is null/);
+    expect(() => fm.Destroy()).not.toThrow();
+  });
+
+  test("OnLostDevice passes it to the glyph font of every UK font of the list (a font without one is skipped) and answers S_OK", () => {
+    const { fm, dev } = twoFonts();
+    fm.m_UKFontList.splice(1, 0, new UKFont(9)); // no glyph font
+    expect(fm.OnLostDevice()).toBe(0);
+    expect(dev.textures.map((t) => t.refs)).toEqual([...Array.from({ length: 16 }, (_, i) => (i % 2 === 0 ? 1 : 0)), 1, 0, 1, 0, 1, 0, 1, 0]);
+  });
+
+  test("OnResetDevice makes the video textures of the fonts again, in the order of the list (a font without a glyph font is skipped), and answers S_OK", () => {
+    const { fm, dev } = twoFonts();
+    fm.m_UKFontList.splice(1, 0, new UKFont(9));
+    dev.log.length = 0;
+    expect(fm.OnResetDevice()).toBe(0);
+    // font a: 8 pages with system textures 0, 2, ..., 14, its new video textures 24 ..; font b: 4 pages, systems 16, 18, 20, 22, new ones 32 ..
+    const want: string[] = [];
+    for (let i = 0; i < 8; i++) want.push(`create ${24 + i} pool 0 256x256`, `update ${2 * i} ${24 + i}`);
+    for (let i = 0; i < 4; i++) want.push(`create ${32 + i} pool 0 256x256`, `update ${16 + 2 * i} ${32 + i}`);
+    expect(dev.log).toEqual(want);
   });
 });

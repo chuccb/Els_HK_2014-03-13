@@ -23,7 +23,7 @@ T = 'packages/ui/test/'
 TESTS = {
     'freetypefont.ts': [T + 'freetypefont.test.ts'],
     'dynamictexture.ts': [T + 'dynamictexture.test.ts', T + 'freetypefont.test.ts'],
-    'font.ts': [T + 'freetypefont.test.ts', T + 'combobox.test.ts'],
+    'font.ts': [T + 'fontmanager.test.ts', T + 'freetypefont.test.ts', T + 'combobox.test.ts'],
     'fontmanager.ts': [T + 'fontmanager.test.ts', T + 'freetypefont.test.ts', T + 'combobox.test.ts'],
     'main.ts': [T + 'fontmanager.test.ts', T + 'combobox.test.ts'],
 }
@@ -70,8 +70,8 @@ m(FT, 'textureHost: the log of the mass file manager', 'log: host.devices.massFi
 
 # ---- Load
 m(FT, 'Load: a loaded font is not loaded again', 'if (this.m_bLoad) return true;', '')
-m(FT, 'Load: the size follows the resolution unless bNoRes', 'if (!this.m_bNoRes) org =', 'if (this.m_bNoRes) org =')
-m(FT, 'Load: the size does not follow the resolution', 'if (!this.m_bNoRes) org =', 'if (false) org =')
+m(FT, 'Load: the size follows the resolution unless bNoRes', 'if (!this.m_bNoRes) org = f(org * (host', 'if (this.m_bNoRes) org = f(org * (host')
+m(FT, 'Load: the size does not follow the resolution', 'if (!this.m_bNoRes) org = f(org * (host', 'if (false) org = f(org * (host')
 m(FT, 'Load: the resolution is the y scale', 'host.render.resolutionScale.y : 1));', 'host.render.resolutionScale.x : 1));')
 m(FT, 'Load: the scaled size is cut, not rounded', 'this.m_iFontSize = ftoi(org);', 'this.m_iFontSize = Math.round(org);')
 m(FT, 'Load: the cell is the size, the outline twice and 2', 'const cell = (this.m_iFontSize + 2 * this.m_iOutLineSize + 2) | 0;', 'const cell = (this.m_iFontSize + 2 * this.m_iOutLineSize + 1) | 0;')
@@ -115,7 +115,7 @@ m(FT, 'Load: an outline page that cannot be made says the font name', 'log.push(
 m(FT, 'Load: an outline page is 256 wide', 'outline.CreateTexture(256, 256, 21)', 'outline.CreateTexture(128, 256, 21)')
 m(FT, 'Load: an outline page is made for a font with an outline of 1', 'if (this.m_iOutLineSize > 0) {\n        const outline', 'if (this.m_iOutLineSize > 1) {\n        const outline')
 m(FT, 'Load: an outline page is not made for a font without an outline', 'if (this.m_iOutLineSize > 0) {\n        const outline', 'if (this.m_iOutLineSize >= 0) {\n        const outline')
-m(FT, 'Load: the hash table starts empty', 'this.hashCell.fill(-1);\n    this.hashSizeKnown.fill(0);', 'this.hashCell.fill(0);\n    this.hashSizeKnown.fill(0);')
+m(FT, 'Load: the hash table starts empty', 'new SGCFontCache());\n    this.hashCell.fill(-1);\n    this.hashSizeKnown.fill(0);', 'new SGCFontCache());\n    this.hashCell.fill(0);\n    this.hashSizeKnown.fill(0);')
 m(FT, 'Load: the vertex memory is six vertices a candidate', 'const bytes = 6 * this.m_iNumCandidatesInAPage * this.vertexStride;', 'const bytes = 5 * this.m_iNumCandidatesInAPage * this.vertexStride;')
 m(FT, 'Load: every page has vertex memory', 'for (let page = 0; page < 4; page++) {\n      const bytes', 'for (let page = 0; page < 3; page++) {\n      const bytes')
 m(FT, 'Load: the font is loaded at the end', 'this.m_bLoad = true;\n    return true;', 'return true;')
@@ -480,6 +480,45 @@ m(FT, 'OutTextMultiline: the outline pass is flushed', 'pass(true);\n      this.
 m(FT, 'OutTextMultiline: the text pass is a pass', 'pass(false);\n    this.Flush(false, -1);', 'this.Flush(false, -1);')
 m(FT, 'OutTextMultiline: the text is flushed', 'pass(false);\n    this.Flush(false, -1);', 'pass(false);')
 
+# ---- device life: UnLoad, OnLostDevice, OnResetDevice
+UL = 'this.m_bLoad = false;\n    for (let i = 0; i < 4; i++) {\n      this.m_pTexture[i]?.Destroy();'
+m(FT, 'UnLoad: a font that is not loaded keeps everything', '    if (!this.m_bLoad) return;\n    this.m_bLoad = false;\n    for (let i = 0; i < 4; i++) {\n      this.m_pTexture[i]?.Destroy();', '    this.m_bLoad = false;\n    for (let i = 0; i < 4; i++) {\n      this.m_pTexture[i]?.Destroy();')
+m(FT, 'UnLoad: a font that is loaded is not any more', UL, 'for (let i = 0; i < 4; i++) {\n      this.m_pTexture[i]?.Destroy();')
+m(FT, 'UnLoad: all four pages are destroyed', UL, 'this.m_bLoad = false;\n    for (let i = 0; i < 3; i++) {\n      this.m_pTexture[i]?.Destroy();')
+m(FT, 'UnLoad: the main pages are destroyed', '      this.m_pTexture[i]?.Destroy();\n      this.m_pTexture[i] = null;', '      this.m_pTexture[i] = null;')
+m(FT, 'UnLoad: the main pages are dropped', '      this.m_pTexture[i]?.Destroy();\n      this.m_pTexture[i] = null;', '      this.m_pTexture[i]?.Destroy();')
+m(FT, 'UnLoad: the outline pages are destroyed', '      this.m_pTextureOutLine[i]?.Destroy();\n      this.m_pTextureOutLine[i] = null;', '      this.m_pTextureOutLine[i] = null;')
+m(FT, 'UnLoad: the outline pages are dropped', '      this.m_pTextureOutLine[i]?.Destroy();\n      this.m_pTextureOutLine[i] = null;', '      this.m_pTextureOutLine[i]?.Destroy();')
+m(FT, 'UnLoad: the cells are given back', '    this.m_FontCacheArray = null;\n    this.hashCell.fill(-1);', '    this.hashCell.fill(-1);')
+HT = '    this.hashCell.fill(-1);\n    this.hashSizeKnown.fill(0);\n    this.hashCx.fill(0);\n    this.hashCy.fill(0);\n    for (let i = 0; i < 4; i++) {\n      this.m_apPageVertex[i] = null;'
+m(FT, 'UnLoad: the hash table has no cell', HT, HT.replace('    this.hashCell.fill(-1);\n', '', 1))
+m(FT, 'UnLoad: no size is known', HT, HT.replace('    this.hashSizeKnown.fill(0);\n', '', 1))
+m(FT, 'UnLoad: no width is known', HT, HT.replace('    this.hashCx.fill(0);\n', '', 1))
+m(FT, 'UnLoad: no height is known', HT, HT.replace('    this.hashCy.fill(0);\n', '', 1))
+m(FT, 'UnLoad: the vertex memory is freed', '      this.m_apPageVertex[i] = null;\n      this.pageF32[i] = null;', '      this.pageF32[i] = null;')
+m(FT, 'UnLoad: all four vertex memories are freed', '    for (let i = 0; i < 4; i++) {\n      this.m_apPageVertex[i] = null;', '    for (let i = 0; i < 3; i++) {\n      this.m_apPageVertex[i] = null;')
+m(FT, 'UnLoad: the typed views of the vertex memory are dropped', '      this.pageF32[i] = null;\n      this.pageU32[i] = null;', '',
+  'equivalent: the views are the port\'s own aliases of the memory the exe frees, and nothing reads them once the memory pointer is null (Flush looks at the pointer, Buffering fails in GetFontCache first)')
+m(FT, 'OnLostDevice: the main pages lose their video texture', '      this.m_pTexture[i]?.LostDevice();', '')
+m(FT, 'OnLostDevice: the outline pages lose theirs', '      this.m_pTextureOutLine[i]?.LostDevice();', '')
+m(FT, 'OnLostDevice: all four pages', '  OnLostDevice(): void {\n    for (let i = 0; i < 4; i++) {', '  OnLostDevice(): void {\n    for (let i = 0; i < 3; i++) {')
+m(FT, 'OnResetDevice: a font that is not loaded is loaded', '    } else {\n      this.Load();\n    }\n  }', '    } else {\n    }\n  }')
+m(FT, 'OnResetDevice: a loaded font of the right size is left alone', 'if (this.m_iFontSize !== ftoi(org)) {\n        this.UnLoad(true);', 'if (true) {\n        this.UnLoad(true);')
+m(FT, 'OnResetDevice: a size that is not the right one is a reason (only a smaller one)', 'if (this.m_iFontSize !== ftoi(org)) {', 'if (this.m_iFontSize > ftoi(org)) {')
+m(FT, 'OnResetDevice: a size that is not the right one is a reason (only a bigger one)', 'if (this.m_iFontSize !== ftoi(org)) {', 'if (this.m_iFontSize < ftoi(org)) {')
+m(FT, 'OnResetDevice: a font of another size is unloaded', '        this.UnLoad(true);\n        this.Load();', '        this.Load();')
+m(FT, 'OnResetDevice: a font of another size is loaded again', '        this.UnLoad(true);\n        this.Load();', '        this.UnLoad(true);')
+m(FT, 'OnResetDevice: the new pages get their video textures made too', '        this.UnLoad(true);\n        this.Load();\n      }', '        this.UnLoad(true);\n        this.Load();\n        return;\n      }')
+m(FT, 'OnResetDevice: the scale is applied', '      if (!this.m_bNoRes) org = f(org * this.resolutionScale.y);', '')
+m(FT, 'OnResetDevice: the scale is not applied to a font that does not follow the resolution', 'if (!this.m_bNoRes) org = f(org * this.resolutionScale.y);', 'if (this.m_bNoRes) org = f(org * this.resolutionScale.y);')
+m(FT, 'OnResetDevice: the scale is the y one', 'org = f(org * this.resolutionScale.y);', 'org = f(org * this.resolutionScale.x);')
+m(FT, 'OnResetDevice: the scaled size is rounded', 'this.m_iFontSize !== ftoi(org)', 'this.m_iFontSize !== Math.round(org)')
+m(FT, 'OnResetDevice: the scaled size is rounded up', 'this.m_iFontSize !== ftoi(org)', 'this.m_iFontSize !== Math.ceil(org)')
+m(FT, 'OnResetDevice: the main pages make their video textures again', '        this.m_pTexture[i]?.ResetDevice();', '')
+m(FT, 'OnResetDevice: the outline pages make theirs', '        this.m_pTextureOutLine[i]?.ResetDevice();', '')
+m(FT, 'OnResetDevice: all four pages', '      for (let i = 0; i < 4; i++) {\n        this.m_pTexture[i]?.ResetDevice();', '      for (let i = 0; i < 3; i++) {\n        this.m_pTexture[i]?.ResetDevice();')
+m(FT, 'OnResetDevice: the outline page of a page is made after the page', '        this.m_pTexture[i]?.ResetDevice();\n        this.m_pTextureOutLine[i]?.ResetDevice();', '        this.m_pTextureOutLine[i]?.ResetDevice();\n        this.m_pTexture[i]?.ResetDevice();')
+
 # ---- font.ts: CUKFont
 FO = 'font.ts'
 SC = 'const rect = this.scaledRect(pRt);\n    const s = this.scale;\n    const x = ftoi(f(f(iLeft) * s.x));\n    const y = ftoi(f(f(iTop) * s.y));\n    this.ft.'
@@ -582,6 +621,12 @@ m(FO, 'CUKFont.CalcTextRect: a negative count is the whole text', 'const n = nCo
 m(FO, 'CUKFont.CalcTextRect: lines are as high as the text over the enlargement', 'pos.bottom = (pos.top + idiv(ft._EstimateStringHeight(strMsg, n), ft.m_EnlargeNum)) | 0;', 'pos.bottom = (pos.top + ft._EstimateStringHeight(strMsg, n)) | 0;')
 m(FO, 'CUKFont.CalcTextRect: lines are from the top', 'pos.bottom = (pos.top + idiv(ft._EstimateStringHeight(strMsg, n), ft.m_EnlargeNum)) | 0;', 'pos.bottom = idiv(ft._EstimateStringHeight(strMsg, n), ft.m_EnlargeNum) | 0;')
 
+m('font.ts', 'Destroy: the glyph font is unloaded', '    this.ft.UnLoad(true);\n    this.m_pUKFont = null;', '    this.m_pUKFont = null;')
+m('font.ts', 'Destroy: the glyph font is dropped', '    this.ft.UnLoad(true);\n    this.m_pUKFont = null;', '    this.ft.UnLoad(true);')
+m('font.ts', 'Destroy: a font without a glyph font is a null dereference', '    this.ft.UnLoad(true);', '    this.m_pUKFont?.UnLoad(true);')
+m('font.ts', 'Destroy: the glyph font is unloaded completely', '    this.ft.UnLoad(true);', '    this.ft.UnLoad(false);',
+  'equivalent: UnLoad (328DCE70) does not look at bComplete')
+
 # ---- dynamictexture.ts
 DT = 'dynamictexture.ts'
 m(DT, 'CreateTexture: the size is kept', 'this.m_dwWidth = dwWidth >>> 0;\n    this.m_dwHeight = dwHeight >>> 0;', 'this.m_dwHeight = dwHeight >>> 0;')
@@ -621,7 +666,7 @@ m(DT, 'SetChange: a change is a copy of the rectangle', 'this.dirtyRects.push({ 
 m(DT, 'SetChange: a change needs an update', 'this.m_bUpdateTexture = true;\n      }\n    }\n  }', '}\n    }\n  }')
 m(DT, 'SetTexture: a change is uploaded', 'if (this.m_bUpdateTexture) {\n      this.m_bUpdateTexture = false;', 'if (!this.m_bUpdateTexture) {\n      this.m_bUpdateTexture = false;')
 m(DT, 'SetTexture: an upload is done once', 'if (this.m_bUpdateTexture) {\n      this.m_bUpdateTexture = false;', 'if (this.m_bUpdateTexture) {')
-m(DT, 'SetTexture: an upload empties the dirty rectangles', 'this.dirtyRects.length = 0;', '')
+m(DT, 'SetTexture: an upload empties the dirty rectangles', 'this.dirtyRects.length = 0;\n      const sys = this.m_pTextureSys;', 'const sys = this.m_pTextureSys;')
 m(DT, 'SetTexture: the system texture is unlocked first', 'sys.UnlockRect(0);\n        this.host.device.UpdateTexture', 'this.host.device.UpdateTexture')
 m(DT, 'SetTexture: the system texture is copied to the video texture', 'this.host.device.UpdateTexture(sys, this.m_pTextureVid);', 'this.host.device.UpdateTexture(this.m_pTextureVid, sys);')
 m(DT, 'SetTexture: the system texture is locked again', 'this.host.device.UpdateTexture(sys, this.m_pTextureVid);\n        this.lock();', 'this.host.device.UpdateTexture(sys, this.m_pTextureVid);')
@@ -638,6 +683,45 @@ m(DT, 'SetTexture: the mirror holds a reference', 'mirror[iStage] = vid;\n      
 m(DT, 'SetTexture: a stage from 16 calls the device', 'hr = target.device.SetTexture(iStage, vid);\n    }\n    if (hr < 0)', 'hr = 0;\n    }\n    if (hr < 0)')
 m(DT, 'SetTexture: a failing SetTexture is error 0xD', 'if (hr < 0) this.host.log.push(0xd);', 'if (hr < 0) this.host.log.push(0xe);')
 m(DT, 'SetTexture: only a failing SetTexture is logged', 'if (hr < 0) this.host.log.push(0xd);', 'this.host.log.push(0xd);')
+
+DS = '      sys.UnlockRect(0);\n      sys.Release();\n      this.m_pTextureSys = null;'
+m(DT, 'Destroy: the system texture is unlocked', DS, '      sys.Release();\n      this.m_pTextureSys = null;')
+m(DT, 'Destroy: the system texture is unlocked before it is released', DS, '      sys.Release();\n      sys.UnlockRect(0);\n      this.m_pTextureSys = null;')
+m(DT, 'Destroy: the system texture is released', DS, '      sys.UnlockRect(0);\n      this.m_pTextureSys = null;')
+m(DT, 'Destroy: the system texture is dropped', DS, '      sys.UnlockRect(0);\n      sys.Release();')
+m(DT, 'Destroy: no system texture is fine', '    const sys = this.m_pTextureSys;\n    if (sys) {\n      sys.UnlockRect(0);\n      sys.Release();', '    const sys = this.m_pTextureSys;\n    if (true) {\n      sys!.UnlockRect(0);\n      sys!.Release();')
+DV = '    const vid = this.m_pTextureVid;\n    if (vid) {\n      vid.Release();\n      this.m_pTextureVid = null;\n    }\n  }\n\n  /**\n   * `LostDevice()`'
+m(DT, 'Destroy: the video texture is released', DV, DV.replace('      vid.Release();\n', '', 1))
+m(DT, 'Destroy: the video texture is dropped', DV, DV.replace('      this.m_pTextureVid = null;\n', '', 1))
+m(DT, 'Destroy: no video texture is fine', DV, DV.replace('if (vid) {', 'if (true) {').replace('vid.Release()', 'vid!.Release()'))
+LV = '  LostDevice(): void {\n    const vid = this.m_pTextureVid;\n    if (vid) {\n      vid.Release();\n      this.m_pTextureVid = null;\n    }'
+m(DT, 'LostDevice: the video texture is released', LV, LV.replace('      vid.Release();\n', '', 1))
+m(DT, 'LostDevice: the video texture is dropped', LV, LV.replace('      this.m_pTextureVid = null;\n', '', 1))
+m(DT, 'LostDevice: no video texture is fine', LV, LV.replace('if (vid) {', 'if (true) {').replace('vid.Release()', 'vid!.Release()'))
+m(DT, 'LostDevice: the system texture stays', LV, LV.replace('    const vid = this.m_pTextureVid;\n', '    this.m_pTextureSys?.Release();\n    const vid = this.m_pTextureVid;\n', 1))
+m(DT, 'LostDevice: the system texture stays locked', LV, LV.replace('    const vid = this.m_pTextureVid;\n', '    this.m_pTextureSys?.UnlockRect(0);\n    const vid = this.m_pTextureVid;\n', 1))
+m(DT, 'ResetDevice: without a device nothing happens', '    if (!device) return;\n    this.LostDevice();', '    this.LostDevice();')
+m(DT, 'ResetDevice: the old video texture is released first', '    this.LostDevice(); // the exe releases the old texture first, the same two lines', '    // the exe releases the old texture first, the same two lines')
+RD = 'D3DXCreateTexture(device, this.m_dwWidth, this.m_dwHeight, 1, 0, this.m_d3dFormat, D3DPOOL.DEFAULT);\n    if (made.hr'
+m(DT, 'ResetDevice: the new texture is of the size (width first)', RD, RD.replace('this.m_dwWidth, this.m_dwHeight', 'this.m_dwHeight, this.m_dwWidth'))
+m(DT, 'ResetDevice: the new texture has one level', RD, RD.replace(', 1, 0,', ', 0, 0,'))
+m(DT, 'ResetDevice: the new texture has usage 0', RD, RD.replace(', 1, 0,', ', 1, 1,'))
+m(DT, 'ResetDevice: the new texture has the format', RD, RD.replace('this.m_d3dFormat', '22'))
+m(DT, 'ResetDevice: the new texture is in the default pool', RD, RD.replace('D3DPOOL.DEFAULT', 'D3DPOOL.MANAGED'))
+m(DT, 'ResetDevice: a failure is error 0xB', 'this.host.log.push(0xb, hresultName(made.hr));', 'this.host.log.push(0xc, hresultName(made.hr));')
+m(DT, 'ResetDevice: a failure has the name of the HRESULT', 'this.host.log.push(0xb, hresultName(made.hr));', 'this.host.log.push(0xb);')
+m(DT, 'ResetDevice: a failure ends it', 'this.host.log.push(0xb, hresultName(made.hr));\n      return;', 'this.host.log.push(0xb, hresultName(made.hr));')
+m(DT, 'ResetDevice: no texture without a texture', 'if (made.hr < 0 || !made.tex) {', 'if (made.hr < 0) {')
+m(DT, 'ResetDevice: the video texture is kept', '    this.m_pTextureVid = made.tex;\n    const sys', '    const sys')
+m(DT, 'ResetDevice: no system texture is fine', '    const sys = this.m_pTextureSys;\n    if (sys) {\n      sys.UnlockRect(0);\n      if (device', '    const sys = this.m_pTextureSys;\n    if (true) {\n      sys!.UnlockRect(0);\n      if (device')
+m(DT, 'ResetDevice: the system texture is unlocked', '      sys.UnlockRect(0);\n      if (device', '      if (device')
+m(DT, 'ResetDevice: the system texture is the source', 'device.UpdateTexture(sys, made.tex)', 'device.UpdateTexture(made.tex, sys)')
+m(DT, 'ResetDevice: an UpdateTexture that fails is error 0xC', 'this.host.log.push(0xc, "D3DERR_INVALIDCALL.");', 'this.host.log.push(0xb, "D3DERR_INVALIDCALL.");')
+m(DT, 'ResetDevice: an UpdateTexture that fails has its text with the full stop', 'this.host.log.push(0xc, "D3DERR_INVALIDCALL.");', 'this.host.log.push(0xc, "D3DERR_INVALIDCALL");')
+m(DT, 'ResetDevice: only a failing UpdateTexture is logged', 'UpdateTexture(sys, made.tex) < 0)', 'UpdateTexture(sys, made.tex) <= 0)')
+m(DT, 'ResetDevice: nothing is waiting to be uploaded', '      this.m_bUpdateTexture = false;\n      this.dirtyRects.length = 0; // (the port', '      this.dirtyRects.length = 0; // (the port')
+m(DT, 'ResetDevice: the dirty rectangles went', '      this.dirtyRects.length = 0; // (the port\'s list of what AddDirtyRect collected: all of it went)\n      this.lock();', '      this.lock();')
+m(DT, 'ResetDevice: the system texture is locked again', '      this.dirtyRects.length = 0; // (the port\'s list of what AddDirtyRect collected: all of it went)\n      this.lock();', '      this.dirtyRects.length = 0; // (the port\'s list of what AddDirtyRect collected: all of it went)')
 
 # ---- fontmanager.ts
 FM = 'fontmanager.ts'
@@ -669,6 +753,18 @@ m(FM, 'CreateNewUIUKFont: the glyph font is loaded', 'glyphFont.Load(); // the C
 m(FM, 'CreateNewUIUKFont: the font is listed', 'this.m_UKFontList.push(font);', '')
 m(FM, 'CreateNewUIUKFont: the font is entered under its id', 'this.fonts.setUKFont(fontID, font);', '')
 m(FM, 'MapUIFontToUKFont: the dialog manager maps it', 'this.fonts.mapUIFontToUKFont(fontID, ukFontID);', '')
+
+m(FM, 'Destroy: every UK font is deleted', '    for (const font of this.m_UKFontList) font.Destroy();\n', '')
+m(FM, 'Destroy: the list is emptied', '    this.m_UKFontList.length = 0;\n', '')
+m(FM, 'Destroy: the files are erased', '    this.m_mapFontFileMemory.clear();\n    this.m_mapFontNameFile.clear();\n  }', '    this.m_mapFontNameFile.clear();\n  }')
+m(FM, 'Destroy: the names are erased', '    this.m_mapFontFileMemory.clear();\n    this.m_mapFontNameFile.clear();\n  }', '    this.m_mapFontFileMemory.clear();\n  }')
+m(FM, 'OnLostDevice: the fonts lose their video textures', '    for (const font of this.m_UKFontList) font.m_pUKFont?.OnLostDevice();', '')
+m(FM, 'OnLostDevice: a font without a glyph font is skipped', 'font.m_pUKFont?.OnLostDevice();', 'font.m_pUKFont!.OnLostDevice();')
+m(FM, 'OnLostDevice: S_OK', 'font.m_pUKFont?.OnLostDevice();\n    return 0;', 'font.m_pUKFont?.OnLostDevice();\n    return 1;')
+m(FM, 'OnResetDevice: the fonts make their video textures again', '    for (const font of this.m_UKFontList) font.m_pUKFont?.OnResetDevice();', '')
+m(FM, 'OnResetDevice: a font without a glyph font is skipped', 'font.m_pUKFont?.OnResetDevice();', 'font.m_pUKFont!.OnResetDevice();')
+m(FM, 'OnResetDevice: S_OK', 'font.m_pUKFont?.OnResetDevice();\n    return 0;', 'font.m_pUKFont?.OnResetDevice();\n    return 1;')
+m(FM, 'OnResetDevice: it is the reset that is passed on', 'font.m_pUKFont?.OnResetDevice();', 'font.m_pUKFont?.OnLostDevice();')
 
 # ---- main.ts
 MA = 'main.ts'

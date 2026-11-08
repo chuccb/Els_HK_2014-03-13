@@ -1615,3 +1615,167 @@ describe("colour codes, pages and the clock: the edges", () => {
     expect([cell2("A").dwLastUse, cell2("B").dwLastUse, centred.ft.m_dwCurrentStamp]).toEqual([5000, 5001, 5002]);
   });
 });
+
+describe("the life of the device: UnLoad (328DCE70), OnLostDevice (328DB240), OnResetDevice (328DB270)", () => {
+  const A = code("A");
+  /** the creates of `n` textures made after `first` (the recorder gives them ids in order): a system texture, then its video texture */
+  const creates = (first: number, n: number) => Array.from({ length: n }, (_, i) => `create ${first + i} pool ${i % 2 === 0 ? 2 : 0} 256x256`);
+  const allClear = (ft: ReturnType<typeof onDevice>["ft"]) => ft.hashCell.every((v) => v === -1) && ft.hashSizeKnown.every((v) => v === 0) && ft.hashCx.every((v) => v === 0) && ft.hashCy.every((v) => v === 0);
+
+  test("UnLoad: the font is not loaded any more, its eight page textures are destroyed (unlocked, released) and dropped, the cells, the hash table and the vertex memory are gone; the faces, the counts and the quads that wait in a page stay", () => {
+    const { ft, dev } = onDevice(16, 1);
+    ft.GetFontCache(A);
+    ft._EstimateFontSize(code("B"));
+    ft.Buffering(false, 10, 10, "A", 0xffffffff, 0, false, -1, 1, 1, 0);
+    expect([ft.hashCell[65], ft.hashSizeKnown[66]]).toEqual([0, 1]);
+    expect(ft.hashCx[66]).toBeGreaterThan(0);
+    expect(ft.hashCy[66]).toBeGreaterThan(0);
+    expect(dev.textures.every((t) => t.refs === 1)).toBe(true);
+    const [face, sub, kor] = [ft.m_FreeTypeFace, ft.m_FreeTypeSubFace, ft.m_KoreanFreeTypeFace];
+    const [total, size, stamp] = [ft.m_iTotalCache, ft.m_iSizeArray, ft.m_dwCurrentStamp];
+    expect([ft.m_pTexture, ft.m_pTextureOutLine].flat().every((t) => t !== null)).toBe(true);
+
+    ft.UnLoad(true);
+    expect(ft.m_bLoad).toBe(false);
+    expect(ft.m_pTexture.every((t) => t === null) && ft.m_pTextureOutLine.every((t) => t === null)).toBe(true);
+    expect(dev.textures.length).toBe(16);
+    expect(dev.textures.map((t) => [t.refs, t.locked])).toEqual(Array.from({ length: 16 }, () => [0, false]));
+    expect(ft.m_FontCacheArray).toBeNull();
+    expect(ft.m_apPageVertex.every((b) => b === null)).toBe(true);
+    expect(allClear(ft)).toBe(true);
+    // what UnLoad does not touch
+    expect([ft.m_iTotalCache, ft.m_iSizeArray, ft.m_dwCurrentStamp, ft.m_iCandidate]).toEqual([total, size, stamp, [1, 0, 0, 0]]);
+    expect([ft.m_FreeTypeFace === face, ft.m_FreeTypeSubFace === sub, ft.m_KoreanFreeTypeFace === kor]).toEqual([true, true, true]);
+    expect([face, sub, kor].every((x) => x !== null)).toBe(true);
+  });
+
+  test("bComplete is not looked at: UnLoad(false) does the same, for a font without an outline too (four pages)", () => {
+    const { ft, dev } = onDevice(16, 0);
+    ft.UnLoad(false);
+    expect([ft.m_bLoad, ft.m_pTexture.every((t) => t === null), ft.m_FontCacheArray, ft.m_apPageVertex.every((b) => b === null)]).toEqual([false, true, null, true]);
+    expect(dev.textures.map((t) => t.refs)).toEqual(Array(8).fill(0));
+  });
+
+  test("a font that is not loaded keeps everything it has (a font made loaded by hand: UnLoad does nothing); one that never was has nothing to give back", () => {
+    const { ft, dev } = onDevice(16, 1);
+    ft.m_bLoad = false;
+    ft.UnLoad(true);
+    expect(ft.m_pTexture.every((t) => t !== null) && ft.m_pTextureOutLine.every((t) => t !== null)).toBe(true);
+    expect([ft.m_FontCacheArray === null, ft.m_apPageVertex.every((b) => b !== null)]).toEqual([false, true]);
+    expect(dev.textures.every((t) => t.refs === 1)).toBe(true);
+    const { font } = fontWorld();
+    const never = font(16);
+    never.UnLoad(true);
+    expect([never.m_bLoad, never.m_FontCacheArray]).toEqual([false, null]);
+  });
+
+  test("a Load after UnLoad starts afresh: new page textures, an empty cache (the first character takes the first cell again)", () => {
+    const { ft, dev } = onDevice(16, 0);
+    expect(ft.GetFontCache(A).iLeft).toBe(0);
+    expect(ft.GetFontCache(code("B")).iLeft).toBe(18); // B is in the second cell of the first row (cells are 18 wide)
+    ft.UnLoad(true);
+    dev.log.length = 0;
+    expect(ft.Load()).toBe(true);
+    expect(dev.log).toEqual(creates(8, 8));
+    expect(allClear(ft)).toBe(true);
+    const b = ft.GetFontCache(code("B"));
+    expect([b.iPage, b.iLeft, b.iTop]).toEqual([0, 0, 0]);
+  });
+
+  test("OnLostDevice: every page texture, the outline pages too, loses its video texture (released); the system textures stay, locked", () => {
+    const { ft, dev } = onDevice(16, 1);
+    ft.OnLostDevice();
+    // 16 textures: a system one then a video one for every page, the outline page after its page
+    expect(dev.textures.map((t) => t.refs)).toEqual(Array.from({ length: 16 }, (_, i) => (i % 2 === 0 ? 1 : 0)));
+    expect(dev.textures.filter((_, i) => i % 2 === 0).every((t) => t.locked)).toBe(true);
+    expect([ft.m_pTexture, ft.m_pTextureOutLine].flat().map((t) => t!.m_pTextureVid)).toEqual(Array(8).fill(null));
+    expect(ft.m_bLoad).toBe(true);
+  });
+
+  test("OnLostDevice of a font without an outline loses four video textures; of one that is not loaded it does nothing", () => {
+    const { ft, dev } = onDevice(16, 0);
+    ft.OnLostDevice();
+    expect(dev.textures.map((t) => t.refs)).toEqual([1, 0, 1, 0, 1, 0, 1, 0]);
+    const { font } = fontWorld();
+    expect(() => font(16).OnLostDevice()).not.toThrow();
+  });
+
+  test("OnResetDevice of a loaded font whose size is unchanged makes every page's video texture again, page 0, its outline page, page 1, ... from the system texture; the cells, the faces and the pages stay", () => {
+    const { ft, dev } = onDevice(16, 1);
+    const cell = ft.GetFontCache(A);
+    const [cache, face, page0] = [ft.m_FontCacheArray, ft.m_FreeTypeFace, ft.m_pTexture[0]!];
+    expect(page0.m_bUpdateTexture).toBe(true); // the glyph is in the system texture only
+    ft.OnLostDevice();
+    ft.OnResetDevice();
+    // the pages' system textures are 0, 2, 4, ... (the video ones 1, 3, ...): the new video textures are 16, 17, ...
+    const want: string[] = [];
+    for (let n = 0; n < 4; n++) want.push(`create ${16 + 2 * n} pool 0 256x256`, `update ${4 * n} ${16 + 2 * n}`, `create ${17 + 2 * n} pool 0 256x256`, `update ${4 * n + 2} ${17 + 2 * n}`);
+    expect(dev.log).toEqual(want);
+    expect([ft.m_bLoad, ft.m_FontCacheArray === cache, ft.m_FreeTypeFace === face, ft.m_pTexture[0] === page0, ft.GetFontCache(A) === cell]).toEqual([true, true, true, true, true]);
+    expect(page0.m_bUpdateTexture).toBe(false);
+    // the glyph is in the new video texture
+    expect(dev.textures[0]!.bits.some((b) => b !== 0)).toBe(true);
+    expect(Buffer.compare(dev.textures[16]!.bits, dev.textures[0]!.bits)).toBe(0);
+    expect(dev.textures.map((t) => t.refs)).toEqual([1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, ...Array(8).fill(1)]);
+  });
+
+  test("OnResetDevice of a font whose size the resolution scale has changed unloads it and loads it again (new cells, new pages), then makes the video textures once more", () => {
+    const { font, w, dev } = fontWorld(); // 1536 x 1536: scale (1.5, 2)
+    const ft = font(8, 1, 2); // 16 px by the layout: 32 on this back buffer, a cell of 32 + 2 + 2 = 36
+    expect(ft.Load()).toBe(true);
+    expect([ft.m_iFontSize, ft.m_iFontCacheSize, ft.m_iTotalCache]).toEqual([32, 36, 28 * 7]); // 1024 / 36 = 28, 256 / 36 = 7
+    ft.GetFontCache(A);
+    const [cache, page0, face] = [ft.m_FontCacheArray, ft.m_pTexture[0], ft.m_FreeTypeFace];
+    w.render!.setBackBufferSize(1536, 768); // scale (1.5, 1)
+    dev!.log.length = 0;
+    ft.OnResetDevice();
+    // 16 px, a cell of 20: 1024 / 20 = 51, 256 / 20 = 12, 768 / 20 = 38
+    expect([ft.m_iFontSize, ft.m_iFontCacheSize, ft.m_iTotalCache, ft.m_iNumCandidatesInAPage, ft.m_bLoad]).toEqual([16, 20, 51 * 12, 38 * 12, true]);
+    expect([ft.m_FontCacheArray === cache, ft.m_pTexture[0] === page0, ft.m_FreeTypeFace === face, ft.hashCell[65]]).toEqual([false, false, false, -1]);
+    expect(dev!.textures.slice(0, 16).map((t) => [t.refs, t.locked])).toEqual(Array.from({ length: 16 }, () => [0, false])); // the old pages are destroyed
+    // Load made 16 textures (16 .. 31: main 0 is 16 and 17, its outline page 18 and 19, ...), then ResetDevice makes the 8 video textures again
+    const want = creates(16, 16);
+    for (let n = 0; n < 4; n++) want.push(`create ${32 + 2 * n} pool 0 256x256`, `update ${16 + 4 * n} ${32 + 2 * n}`, `create ${33 + 2 * n} pool 0 256x256`, `update ${18 + 4 * n} ${33 + 2 * n}`);
+    expect(dev!.log).toEqual(want);
+  });
+
+  test("the size is the original size times the scale's y (x is not looked at), cut to an integer, and a size that is the same is left alone: scale (2, 1.5) takes 16 to 24 and a cell of 28; 13 at 1.5 is 19, not 20", () => {
+    const { ft, w } = onDevice(8, 1, 2, true, {}, false); // 1536 x 1536: 16 -> 32
+    const cache = ft.m_FontCacheArray;
+    ft.OnResetDevice();
+    expect(ft.m_FontCacheArray === cache).toBe(true); // 32 = (int)(16 * 2): the same size (with x it would be 24)
+    w.render!.setBackBufferSize(2048, 1152); // (2, 1.5)
+    ft.OnResetDevice();
+    expect([ft.m_iFontSize, ft.m_iFontCacheSize, ft.m_FontCacheArray === cache]).toEqual([24, 28, false]);
+    const odd = onDevice(13, 0, 1, true, {}, false, { width: 1536, height: 1152 }); // (1.5, 1.5)
+    expect(odd.ft.m_iFontSize).toBe(19); // (int)19.5
+    const oddCache = odd.ft.m_FontCacheArray;
+    odd.ft.OnResetDevice();
+    expect(odd.ft.m_FontCacheArray === oddCache).toBe(true);
+  });
+
+  test("a font that does not follow the resolution (bNoRes) is not made again when the scale changes; one that is not the size it should be is", () => {
+    const { ft, w } = onDevice(16, 0, 1, true, {}, true);
+    const cache = ft.m_FontCacheArray;
+    w.render!.setBackBufferSize(512, 384);
+    ft.OnResetDevice();
+    expect([ft.m_FontCacheArray === cache, ft.m_iFontSize]).toEqual([true, 16]);
+    ft.m_iFontSize = 5; // not what the font wants: 16
+    ft.OnResetDevice();
+    expect([ft.m_FontCacheArray === cache, ft.m_iFontSize]).toEqual([false, 16]);
+  });
+
+  test("OnResetDevice of a font that is not loaded loads it (and makes no video texture again); a font whose files are not there stays unloaded, the error is the one Load reports", () => {
+    const { ft, dev } = onDevice(16, 0);
+    ft.UnLoad(true);
+    dev.log.length = 0;
+    ft.OnResetDevice();
+    expect(ft.m_bLoad).toBe(true);
+    expect(dev.log).toEqual(creates(8, 8)); // Load's pages and nothing else: no `update`
+    const { font, w } = fontWorld({ main: null });
+    const lost = font(16);
+    lost.OnResetDevice();
+    expect(lost.m_bLoad).toBe(false);
+    expect(w.messageBoxes).toEqual([{ text: "BOXFONT", caption: "Font Load Error!" }]);
+  });
+});

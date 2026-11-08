@@ -11,6 +11,7 @@
  *
  * | `CUKFont` member | address |
  * |---|---|
+ * | `~CUKFont` (`Destroy`) | 328B4F30 |
  * | `CalcTextRect` | 328B5010 |
  * | `Draw2DText` | 328B53C0 |
  * | `GetHeight` / `GetPaddedHeight` | 328B6EF0 / 328B7020 |
@@ -48,9 +49,18 @@ export class UKFont {
   constructor(
     /** not in the exe: the id the font was entered under (a diagnostic) */
     readonly id: number,
-    /** `CUKFont::m_pUKFont` */
-    readonly m_pUKFont: CKTDGFreeTypeFont | null = null,
+    /** `CUKFont::m_pUKFont` (null after `Destroy`) */
+    public m_pUKFont: CKTDGFreeTypeFont | null = null,
   ) {}
+
+  /**
+   * `~CUKFont` (328B4F30): the queued 2D texts are dropped (`m_vecFont2D`: `Push2DText` is not ported, so there are none), the glyph font
+   * is unloaded (`UnLoad(true)`: its pages, cells and vertex memory go) and deleted.  The exe dereferences `m_pUKFont` without a look.
+   */
+  Destroy(): void {
+    this.ft.UnLoad(true);
+    this.m_pUKFont = null;
+  }
 
   /** `m_pUKFont`, which the exe dereferences without a look (a null one is a crash there) */
   private get ft(): CKTDGFreeTypeFont {
