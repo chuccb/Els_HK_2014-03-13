@@ -13,7 +13,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { CKTDGUIButton, CKTDGUIComboBox, CKTDGUIEditBox, CKTDGUIListBox, CKTDGUIRadioButton, CKTDGUISlot, CKTDGUIStatic, FONT_STYLE, LBIT, SCS, UIStringData, UKFont } from "../src/index.ts";
+import { CKTDGUIButton, CKTDGUIComboBox, CKTDGUIEditBox, CKTDGUIIMEEditBox, CKTDGUIListBox, CKTDGUIRadioButton, CKTDGUISlot, CKTDGUIStatic, FONT_STYLE, LBIT, SCS, UIStringData, UKFont } from "../src/index.ts";
 import type { CKTDGUIDialog, UIWorld } from "../src/index.ts";
 import { Color } from "@els/host";
 import { gpuAvailable } from "../../d3d9/test/gpu-helper.ts";
@@ -26,19 +26,15 @@ const dataDir = join(import.meta.dir, "..", "..", "..", "data");
 const haveData = existsSync(join(dataDir, "x2.exe")) && existsSync(join(dataDir, "data036.kom")) && existsSync(join(dataDir, "general.ess"));
 const HAVE_GPU = haveData && (await gpuAvailable());
 
-/** the control classes whose `OnFrameRender` is not ported yet: each shown one is counted as not drawn */
-const NOT_PORTED = ["CKTDGUIIMEEditBox"];
-
 /**
- * What the dialog counts as not drawn: each movie of a shown static (`CMovieData::OnFrameRender` is not ported) and each shown control of a
- * class that is not ported (`NOT_PORTED`; only the messenger window has one); nothing else is missing (every other control class of these
- * dialogs is drawn, the strings of the statics, buttons, radio buttons, combo boxes, list boxes and slots included)
+ * What the dialog counts as not drawn: each movie of a shown static (`CMovieData::OnFrameRender` is not ported); nothing else is missing (every
+ * control class of these dialogs is drawn, the strings of the statics, buttons, radio buttons, combo boxes, list boxes and slots included, and
+ * the edit boxes and the IME edit boxes)
  */
 function expectedUndrawn(dlg: CKTDGUIDialog): Record<string, number> {
   const out: Record<string, number> = {};
   for (const c of drawnControls(dlg)) {
     if (c instanceof CKTDGUIStatic && c.m_MovieDataList.length > 0) out["CMovieData::OnFrameRender"] = (out["CMovieData::OnFrameRender"] ?? 0) + c.m_MovieDataList.length;
-    if (NOT_PORTED.includes(c.constructor.name)) out[c.constructor.name] = (out[c.constructor.name] ?? 0) + 1;
   }
   return out;
 }
@@ -75,6 +71,7 @@ function expectedStrings(dlg: CKTDGUIDialog, w: UIWorld): Spoken[] {
     } else if (c instanceof CKTDGUIListBox) out.push(...listBoxStrings(c, w));
     else if (c instanceof CKTDGUISlot && c.m_pStringData) out.push({ method: "OutTextMultiline", text: c.m_pStringData.msg });
     else if (c instanceof CKTDGUIEditBox) out.push(...editBoxStrings(c));
+    else if (c instanceof CKTDGUIIMEEditBox) out.push(...imeBoxStrings(c, w));
   }
   return out;
 }
@@ -91,6 +88,36 @@ function editBoxStrings(c: CKTDGUIEditBox): Spoken[] {
   if (c.m_nCaret !== c.m_nSelStart) {
     const start = Math.max(c.m_nFirstVisible, Math.min(c.m_nCaret, c.m_nSelStart));
     out.push({ method: "DrawTextFont", text: text.slice(start, Math.max(c.m_nCaret, c.m_nSelStart)) });
+  }
+  return out;
+}
+
+/**
+ * What an IME edit box says: what the edit box says (the text from the first visible character on, no hiding, and the selected part again), and
+ * for a focused box the composition string after them (`RenderComposition`: one piece, as a string that fits the text rectangle is, an empty one
+ * too; then each character of the attribute 1 or 3 by itself), then the window of the candidates, one line (the text and its selected part again)
+ * when the list is horizontal (the reading window and a vertical list are not said here).
+ */
+function imeBoxStrings(c: CKTDGUIIMEEditBox, w: UIWorld): Spoken[] {
+  const typed = c.m_Buffer.m_pwszBuffer ?? "";
+  const out: Spoken[] = [{ method: "DrawTextFont", text: typed.slice(c.m_nFirstVisible) }];
+  if (c.m_nCaret !== c.m_nSelStart) {
+    const start = Math.max(c.m_nFirstVisible, Math.min(c.m_nCaret, c.m_nSelStart));
+    out.push({ method: "DrawTextFont", text: typed.slice(start, Math.max(c.m_nCaret, c.m_nSelStart)) });
+  }
+  if (!c.m_bHasFocus) return out;
+  const ime = w.ime;
+  const comp = ime.s_CompString.m_pwszBuffer ?? "";
+  out.push({ method: "DrawTextFont", text: comp });
+  for (let i = 0; i < comp.length; i++) {
+    const attribute = ime.s_abCompStringAttr[i];
+    if (attribute === 1 || attribute === 3) out.push({ method: "DrawTextFont", text: comp[i]! });
+  }
+  expect([ime.s_bShowReadingWindow, ime.s_bVerticalCand]).toEqual([false, false]);
+  if (ime.s_CandList.bShowWindow) {
+    const line = ime.s_CandList.HoriCand.m_pwszBuffer ?? "";
+    out.push({ method: "DrawTextFont", text: line });
+    out.push({ method: "DrawTextFont", text: line.slice(ime.s_CandList.nFirstSelected, ime.s_CandList.nFirstSelected + ime.s_CandList.nHoriSelectedLen) });
   }
   return out;
 }
@@ -299,12 +326,33 @@ suite("dialogs drawn through @els/d3d9 by the ported UI", () => {
     // Korean) and the scroll bar
     { name: "DLG_CHATBOX_EMOTION_LIST", covers: 5_000, classes: { CKTDGUIListBox: 1, CKTDGUIStatic: 1 } },
     { name: "DLG_TITLE_WINDOW", covers: 150_000, classes: { CKTDGUIListBox: 3, CKTDGUIButton: 14, CKTDGUIStatic: 4, CKTDGUICheckBox: 1 } },
-    // a list the game fills: group rows (the plus and minus marks), a selected row, a dimmed one, one of its own colour, more rows than fit
+    // a list the game fills: group rows (the plus and minus marks), a selected row, a dimmed one, one of its own colour, more rows than fit; and
+    // the chat line (an IME edit box that has the focus): five typed characters with four of them selected, a composition string of two
+    // characters (the first converted, the second not: the clause is drawn over it a character at a time) with the caret between them, and the
+    // candidates of a Hong Kong layout (0x0C04) as one line with the second one selected.  Drawn as rectangles (`DrawRect`, the diffuse colour
+    // alone): the selection, the caret, the window of the composition string, two clauses (without a width: the x of a trailing edge is the x
+    // of the character), the caret of the string, the window of the candidates and its selection
     {
       name: "DLG_MESSENGER_WINDOW",
       covers: 20_000,
       classes: { CKTDGUIListBox: 1, CKTDGUIButton: 7, CKTDGUIIMEEditBox: 1 },
-      prepare: (dlg) => {
+      flatQuads: 8,
+      prepare: (dlg, w) => {
+        const chat = dlg.m_ControlsList.find((c): c is CKTDGUIIMEEditBox => c instanceof CKTDGUIIMEEditBox)!;
+        expect([chat.m_bHasFocus, chat.m_bShow, chat.m_pFont !== null]).toEqual([true, true, true]);
+        expect(chat.m_Buffer.SetText("Hello")).toBe(true);
+        chat.m_nSelStart = 1;
+        chat.m_nCaret = 5;
+        const ime = w.ime;
+        ime.s_hklCurrent = 0x0c04;
+        expect(ime.s_CompString.SetText("\u4f60\u597d")).toBe(true);
+        ime.s_abCompStringAttr[0] = 1;
+        ime.s_abCompStringAttr[1] = 3;
+        ime.s_nCompCaret = 1;
+        expect(ime.s_CandList.HoriCand.SetText("1.\u4f60 2.\u59b3 3.\u6ce5 4.\u5c3c")).toBe(true);
+        ime.s_CandList.nFirstSelected = 4; // "2.\u59b3"
+        ime.s_CandList.nHoriSelectedLen = 3;
+        ime.s_CandList.bShowWindow = true;
         const box = dlg.m_ControlsList.find((c): c is CKTDGUIListBox => c instanceof CKTDGUIListBox)!;
         box.addItem("Friends (3)", null, 0, LBIT.GROUP_MINUS, false, 0);
         box.addItem("Aisha", null, 1, LBIT.DEFAULT, false, 0);

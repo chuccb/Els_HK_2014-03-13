@@ -105,6 +105,8 @@ export class UIRender {
   readonly dvb: CKTDGDynamicVBManager;
   /** `g_pKTDXApp->m_ResolutionScale`: the factor from the 1024 x 768 the UI is laid out in to the pixels of the back buffer */
   readonly resolutionScale = new Vec2(1, 1);
+  /** `g_pKTDXApp->m_ViewPort` (`Width`, `Height`): the size of the back buffer, which `CKTDXApp::OnResetDevice` takes over; 1024 x 768 until one is given */
+  readonly viewport = { width: 1024, height: 768 };
 
   /**
    * Not in the exe: what the UI was asked to draw whose drawing is not ported yet (a control class, or a part of one such as its strings),
@@ -130,6 +132,8 @@ export class UIRender {
    */
   setBackBufferSize(width: number, height: number): void {
     this.resolutionScale.set(Math.fround(Math.fround(width) * 0.0009765625), Math.fround(Math.fround(height) / 768));
+    this.viewport.width = width;
+    this.viewport.height = height;
   }
 
   /** a drawing step that is not ported: counted, not drawn */

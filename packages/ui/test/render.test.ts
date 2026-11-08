@@ -64,6 +64,15 @@ describe("VertexUI4 and the tables", () => {
     r.setBackBufferSize(1280, 720); // 1280 / 1024, 720 / 768
     expect([r.resolutionScale.x, r.resolutionScale.y]).toEqual([1.25, 0.9375]);
   });
+
+  test("m_ViewPort (Width, Height) is the size of the back buffer too (CKTDXApp::OnResetDevice 328C4FC0): 1024 x 768 until one is given", () => {
+    const r = new UIRender(new Recorder() as never);
+    expect([r.viewport.width, r.viewport.height]).toEqual([1024, 768]);
+    r.setBackBufferSize(800, 600);
+    expect([r.viewport.width, r.viewport.height]).toEqual([800, 600]);
+    r.setBackBufferSize(1280, 720);
+    expect([r.viewport.width, r.viewport.height]).toEqual([1280, 720]);
+  });
 });
 
 describe("CKTDGUIControl.updateVertex (32927FB0)", () => {

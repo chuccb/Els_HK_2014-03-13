@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { StringTable } from "@els/assets";
-import { CKTDGUIDialog, CKTDGUIIMEEditBox, CKTDGUIUniBuffer, UCT, UIFonts, UKFont, UIWorld } from "../src/index.ts";
+import { CKTDGUIDialog, CKTDGUIIMEEditBox, CKTDGUIUniBuffer, UCT, UIFonts, UKFont, UIWorld, VertexUI4 } from "../src/index.ts";
 import { indexAllKoms, KomMassFileSource } from "../../../tools/komindex.ts";
 import { setup } from "./harness.ts";
 
@@ -117,7 +117,7 @@ describe("CKTDGUIIMEEditBox", () => {
     expect([e.m_bOutlineCheck, e.m_bBGCheck, e.m_bCaretOn, e.m_bInsertMode, e.m_bMouseDrag, e.m_bEnablePaste, e.m_bIsForceSendCustomMsgChange]).toEqual([false, false, true, true, false, true, false]);
     expect([e.m_nCaret, e.m_nSelStart, e.m_nFirstVisible, e.m_GroupID, e.m_GroupSequence]).toEqual([0, 0, 0, -1, -1]);
     expect([e.m_pFont, e.m_pNormalTex, e.m_pDisableTex, e.m_pNormalPoint, e.m_pDisablePoint, e.m_pTextPoint]).toEqual([null, null, null, null, null, null]);
-    expect(e.m_Vertex.length).toBe(4);
+    expect(e.m_Vertex).toBeInstanceOf(VertexUI4); // m_Vertex[4]: the quad of the background
     expect(e.m_rcText).toEqual({ left: 0, top: 0, right: 0, bottom: 0 });
     // the buffer: made with one character (room for two), cleared
     expect([e.m_Buffer.m_nBufferSize, e.m_Buffer.m_pwszBuffer]).toEqual([2, ""]);
