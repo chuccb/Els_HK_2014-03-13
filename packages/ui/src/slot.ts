@@ -12,13 +12,18 @@
  *
  * `CKTDGUISlot::CKTDGUISlot` 329507F0, SetItemTex_LUA 32953E40 (-> SetItemTex(file, key) 329535F0), SetItemTex_LUA2 32953B00,
  * SetMouseOverTex_LUA 32954140, SetPoint_LUA 329543F0, SetMouseOverPoint_LUA 32954030, SetString_LUA 32954570,
- * SetAllPointDatabyNormalPoint 329534D0, ChangeState 32950FB0, SetEnable 329535C0, SetShow 329544F0.
+ * SetAllPointDatabyNormalPoint 329534D0, ChangeState 32950FB0, SetEnable 329535C0, SetShow 329544F0.  The drawing: OnFrameRender 32952670,
+ * DrawEdge 32951310, RenderDragSlot 32952DD0, UpdateDraggingVertex 329545B0.
  */
+import { D3DRS } from "@els/d3d9";
 import { Color, KLuaManager, Vec2 } from "@els/host";
 import type { CKTDGUISlot_Methods, CX2CouponBox_Methods, CX2PostBox_Methods, CX2SlotManager_Methods, CX2SlotManager__CX2Slot_Methods } from "@els/host";
-import { CKTDGUIControl, UCT, UIM, UIPointData, readStringData, setTexureData, wholeTextureData } from "./control.ts";
+import { CKTDGUIControl, UCT, UIM, UIPointData, clampedByte, readStringData, setTexureData, wholeTextureData } from "./control.ts";
 import type { CPictureData, UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceSound, DeviceTexture } from "./device.ts";
+import { ftoi } from "./rect.ts";
+import { DIALOG_SAMPLER_STATES, RSI_UI_DIALOG, VertexUI4 } from "./render.ts";
+import { drawUKString } from "./stringdraw.ts";
 
 const f = Math.fround;
 
@@ -77,6 +82,10 @@ export class CKTDGUISlot extends CKTDGUIControl implements Partial<CKTDGUISlot_M
   m_iID = -1;
   /** `UIEdge.tga` */
   readonly m_pEdgeTexture: DeviceTexture | undefined;
+  /** `m_Vertex[4]`: the quad being drawn */
+  readonly m_Vertex = new VertexUI4();
+  /** `m_DragVertex[4]`: the quad of the slot being dragged, which follows the mouse */
+  readonly m_DragVertex = new VertexUI4();
 
   constructor(ctx: UIContext) {
     super(ctx);
@@ -140,15 +149,141 @@ export class CKTDGUISlot extends CKTDGUIControl implements Partial<CKTDGUISlot_M
       default:
         break;
     }
-    for (const key of [...this.m_mapAdditionalPictureDataList.keys()].sort((a, b) => a - b)) {
-      const picture = this.m_mapAdditionalPictureDataList.get(key);
-      if (picture && picture.bShow) picture.onFrameMove(fTime, fElapsedTime);
-    }
+    for (const picture of this.additionalPictures()) if (picture.bShow) picture.onFrameMove(fTime, fElapsedTime);
     return 0;
+  }
+
+  /** `m_mapAdditionalPictureDataList` walked the way a `std::map<int, ...>` is: in the order of the keys */
+  private additionalPictures(): CPictureData[] {
+    return [...this.m_mapAdditionalPictureDataList.keys()].sort((a, b) => a - b).map((key) => this.m_mapAdditionalPictureDataList.get(key)!);
   }
 
   override textureData(out: UITextureData[]): void {
     for (const t of [this.m_pItemTex, this.m_pMouseOverTex]) if (t) out.push(t);
+  }
+
+  // ---- drawing ----------------------------------------------------------------------------------------------------------------
+
+  /**
+   * `OnFrameRender` (32952670): a shown slot draws the quad of its current point (`m_NowPoint`: the item's picture) once; while the mouse is over
+   * it, it is not being dragged and it is enabled, the quad of the mouse over point on top of that; then its additional pictures, in the order
+   * of their keys, each one that is shown and has a point and a loaded texture the way a static draws a picture (the edge when `m_EdgeWidth` is
+   * not 0, the quad with the point's two blend states pushed round `RenderVertex(..., m_iDrawCount)`, the edge again); last the slot's string.
+   *
+   * The string (only when `SetString` made one: `fontIndex` is the first member of the string data, so the exe's `&m_pStringData->fontIndex != 0`
+   * is a test of the data) is always the UK font's `OutTextMultiline` of the whole message (no `USE_UK_FONT`, no spreading), and it is called
+   * even for an empty message.  A font index nobody made a font for is the exe's crash (a null font; the port throws), and so is a mouse over
+   * a slot without a mouse over point (a null dereference).
+   */
+  override onFrameRender(): number {
+    if (!this.m_bShow) return 0;
+    this.updateVertex(this.m_Vertex, this.m_NowPoint);
+    this.renderVertex(this.m_Vertex, this.m_NowPoint, 1);
+    if (this.m_bMouseOver && this.m_eControlState !== SCS.ONDRAG && this.m_bEnable) {
+      const over = this.m_pMouseOverPoint;
+      if (!over) throw new Error("CKTDGUISlot::OnFrameRender: the mouse is over a slot that has no mouse over point (SetPoint makes it); the exe dereferences null");
+      this.updateVertex(this.m_Vertex, over);
+      this.renderVertex(this.m_Vertex, over, 1);
+    }
+    const render = this.ctx.render;
+    for (const picture of this.additionalPictures()) {
+      const point = picture.pPoint;
+      if (!(picture.bShow && point && picture.pTexture && picture.pTexture.pTexture)) continue;
+      if (picture.m_EdgeWidth !== 0) this.drawEdge(picture.m_bDrawEdgeOut, picture.m_EdgeWidth, picture.m_EdgeColor, point);
+      this.updateVertex(this.m_Vertex, point);
+      const top = render?.states.stackPointer ?? 0;
+      render?.states.setRenderState(D3DRS.SRCBLEND, point.m_eSrcBlend);
+      render?.states.setRenderState(D3DRS.DESTBLEND, point.m_eDestBlend);
+      this.renderVertex(this.m_Vertex, point, point.m_iDrawCount);
+      render?.states.popTo(top);
+      if (picture.m_EdgeWidth !== 0) this.drawEdge(picture.m_bDrawEdgeOut, picture.m_EdgeWidth, picture.m_EdgeColor, point);
+    }
+    const data = this.m_pStringData;
+    if (data) drawUKString(this.ctx, this, data, data.msg);
+    return 0;
+  }
+
+  /**
+   * `DrawEdge(bDrawOut, edgeWidth, edgeColor, pPoint)` (32951310): the edge of a picture, the same eight bars of `UIEdge.tga` the static's `DrawEdge`
+   * draws (`drawEdgeBars`): round the quad of `pPoint` or on it; nothing for a width of 0, without the edge texture or without a point.  The size
+   * of the quad is taken from the right-top corner (width) and the right-bottom one (height).
+   */
+  drawEdge(drawOut: boolean, edgeWidth: number, edgeColor: Color, point: UIPointData | null): void {
+    if (edgeWidth === 0 || !this.m_pEdgeTexture || !point) return;
+    const nWidth = ftoi(f(point.rightTopPoint.x - point.leftTopPoint.x));
+    const nHeight = ftoi(f(point.rightBottomPoint.y - point.leftTopPoint.y));
+    this.drawEdgeBars(this.m_pEdgeTexture, drawOut, edgeWidth, edgeColor, point, nWidth, nHeight);
+  }
+
+  /**
+   * `UpdateDraggingVertex(vertexLT, vertexRT, vertexLB, vertexRB, pointData)` (329545B0): `UpdateVertex` for the slot that is being dragged.  The
+   * corners of the point are only scaled to the back buffer (the dialog's position and the control's offset are not added: the point is where the
+   * mouse is) and the colour is the point's alone (the dialog's and the control's are not multiplied in); the corners are then cut to whole pixels
+   * and moved half a pixel up and left, and the texture coordinates come from the point's texture.  A slot in no dialog changes nothing.
+   */
+  updateDraggingVertex(vertex: VertexUI4, point: UIPointData): void {
+    if (!this.m_pDialog) return;
+    const scale = this.ctx.render?.resolutionScale;
+    const sx = scale ? scale.x : 1, sy = scale ? scale.y : 1;
+    const c = point.color;
+    const argb = ((((clampedByte(c.a) << 8) | clampedByte(c.r)) << 8 | clampedByte(c.g)) << 8 | clampedByte(c.b)) >>> 0;
+    const corners = [point.leftTopPoint, point.rightTopPoint, point.leftBottomPoint, point.rightBottomPoint];
+    for (let i = 0; i < 4; i++) {
+      const corner = corners[i]!;
+      vertex.setX(i, f(sx * corner.x));
+      vertex.setY(i, f(sy * corner.y));
+      vertex.setZ(i, 1);
+      vertex.setRhw(i, 1);
+      vertex.setColor(i, argb);
+    }
+    const texture = point.pUITextureData;
+    if (texture) {
+      for (let i = 0; i < 4; i++) {
+        vertex.setU(i, texture.uvTexture[i]!.x);
+        vertex.setV(i, texture.uvTexture[i]!.y);
+      }
+    }
+    for (let i = 0; i < 4; i++) {
+      vertex.setX(i, f(f(ftoi(vertex.x(i))) - 0.5));
+      vertex.setY(i, f(f(ftoi(vertex.y(i))) - 0.5));
+    }
+  }
+
+  /**
+   * `RenderDragSlot()` (32952DD0), which the dialog manager calls for `s_pDragSlot` once the dialogs are drawn.  It pushes the states a dialog
+   * draws its controls with (the ten sampler states and `m_RSICKTDGUIDialog`, as `CKTDGUIDialog::OnFrameRender` does) and, for a slot that is
+   * being dragged, has the focus and whose normal point has a texture, puts the quad of the dragging point on the mouse and draws it: the
+   * quad keeps its size (the width from the right-top corner, the height from the left-bottom one) and is centred on the mouse position divided
+   * by the resolution scale, in layout pixels; `UpdateDraggingVertex`, `RenderVertex(m_DragVertex, m_pDraggingPoint, 1)`.  Then the states are popped.
+   * The dragging point is made by `SetPoint`; without it the exe dereferences null.
+   */
+  renderDragSlot(): number {
+    const states = this.ctx.render?.states;
+    const top = states?.stackPointer ?? 0;
+    if (states) {
+      for (const s of DIALOG_SAMPLER_STATES) states.setSamplerState(s.stage, s.type, s.value);
+      states.apply(RSI_UI_DIALOG);
+    }
+    const normal = this.m_pNormalPoint;
+    if (this.m_eControlState === SCS.ONDRAG && this.m_bHasFocus && normal && normal.pUITextureData) {
+      const drag = this.m_pDraggingPoint;
+      if (!drag) throw new Error("CKTDGUISlot::RenderDragSlot: the dragged slot has no dragging point (SetPoint makes it); the exe dereferences null");
+      const scale = this.ctx.render?.resolutionScale;
+      const x = f(f(this.ctx.mouse.GetXPos()) / (scale ? scale.x : 1));
+      const y = f(f(this.ctx.mouse.GetYPos()) / (scale ? scale.y : 1));
+      const halfWidth = f(f(drag.rightTopPoint.x - drag.leftTopPoint.x) * 0.5);
+      const halfHeight = f(f(drag.leftBottomPoint.y - drag.leftTopPoint.y) * 0.5);
+      const left = f(-halfWidth + x), right = f(halfWidth + x);
+      const upper = f(-halfHeight + y), lower = f(halfHeight + y);
+      drag.leftTopPoint.set(left, upper);
+      drag.rightTopPoint.set(right, upper);
+      drag.leftBottomPoint.set(left, lower);
+      drag.rightBottomPoint.set(right, lower);
+      this.updateDraggingVertex(this.m_DragVertex, drag);
+      this.renderVertex(this.m_DragVertex, drag, 1);
+    }
+    states?.popTo(top);
+    return 0;
   }
 
   /**

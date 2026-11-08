@@ -406,8 +406,8 @@ m(sl, 'slot: drag: the slot is normal', 'CKTDGUISlot.returnDraggingItem();\n    
 m(sl, 'slot: disabled: the guide text', 'if (this.m_bShowDescriptionWhenDisable && this.m_bMouseOver) this.showGuideDesc();', 'if (this.m_bShowDescriptionWhenDisable || this.m_bMouseOver) this.showGuideDesc();')
 m(sl, 'slot: disabled: enabled goes to normal', 'if (this.m_bEnable) normal();', 'if (!this.m_bEnable) normal();')
 m(sl, 'slot: the additional pictures are in the order of their keys', '[...this.m_mapAdditionalPictureDataList.keys()].sort((a, b) => a - b)', '[...this.m_mapAdditionalPictureDataList.keys()]')
-m(sl, 'slot: the additional pictures that are shown move', 'if (picture && picture.bShow) picture.onFrameMove(fTime, fElapsedTime);', 'if (picture && !picture.bShow) picture.onFrameMove(fTime, fElapsedTime);')
-m(sl, 'slot: the additional pictures move', 'if (picture && picture.bShow) picture.onFrameMove(fTime, fElapsedTime);', 'if (picture && picture.bShow) { }')
+m(sl, 'slot: the additional pictures that are shown move', 'if (picture.bShow) picture.onFrameMove(fTime, fElapsedTime);', 'if (!picture.bShow) picture.onFrameMove(fTime, fElapsedTime);')
+m(sl, 'slot: the additional pictures move', 'if (picture.bShow) picture.onFrameMove(fTime, fElapsedTime);', 'if (picture.bShow) { }')
 m(sl, 'slot: ReturnDraggingItem forces normal', 'dragged.ChangeState(SCS.NORMAL, true);\n      CKTDGUISlot.s_pDragSlot = null;', 'dragged.ChangeState(SCS.NORMAL, false);\n      CKTDGUISlot.s_pDragSlot = null;')
 m(sl, 'slot: ReturnDraggingItem forgets the slot', 'dragged.ChangeState(SCS.NORMAL, true);\n      CKTDGUISlot.s_pDragSlot = null;', 'dragged.ChangeState(SCS.NORMAL, true);')
 
