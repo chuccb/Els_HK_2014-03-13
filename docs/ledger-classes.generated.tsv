@@ -54,7 +54,7 @@ CX2UserSkillTree	68	4649	32A92F30	todo
 CX2World	67	4893	32A27590	todo		
 CX2DamageEffect::CEffect	67	12252	32A28B20	todo		
 CKTDGUIIMEEditBox	63	5163	328A8420	partial	packages/ui/src/imeeditbox.ts	constructor (32935240), all 28 Lua methods (the folded setters shared with CKTDGUIEditBox verified by disassembly); OnFrameMove (32939380: the text rectangle moved with the box and the centring offset of the text; CPtoX with a font throws); not ported: IME input, caret and selection handling, drawing
-CKTDGUIButton	62	4011	328CD080	partial	packages/ui/src/button.ts	constructor (sounds), all 31 Lua methods incl. the folded one-line setters (offsets verified by disassembly); OnFrameRender (3292ED40): the quad of the current point, drawn with no blend state of its own (it relies on the baseline akStates), the edge outside before and inside after, only with the focus; DrawEdge (3292D750); OnFrameMove (3292EA10: the state machine NORMAL / MOUSEOVER / MOUSEDOWN / DISABLE with the over sound and the mouse-out message, the texture animation of the state, the lock of the Enter key); not ported: input handling (LButtonMouseUp: a button with the focus and an edge that sees Enter throws) and the string (counted in render.undrawn)
+CKTDGUIButton	62	4011	328CD080	partial	packages/ui/src/button.ts	constructor (sounds), all 31 Lua methods incl. the folded one-line setters (offsets verified by disassembly); OnFrameRender (3292ED40): the quad of the current point, drawn with no blend state of its own (it relies on the baseline akStates), the edge outside before and inside after, only with the focus, then the string (stringdraw.ts: OutTextMultiline of the whole message, even an empty one; no shipped script gives a button string data in its first frame, so the unit tests are the check); DrawEdge (3292D750); OnFrameMove (3292EA10: the state machine NORMAL / MOUSEOVER / MOUSEDOWN / DISABLE with the over sound and the mouse-out message, the texture animation of the state, the lock of the Enter key); not ported: input handling (LButtonMouseUp: a button with the focus and an edge that sees Enter throws) (the string is ported)
 CX2ServerProtocol	61	3987	329E01B0	todo		
 CX2UISkillTreeNew	58	16940	32CB9E40	todo		
 DXUTState	57	785	3289CBD0	todo		
@@ -94,7 +94,7 @@ CX2ItemSlotManager	40	11473	3299B330	todo
 CX2PremiumBuffManager	40	3247	32D1C170	todo		
 CX2SMTPMail	39	2292	3298A6F0	todo		
 CX2StateField	39	4115	32F26450	todo		
-CKTDGUIRadioButton	38	3028	328CD020	partial	packages/ui/src/radiobutton.ts	constructor, all 25 Lua methods, the groups (RadioButtonGroupInfo); OnFrameRender (3294AE80: the background of the current state, the checked edge, the check point) and DrawCheckedEdge (32949850); OnFrameMove (3294ACD0: the state machine, the guide text, the sounds and the mouse-out message); not ported: input handling and the string (counted in render.undrawn)
+CKTDGUIRadioButton	38	3028	328CD020	partial	packages/ui/src/radiobutton.ts	constructor, all 25 Lua methods, the groups (RadioButtonGroupInfo); OnFrameRender (3294AE80: the background of the current state, the checked edge, the string (stringdraw.ts: as the button's), the check point) and DrawCheckedEdge (32949850); OnFrameMove (3294ACD0: the state machine, the guide text, the sounds and the mouse-out message); not ported: input handling
 CX2WeddingGame	38	2799	32C2BC70	todo		
 CX2SlideShot	37	2661	32A27550	todo		
 CX2DungeonSubStage	37	2093	32A28AC0	todo		
@@ -161,7 +161,7 @@ CX2SecurityPad	24	3001	32E79C60	todo
 CX2MyGageUI	24	2076	32F8F6B0	todo		
 CX2TitleSystem	24	2892	33254580	todo		
 CX2BattleFieldNpcAi	24	1716	33281B70	todo		
-CKTDGUIStatic	23	2190	328C0D80	partial	packages/ui/src/static.ts	constructor, the 7 Lua methods (AddPicture, AddString, AddMovieData, ...), the picture / string lists; OnFrameRender (3292A2B0): the quad of every picture with its two blend states and draw count, the edge before and after it; DrawEdge (32929090); OnFrameMove (3292A120: the spreading of the strings with the exe's colour-code skip, the animation of the pictures, the movies' OnFrameMove); not ported: the drawing of the strings and the movies (counted in render.undrawn)
+CKTDGUIStatic	23	2190	328C0D80	partial	packages/ui/src/static.ts	constructor, the 7 Lua methods (AddPicture, AddString, AddMovieData, ...), the picture / string lists; OnFrameRender (3292A2B0): the quad of every picture with its two blend states and draw count, the edge before and after it, then the strings (stringdraw.ts: the UK font of fontIndex and OutTextMultiline, the font map and Draw2DText without USE_UK_FONT, the spread count, an empty message skipped); DrawEdge (32929090); OnFrameMove (3292A120: the spreading of the strings with the exe's colour-code skip, the animation of the pictures, the movies' OnFrameMove); not ported: the movies (counted in render.undrawn)
 CX2UIGuild	23	2996	32D09520	todo		
 CX2WorldMissionManager	23	1226	32D19E40	todo		
 CX2UnitManager	23	5111	32DBBDC0	todo		
@@ -1512,7 +1512,7 @@ std::map<int,CKTDGUIControl::TexChangeData *>	1	37	32930930	n/a	-	C++ runtime li
 CGrowableArray<CKTDGUIIMEEditBox::CInputLocale>	1	48	3293AB50	todo		
 CKTDGUIItem	1	10	3293B600	partial	packages/ui/src/listbox.ts	the list box item (32942000) and CKTDGUIItem (3293B600) constructors and the item helpers the list box needs
 CKTDGUIListBox::ListBoxItem	1	32	32942000	partial	packages/ui/src/listbox.ts	the list box item (32942000) and CKTDGUIItem (3293B600) constructors and the item helpers the list box needs
-CKTDGUIRadioButton::RadioButtonGroupInfo	1	81	3294B950	partial	packages/ui/src/radiobutton.ts	constructor, all 25 Lua methods, the groups (RadioButtonGroupInfo); OnFrameRender (3294AE80: the background of the current state, the checked edge, the check point) and DrawCheckedEdge (32949850); OnFrameMove (3294ACD0: the state machine, the guide text, the sounds and the mouse-out message); not ported: input handling and the string (counted in render.undrawn)
+CKTDGUIRadioButton::RadioButtonGroupInfo	1	81	3294B950	partial	packages/ui/src/radiobutton.ts	constructor, all 25 Lua methods, the groups (RadioButtonGroupInfo); OnFrameRender (3294AE80: the background of the current state, the checked edge, the string (stringdraw.ts: as the button's), the check point) and DrawCheckedEdge (32949850); OnFrameMove (3294ACD0: the state machine, the guide text, the sounds and the mouse-out message); not ported: input handling
 std::_Tree_val<std::_Tree_simple_types<std::pair<std::pair<int,int> const,std::vector<CKTDGUIContolList::ControlInfo>>>>	1	24	3294EF80	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::map<std::pair<int,int>,std::vector<CKTDGUIContolList::ControlInfo>>	1	41	3294EFD0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::pair<std::pair<int,int>,std::vector<CKTDGUIContolList::ControlInfo>>	1	7	3294F1E0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library

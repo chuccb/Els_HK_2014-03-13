@@ -329,6 +329,17 @@ describe("the string of a radio button (3294AE80): after the background and the 
     expect(dev.log.slice(4)).toEqual(["tex 0 CHK.TGA", "fvf 324", "src 12 28", "draw 5 4 2"]);
   });
 
+  test("checked with a checked edge: the bars outside, the background, the bars on it, then the string, and last the check point", () => {
+    const { r, calls, dev } = scene();
+    r.m_pStringData = data();
+    r.m_bChecked = true;
+    r.m_CheckedEdgeWidth = 2;
+    r.onFrameRender();
+    const drawsBefore = (n: number): number => dev.log.slice(0, n).filter((l) => l.startsWith("draw ")).length;
+    expect(calls.map((c) => drawsBefore(c.log))).toEqual([9]); // 4 bars, the quad, 4 bars
+    expect(drawsBefore(dev.log.length)).toBe(10); // the quad of the check point comes after the string
+  });
+
   test("no string data, no string; an empty message is drawn", () => {
     const { r, calls } = scene();
     r.onFrameRender();
