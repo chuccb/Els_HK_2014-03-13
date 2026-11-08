@@ -315,13 +315,31 @@ describe("the reference compositor: Direct3D 9's rules for a pre-transformed qua
     expect([px(target, 0, 0), px(target, 1, 0)]).toEqual([[50, 60, 70], [255, 255, 255]]); // ONE / ONE would have added 255 to both
   });
 
+  test("a quad without a texture is its diffuse colour alone (what stage 0 passes on when it selects it: the rectangles of the edit boxes): flat, a gradient across the corners, blended by its alpha", () => {
+    const none = (v: Uint8Array, over: Partial<RefQuad> = {}): RefQuad => ({ ...quad(v, texture(1, 1, () => [9, 9, 9, 9]), over), texture: null });
+    // 0xff3070c0 from x 0.5 to 3.5 (the centres 1, 2, 3) and y 1.5 to 3.5 (2, 3): six pixels
+    const flat = newTarget(6, 5, 1, 2, 3);
+    drawQuad(flat, none(vertices(0.5, 1.5, 3.5, 3.5, [0xff3070c0, 0xff3070c0, 0xff3070c0, 0xff3070c0])));
+    let changed = 0;
+    for (let y = 0; y < 5; y++) for (let x = 0; x < 6; x++) if (px(flat, x, y)[0] !== 1) changed++;
+    expect(changed).toBe(6);
+    expect([px(flat, 1, 2), px(flat, 3, 3), px(flat, 4, 3)]).toEqual([[48, 112, 192], [48, 112, 192], [1, 2, 3]]);
+    // the red goes from 0 on the left to 255 on the right across four pixels: at s = 1/8, 3/8, 5/8, 7/8 it is 31.875, 95.625, 159.375, 223.125
+    const gradient = newTarget(4, 1, 0, 0, 0);
+    drawQuad(gradient, none(vertices(-0.5, -0.5, 3.5, 0.5, [0xff000000, 0xffff0000, 0xff000000, 0xffff0000])));
+    expect([0, 1, 2, 3].map((x) => px(gradient, x, 0)[0])).toEqual([32, 96, 159, 223]);
+    // half transparent red (alpha 128 / 255) with SRCALPHA / INVSRCALPHA over (0, 100, 200): (128, 49.8, 99.6)
+    const blended = newTarget(1, 1, 0, 100, 200);
+    drawQuad(blended, none(vertices(-0.5, -0.5, 0.5, 0.5, [0x80ff0000, 0x80ff0000, 0x80ff0000, 0x80ff0000]), { blendEnable: true, srcBlend: SRCALPHA, destBlend: INVSRCALPHA }));
+    expect(px(blended, 0, 0)).toEqual([128, 50, 100]);
+  });
+
   test("what is not modelled is an error, not a guess", () => {
     const tex = texture(1, 1, () => [1, 2, 3, 255]);
     const target = newTarget(4, 4, 0, 0, 0);
     const skewed = vertices(0, 0, 2, 2);
     new DataView(skewed.buffer).setFloat32(28, 2.5, true); // the right-top corner no longer lines up with the right-bottom one
     expect(() => drawQuad(target, quad(skewed, tex))).toThrow("upright");
-    expect(() => drawQuad(target, { ...quad(vertices(0, 0, 2, 2), tex), texture: null })).toThrow("without a texture");
     expect(() => drawQuad(target, quad(vertices(0, 0, 2, 2), tex, { minFilter: 1 }))).toThrow("linear");
     expect(() => drawQuad(target, quad(vertices(0, 0, 2, 2), tex, { addressU: 4 }))).toThrow("addressing mode 4");
     expect(() => drawQuad(target, quad(vertices(0, 0, 2, 2), tex, { blendEnable: true, srcBlend: 11 }))).toThrow("blend factor 11");

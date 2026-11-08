@@ -9,7 +9,9 @@
  *    the strip is the triangles (v0, v1, v2) and (v2, v1, v3).
  *  - Sampling: bilinear (min and mag filter LINEAR, one mip level) at the texel centres (k + 0.5) / size, with the addressing mode of the
  *    sampler (WRAP, MIRROR or CLAMP).
- *  - Texture stage 0: colour and alpha are the texture times the diffuse colour (`D3DTOP_MODULATE`).
+ *  - Texture stage 0: colour and alpha are the texture times the diffuse colour (`D3DTOP_MODULATE`); a quad without a texture is what the
+ *    stage makes when it selects its second argument for both (`D3DTOP_SELECTARG2`, the rectangles of `CKTDGUIEditBox::DrawRect`): the
+ *    diffuse colour alone.
  *  - Blending: `source * SRCBLEND + destination * DESTBLEND` when alpha blending is on, the source alone when it is off; the target is an
  *    8-bit surface without alpha (X8R8G8B8: the destination alpha reads as 1), rounded to the nearest level after each draw.
  *
@@ -132,7 +134,6 @@ function alphaPasses(func: number, a: number, ref: number): boolean {
 /** draw one quad onto `target` (RGBA, modified in place) */
 export function drawQuad(target: RefImage, q: RefQuad): void {
   if (q.vertices.length !== 4 * 28) throw new Error("reference: a quad is four 28-byte vertices");
-  if (!q.texture) throw new Error("reference: a quad without a texture is not modelled");
   if (q.minFilter !== D3DTEXF_LINEAR || q.magFilter !== D3DTEXF_LINEAR) throw new Error("reference: only linear filtering is modelled");
   const dv = new DataView(q.vertices.buffer, q.vertices.byteOffset, q.vertices.byteLength);
   const X: number[] = [];
@@ -213,7 +214,8 @@ export function drawQuad(target: RefImage, q: RefQuad): void {
         v += wi * Vc[i]!;
         for (let c = 0; c < 4; c++) col[c]! += wi * Cc[i]![c]!;
       }
-      sampleBilinear(q.texture, u, v, q.addressU, q.addressV, tex);
+      if (q.texture) sampleBilinear(q.texture, u, v, q.addressU, q.addressV, tex);
+      else tex[0] = tex[1] = tex[2] = tex[3] = 1; // no texture: the stage passes the diffuse colour on
       const sr = clamp01(tex[0]! * col[0]!);
       const sg = clamp01(tex[1]! * col[1]!);
       const sb = clamp01(tex[2]! * col[2]!);

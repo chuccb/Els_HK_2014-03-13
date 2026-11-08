@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
-  BCS, CKTDGUIButton, CKTDGUIControl, CKTDGUIDialog, CKTDGUIEditBox, CKTDGUIStatic, CPictureData, DIALOG_SAMPLER_STATES, RSI_UI_DIALOG, TA,
+  BCS, CKTDGUIButton, CKTDGUIControl, CKTDGUIDialog, CKTDGUIStatic, CPictureData, DIALOG_SAMPLER_STATES, RSI_UI_DIALOG, TA,
   TexChangeData, UITextureData, UIRender, VertexUI4,
 } from "../src/index.ts";
 import type { UIContext } from "../src/index.ts";
@@ -531,12 +531,14 @@ describe("CKTDGUIDialog.onFrameRender (32958FF0)", () => {
     expect(calls).toEqual(["ra", "rc", "ea", "ec"]);
   });
 
-  test("a control whose drawing is not ported is counted by class and draws nothing", () => {
+  test("a control whose drawing is not ported (it has the base class's OnFrameRender) is counted by class and draws nothing", () => {
+    // the class of the exe that is the example changes as they are ported (the edit box was one, FINDINGS 17.17): a class of our own is one for good
+    class NotPorted extends CKTDGUIControl {}
     const { dialog, w, dev } = scene();
-    dialog.AddControl(new CKTDGUIEditBox(w));
+    dialog.AddControl(new NotPorted(w));
     dev.log.length = 0;
     dialog.onFrameRender();
-    expect([...w.render!.undrawn]).toEqual([["CKTDGUIEditBox", 1]]);
+    expect([...w.render!.undrawn]).toEqual([["NotPorted", 1]]);
     expect(dev.log.filter((l) => l.startsWith("draw")).length).toBe(1); // the static's picture only
   });
 

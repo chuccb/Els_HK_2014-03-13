@@ -176,6 +176,14 @@ M = [
  (REFERENCE, 'reference: a quad of no width is the only one without area', r'if (xl === xr || yt === yb) return;', r'if (xl === xr) return;', ''),
  (REFERENCE, 'reference: a quad of no height is the only one without area', r'if (xl === xr || yt === yb) return;', r'if (yt === yb) return;', ''),
  (REFERENCE, 'reference: two vertices may share a corner', r'if (new Set(cornerOf).size !== 4) throw new Error(upright);', r'', ''),
+ # a quad without a texture: the diffuse colour alone (stage 0 selects it: the rectangles of the edit boxes)
+ (REFERENCE, 'reference: a quad without a texture is sampled all the same', r'if (q.texture) sampleBilinear(', r'if (true) sampleBilinear(', ''),
+ (REFERENCE, 'reference: a quad with a texture is flat too', r'if (q.texture) sampleBilinear(', r'if (false) sampleBilinear(', ''),
+ (REFERENCE, 'reference: a quad without a texture is black', r'else tex[0] = tex[1] = tex[2] = tex[3] = 1;', r'else tex[0] = tex[1] = tex[2] = tex[3] = 0;', ''),
+ (REFERENCE, 'reference: a quad without a texture is transparent', r'else tex[0] = tex[1] = tex[2] = tex[3] = 1;', r'else { tex[0] = tex[1] = tex[2] = 1; tex[3] = 0; }', ''),
+ (REFERENCE, 'reference: a quad without a texture has no red', r'else tex[0] = tex[1] = tex[2] = tex[3] = 1;', r'else { tex[0] = 0; tex[1] = tex[2] = tex[3] = 1; }', ''),
+ (REFERENCE, 'reference: a quad without a texture has no green', r'else tex[0] = tex[1] = tex[2] = tex[3] = 1;', r'else { tex[1] = 0; tex[0] = tex[2] = tex[3] = 1; }', ''),
+ (REFERENCE, 'reference: a quad without a texture has no blue', r'else tex[0] = tex[1] = tex[2] = tex[3] = 1;', r'else { tex[2] = 0; tex[0] = tex[1] = tex[3] = 1; }', ''),
 ]
 
 

@@ -13,7 +13,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { CKTDGUIButton, CKTDGUIComboBox, CKTDGUIListBox, CKTDGUIRadioButton, CKTDGUISlot, CKTDGUIStatic, FONT_STYLE, LBIT, SCS, UIStringData, UKFont } from "../src/index.ts";
+import { CKTDGUIButton, CKTDGUIComboBox, CKTDGUIEditBox, CKTDGUIListBox, CKTDGUIRadioButton, CKTDGUISlot, CKTDGUIStatic, FONT_STYLE, LBIT, SCS, UIStringData, UKFont } from "../src/index.ts";
 import type { CKTDGUIDialog, UIWorld } from "../src/index.ts";
 import { Color } from "@els/host";
 import { gpuAvailable } from "../../d3d9/test/gpu-helper.ts";
@@ -27,7 +27,7 @@ const haveData = existsSync(join(dataDir, "x2.exe")) && existsSync(join(dataDir,
 const HAVE_GPU = haveData && (await gpuAvailable());
 
 /** the control classes whose `OnFrameRender` is not ported yet: each shown one is counted as not drawn */
-const NOT_PORTED = ["CKTDGUIEditBox", "CKTDGUIIMEEditBox"];
+const NOT_PORTED = ["CKTDGUIIMEEditBox"];
 
 /**
  * What the dialog counts as not drawn: each movie of a shown static (`CMovieData::OnFrameRender` is not ported) and each shown control of a
@@ -74,6 +74,23 @@ function expectedStrings(dlg: CKTDGUIDialog, w: UIWorld): Spoken[] {
       }
     } else if (c instanceof CKTDGUIListBox) out.push(...listBoxStrings(c, w));
     else if (c instanceof CKTDGUISlot && c.m_pStringData) out.push({ method: "OutTextMultiline", text: c.m_pStringData.msg });
+    else if (c instanceof CKTDGUIEditBox) out.push(...editBoxStrings(c));
+  }
+  return out;
+}
+
+/**
+ * What an edit box says (`DrawTextW` of the text, which is `DrawTextFont` of its font): the text from the first visible character on (a password
+ * box says its hide character for each character of the text), and, when the caret is not at the selection's start, the selected part again: from
+ * the larger of the first visible character and the smaller of the caret and the selection's start, as far as the larger of those two.
+ */
+function editBoxStrings(c: CKTDGUIEditBox): Spoken[] {
+  const typed = c.m_Buffer.m_pwszBuffer ?? "";
+  const text = c.m_bPasswordEditBox ? String.fromCharCode(c.m_HideChar).repeat(typed.length) : typed;
+  const out: Spoken[] = [{ method: "DrawTextFont", text: text.slice(c.m_nFirstVisible) }];
+  if (c.m_nCaret !== c.m_nSelStart) {
+    const start = Math.max(c.m_nFirstVisible, Math.min(c.m_nCaret, c.m_nSelStart));
+    out.push({ method: "DrawTextFont", text: text.slice(start, Math.max(c.m_nCaret, c.m_nSelStart)) });
   }
   return out;
 }
@@ -107,7 +124,7 @@ function listBoxStrings(c: CKTDGUIListBox, w: UIWorld): Spoken[] {
 const spoken: Spoken[] = [];
 let listening: (() => void) | undefined;
 function listen(): void {
-  const { OutTextMultiline, Draw2DText } = UKFont.prototype;
+  const { OutTextMultiline, Draw2DText, DrawTextFont } = UKFont.prototype;
   let depth = 0;
   const note = (method: string, text: string, call: () => void): void => {
     if (depth === 0) spoken.push({ method, text });
@@ -124,9 +141,14 @@ function listen(): void {
   UKFont.prototype.Draw2DText = function (this: UKFont, ...args: Parameters<UKFont["Draw2DText"]>): void {
     note("Draw2DText", args[0] ?? "<null>", () => Draw2DText.apply(this, args));
   };
+  UKFont.prototype.DrawTextFont = function (this: UKFont, ...args: Parameters<UKFont["DrawTextFont"]>): void {
+    const [text, , count] = args;
+    note("DrawTextFont", text === null ? "<null>" : count < 0 ? text : text.slice(0, count), () => DrawTextFont.apply(this, args));
+  };
   listening = () => {
     UKFont.prototype.OutTextMultiline = OutTextMultiline;
     UKFont.prototype.Draw2DText = Draw2DText;
+    UKFont.prototype.DrawTextFont = DrawTextFont;
   };
 }
 beforeAll(listen);
@@ -165,9 +187,10 @@ function report(name: string, d: Difference): string {
  *    glyph page (`image`: the pixels it had at the draw).
  * Returns how many bars of edges and how many flushes of text there are.
  */
-function expectUIQuads(draws: Draw[]): { edgeBars: number; textDraws: number } {
+function expectUIQuads(draws: Draw[]): { edgeBars: number; textDraws: number; flatQuads: number } {
   let edgeBars = 0;
   let textDraws = 0;
+  let flatQuads = 0;
   for (const d of draws) {
     if (d.primitive === 4) {
       textDraws++;
@@ -183,7 +206,10 @@ function expectUIQuads(draws: Draw[]): { edgeBars: number; textDraws: number } {
     expect([d.type, d.primitive, d.numPrimitives, d.data.length]).toEqual([3, 5, 2, 112]);
     expect([d.blendEnable, d.zEnable, d.srcBlend, d.destBlend]).toEqual([1, 0, 5, 6]);
     expect([d.minFilter, d.magFilter, d.addressU, d.addressV]).toEqual([2, 2, 2, 2]);
-    expect(d.texture).not.toBeNull();
+    // the rectangle of an edit box (`DrawRect`) has stage 0 select the diffuse colour for the colour and the alpha, whatever texture is on the
+    // stage; every other quad of the UI has a texture
+    if (d.colorOp === 3 && d.alphaOp === 3) flatQuads++;
+    else expect(d.texture).not.toBeNull();
     const f = new Float32Array(d.data.buffer, d.data.byteOffset, 28);
     if (d.alphaTest === 0) {
       expect([d.cullMode, d.numDraws > 0]).toEqual([3, true]);
@@ -194,21 +220,21 @@ function expectUIQuads(draws: Draw[]): { edgeBars: number; textDraws: number } {
       expect([f[0] === f[7], f[14] === f[21], f[1] === f[15], f[8] === f[22]]).toEqual([true, true, true, true]); // left-top, left-bottom, right-top, right-bottom
     }
   }
-  return { edgeBars, textDraws };
+  return { edgeBars, textDraws, flatQuads };
 }
 
 /**
  * the checks of a dialog that is drawn without anything but its movies missing; the picture is the one the rules of Direct3D 9 give.
  * `covers`: how many pixels of the window at least are not the clear colour (a window of the game fills much of it, a popup little)
  */
-function expectDrawnLikeDirect3D(name: string, r: Drawn, covers = 200_000): { edgeBars: number; textDraws: number } {
+function expectDrawnLikeDirect3D(name: string, r: Drawn, covers = 200_000): { edgeBars: number; textDraws: number; flatQuads: number } {
   expect(r.dlg.m_bSuccessInitOpenScript).toBe(true);
   expect(r.frameError).toBeUndefined(); // the frame (OnFrameMove) before the drawing needs nothing that is not ported
   expect(r.ret).toBe(0);
   expect(r.referenceError).toBeUndefined(); // the CPU composition has a rule for every quad
   expect(r.w.devices.massFiles.log.entries).toEqual([]);
   expect(r.draws.length).toBeGreaterThan(0);
-  const { edgeBars, textDraws } = expectUIQuads(r.draws);
+  const { edgeBars, textDraws, flatQuads } = expectUIQuads(r.draws);
   expect(edgeBars).toBe(expectedEdgeBars(r.dlg));
   expect(r.w.render!.states.stackPointer).toBe(0);
   // the movies are not ported: they are counted, nothing else is missing (no control class, no edge, no string)
@@ -220,7 +246,7 @@ function expectDrawnLikeDirect3D(name: string, r: Drawn, covers = 200_000): { ed
   expect(d.over, report(name, d)).toBe(0);
   // it is a picture: a good part of the window is not the clear colour
   expect(compareImages(r.image, newTarget(WIDTH, HEIGHT, CLEAR[0]!, CLEAR[1]!, CLEAR[2]!), 0).over).toBeGreaterThan(covers);
-  return { edgeBars, textDraws };
+  return { edgeBars, textDraws, flatQuads };
 }
 
 const suite = HAVE_GPU ? describe : describe.skip;
@@ -256,7 +282,7 @@ suite("dialogs drawn through @els/d3d9 by the ported UI", () => {
 
   // the rest of the controls and the edges: Static pictures with an edge, radio buttons (a tab that is checked), a slider, check boxes (one that
   // is checked), a list with a scroll bar, a navigation with one, a dialog with pictures of a key that its TET lacks (quads without area)
-  const more: { name: string; covers: number; classes: Record<string, number>; edgeBars?: number; prepare?: (dlg: CKTDGUIDialog, w: UIWorld) => void }[] = [
+  const more: { name: string; covers: number; classes: Record<string, number>; edgeBars?: number; flatQuads?: number; prepare?: (dlg: CKTDGUIDialog, w: UIWorld) => void }[] = [
     { name: "DLG_SKILL_INFO_POPUP", covers: 70_000, classes: { CKTDGUIStatic: 1 }, edgeBars: 8 },
     { name: "DLG_UI_SKILL_DESC", covers: 15_000, classes: { CKTDGUIStatic: 2 }, edgeBars: 8 },
     { name: "DLG_COMMAND_SKILL", covers: 200_000, classes: { CKTDGUIRadioButton: 5, CKTDGUISlider: 1, CKTDGUIButton: 2 } },
@@ -289,6 +315,22 @@ suite("dialogs drawn through @els/d3d9 by the ported UI", () => {
         box.m_nSelected = 1;
       },
     },
+    // the edit box (the password box of a confirmation window, `SetHideChar`): the script gives it a font, colours (a red selection, black text and
+    // caret) and the focus; the test types eight characters and selects four of them.  Drawn: the rectangle of the selection (a quad of the
+    // diffuse colour alone, `DrawRect`), the eight hide characters, the four selected ones again, and the caret (a second rectangle)
+    {
+      name: "DLG_UI_OKANDCANCELEDITBOX_HIDE",
+      covers: 40_000,
+      classes: { CKTDGUIStatic: 2, CKTDGUIButton: 2, CKTDGUIEditBox: 1 },
+      flatQuads: 2,
+      prepare: (dlg) => {
+        const box = dlg.m_ControlsList.find((c): c is CKTDGUIEditBox => c instanceof CKTDGUIEditBox)!;
+        expect([box.m_bPasswordEditBox, box.m_HideChar, box.m_bHasFocus]).toEqual([true, 0x2a, true]);
+        box.m_Buffer.SetText("Secret99");
+        box.m_nSelStart = 2;
+        box.m_nCaret = 6;
+      },
+    },
     // the slots: the quad of each one's current point (the item's picture); none has a mouse over point drawn (the mouse is nowhere), pictures
     // or an edge.  The key setting gives each of its 142 slots an empty string (the font is asked, and draws nothing); the skill slots have no
     // string, so the test gives the eight slots of DLG_GAME_SKILL_SLOT_NEW one (a number at the bottom right of the picture, font 0)
@@ -313,13 +355,15 @@ suite("dialogs drawn through @els/d3d9 by the ported UI", () => {
       },
     },
   ];
-  for (const { name, covers, classes, edgeBars, prepare } of more) {
+  for (const { name, covers, classes, edgeBars, flatQuads, prepare } of more) {
     test(name, async () => {
       const r = await draw(`${name}.LUA`, `ui-${name}`, prepare);
       const counts: Record<string, number> = {};
       for (const c of r.dlg.m_ControlsList) counts[c.constructor.name] = (counts[c.constructor.name] ?? 0) + 1;
       expect(counts).toMatchObject(classes);
-      expect(expectDrawnLikeDirect3D(name, r, covers).edgeBars).toBe(edgeBars ?? 0);
+      const shown = expectDrawnLikeDirect3D(name, r, covers);
+      expect(shown.edgeBars).toBe(edgeBars ?? 0);
+      expect(shown.flatQuads).toBe(flatQuads ?? 0);
       if (name === "DLG_UI_PARTYLIST") {
         // ten pictures name the key Henir_Normal, which DLG_UI_Title01.TET does not have: an unknown key leaves the rectangle 0 (FINDINGS 17.3), so
         // their quads have four equal corners and UV 0: they are sent to the device and cover nothing

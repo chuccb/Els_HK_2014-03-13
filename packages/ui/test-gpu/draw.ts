@@ -14,7 +14,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { StringTable, decodeImage } from "@els/assets";
-import { D3DCLEAR, D3DRS, D3DSAMP } from "@els/d3d9";
+import { D3DCLEAR, D3DRS, D3DSAMP, D3DTOP, D3DTSS } from "@els/d3d9";
 import type { Direct3DDevice9, Direct3DTexture9 } from "@els/d3d9";
 import { CX2SlotManager, UIWorld } from "../src/index.ts";
 import type { CKTDGUIControl, CKTDGUIDialog } from "../src/index.ts";
@@ -67,6 +67,9 @@ export interface Draw {
   magFilter: number;
   addressU: number;
   addressV: number;
+  /** stage 0's colour and alpha operations (`D3DTOP_*`): a rectangle of one colour (`CKTDGUIEditBox::DrawRect`) selects the diffuse colour alone */
+  colorOp: number;
+  alphaOp: number;
   /** the pixels of `texture` at the time of the draw, when the recording was given a `snapshot` (a texture the CPU changes between draws) */
   image?: RefImage | null;
 }
@@ -127,6 +130,7 @@ export function recordDraws(render: Render, snapshot?: (texture: Direct3DTexture
       cullMode: s.adwRenderState[D3DRS.CULLMODE]!, zEnable: s.adwRenderState[D3DRS.ZENABLE]!, zWrite: s.adwRenderState[D3DRS.ZWRITEENABLE]!,
       minFilter: s.adwSamplerState[D3DSAMP.MINFILTER]!, magFilter: s.adwSamplerState[D3DSAMP.MAGFILTER]!,
       addressU: s.adwSamplerState[D3DSAMP.ADDRESSU]!, addressV: s.adwSamplerState[D3DSAMP.ADDRESSV]!,
+      colorOp: s.adwTextureStageState[D3DTSS.COLOROP]!, alphaOp: s.adwTextureStageState[D3DTSS.ALPHAOP]!,
     });
     real(type, primitive, numPrimitives, data, numDraws);
   };
@@ -163,8 +167,10 @@ export function composeDraws(draws: Draw[], textureOf: (d: Draw) => RefImage | n
   const reference = newTarget(WIDTH, HEIGHT, CLEAR[0]!, CLEAR[1]!, CLEAR[2]!);
   try {
     for (const d of draws) {
+      // stage 0 that selects its second argument (the diffuse colour) for the colour and the alpha ignores the texture on it: a flat quad
+      const flat = d.colorOp === D3DTOP.SELECTARG2 && d.alphaOp === D3DTOP.SELECTARG2;
       const state = {
-        texture: textureOf(d), blendEnable: d.blendEnable !== 0, srcBlend: d.srcBlend, destBlend: d.destBlend,
+        texture: flat ? null : textureOf(d), blendEnable: d.blendEnable !== 0, srcBlend: d.srcBlend, destBlend: d.destBlend,
         minFilter: d.minFilter, magFilter: d.magFilter, addressU: d.addressU, addressV: d.addressV, numDraws: d.numDraws,
         alphaTest: d.alphaTest !== 0, alphaFunc: d.alphaFunc, alphaRef: d.alphaRef, cullMode: d.cullMode,
       };

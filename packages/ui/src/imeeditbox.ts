@@ -132,8 +132,9 @@ export class CKTDGUIIMEEditBox extends CKTDGUIControl implements Partial<CKTDGUI
    * `OnFrameMove` (32939380): a shown IME edit box runs the control's and, with a background (`m_bBGCheck`), makes its normal (or, disabled, its
    * disabled) point the end point; its current point is that point (or, without a background, its text point).  The text rectangle is the text point's
    * left-top and right-bottom corners, cut to ints, moved by the box's offset.  `m_ptTextAlignOffset` is centred (`m_DefTextAlign` with bit 0)
-   * on the text that is visible when it fits in the rectangle: `(int)(width of the point / 2 - visible text width / 2)`; the text is measured by
-   * `CKTDGUIUniBuffer::CPtoX`, which needs a font and is not ported (it throws).  Otherwise the offset is 0.
+   * on the text that is visible when it fits in the rectangle: `(int)(width of the point / 2 - visible text width / 2)`, the text measured by
+   * `CKTDGUIUniBuffer::CPtoX` with the font the buffer has (the box gives it its font when it draws: 0 before the first frame).  Otherwise
+   * the offset is 0.
    */
   override onFrameMove(fTime: number, fElapsedTime: number): number {
     if (!this.m_bShow) return 0;

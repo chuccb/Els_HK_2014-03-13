@@ -44,9 +44,9 @@ describe.skipIf(!haveData)("the DLG scripts of the client", () => {
     expect(strict.filter((r) => r.needsSibling).length).toBe(0);
 
     // the drawing: how many of those dialogs hold only control classes whose OnFrameRender is ported (the combo box is, FINDINGS 17.14, the list box, 17.15,
-    // and the slot, 17.16).  Goes up as the edit boxes are ported; the list of classes below only shrinks.
-    expect(strict.filter((r) => r.undrawn.length === 0).length).toBeGreaterThanOrEqual(911);
-    const notDrawn = ["CKTDGUIEditBox", "CKTDGUIIMEEditBox"];
+    // the slot, 17.16, and the edit box, 17.17).  Goes up as the IME edit box is ported; the list of classes below only shrinks.
+    expect(strict.filter((r) => r.undrawn.length === 0).length).toBeGreaterThanOrEqual(912);
+    const notDrawn = ["CKTDGUIIMEEditBox"];
     for (const r of strict) for (const c of r.undrawn) expect(notDrawn).toContain(c);
     // and a dialog's classes are counted as they are: DLG_COMMAND_SKILL holds a slider, five radio buttons, two buttons
     const skill = strict.find((r) => r.name === "DLG_COMMAND_SKILL.LUA")!;

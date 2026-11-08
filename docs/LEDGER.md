@@ -322,7 +322,7 @@ Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM i
 
 ## C++ engine classes
 
-2879 classes / 26233 methods. Status by class: done 335, n/a 1338, partial 100, todo 1106; by method: done 492, n/a 4225, partial 1952, todo 19564.
+2879 classes / 26233 methods. Status by class: done 337, n/a 1338, partial 99, todo 1105; by method: done 502, n/a 4225, partial 1943, todo 19563.
 
 The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes:
 
@@ -382,7 +382,7 @@ The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes
 | `CX2UserSkillTree` | 68 | 32A92F30 | todo |   |
 | `CX2World` | 67 | 32A27590 | todo |   |
 | `CX2DamageEffect::CEffect` | 67 | 32A28B20 | todo |   |
-| `CKTDGUIIMEEditBox` | 63 | 328A8420 | partial | packages/ui/src/imeeditbox.ts constructor (32935240), all 28 Lua methods (the folded setters shared with CKTDGUIEditBox verified by disassembly); OnFrameMove (32939380: the text rectangle moved with the box and the centring offset of the text; CPtoX with a font throws); not ported: IME input, caret and selection handling, drawing |
+| `CKTDGUIIMEEditBox` | 63 | 328A8420 | partial | packages/ui/src/imeeditbox.ts constructor (32935240), all 28 Lua methods (the folded setters shared with CKTDGUIEditBox verified by disassembly); OnFrameMove (32939380: the text rectangle moved with the box and the centring offset of the text); not ported: IME input, caret and selection handling, drawing |
 | `CKTDGUIButton` | 62 | 328CD080 | partial | packages/ui/src/button.ts constructor (sounds), all 31 Lua methods incl. the folded one-line setters (offsets verified by disassembly); OnFrameRender (3292ED40): the quad of the current point, drawn with no blend state of its own (it relies on the baseline akStates), the edge outside before and inside after, only with the focus, then the string (stringdraw.ts: OutTextMultiline of the whole message, even an empty one; no shipped script gives a button string data in its first frame, so the unit tests are the check); DrawEdge (3292D750); OnFrameMove (3292EA10: the state machine NORMAL / MOUSEOVER / MOUSEDOWN / DISABLE with the over sound and the mouse-out message, the texture animation of the state, the lock of the Enter key); not ported: input handling (LButtonMouseUp: a button with the focus and an edge that sees Enter throws) (the string is ported) |
 | `CX2ServerProtocol` | 61 | 329E01B0 | todo |   |
 | `CX2UISkillTreeNew` | 58 | 32CB9E40 | todo |   |
