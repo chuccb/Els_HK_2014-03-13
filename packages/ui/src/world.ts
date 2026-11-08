@@ -14,7 +14,7 @@ import { CKTDGUIRadioButton } from "./radiobutton.ts";
 import { CKTDGUIDialog } from "./dialog.ts";
 import { DeviceManager } from "./device.ts";
 import { CKTDGUIDialogManager } from "./dialogmanager.ts";
-import { UIKeyboard } from "./input.ts";
+import { UIKeyboard, UIMouse } from "./input.ts";
 import { UIRender } from "./render.ts";
 import { CKTDGUIItem, CKTDGUIStatic } from "./static.ts";
 import { CKTDGUISlot, CX2CouponBox, CX2PostBox, CX2Slot, CX2SlotManager } from "./slot.ts";
@@ -100,6 +100,8 @@ export class UIWorld implements UIContext {
   readonly dialogManager = new CKTDGUIDialogManager();
   /** `g_pKTDXApp->m_pDIManager->m_KTDIKeyboard` */
   readonly keyboard = new UIKeyboard();
+  /** `g_pKTDXApp->m_pDIManager->m_KTDIMouse` */
+  readonly mouse = new UIMouse();
   /** the statics of the `OnFrameRender`s (`bSBInit`, `bSBInit_0`) */
   readonly statics = new RenderStatics();
 

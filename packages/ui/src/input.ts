@@ -27,3 +27,24 @@ export class UIKeyboard {
     for (let i = 0; i < 256; i++) if (this.m_State[i]! >= 0) this.m_Locks[i] = 0;
   }
 }
+
+/**
+ * The mouse as the controls see it: `g_pKTDXApp->m_pDIManager->m_KTDIMouse`, a `CKTDIDevice` of type 2.  `GetXPos` / `GetYPos`
+ * (32962E60 / 32962EB0) answer `m_XPos` / `m_YPos` (a joystick, type 3, would first copy its axes): the position in pixels of the back
+ * buffer, which `Read` (32962ED0) keeps up from DirectInput every frame.  The poll is not ported: a test, or later the host, puts the
+ * position here.
+ */
+export class UIMouse {
+  m_XPos = 0;
+  m_YPos = 0;
+
+  /** `GetXPos` (32962E60) */
+  GetXPos(): number {
+    return this.m_XPos;
+  }
+
+  /** `GetYPos` (32962EB0) */
+  GetYPos(): number {
+    return this.m_YPos;
+  }
+}

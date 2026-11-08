@@ -287,12 +287,15 @@ export function forgetGlyphs(w: UIWorld): void {
  *
  * The client calls `OnFrameMove` before every `OnFrameRender`; one frame of no time (`OnFrameMove(0, 0)`: nothing moves, the first
  * `ChangeState` of the buttons that wait for it is made) is what a dialog looks like when it is first drawn.  An exception in a frame
- * (what the frame does that is not ported) is kept in `frameError` and the dialog is drawn as it was left.
+ * (what the frame does that is not ported) is kept in `frameError` and the dialog is drawn as it was left.  `prepare` is what the game
+ * does to the dialog after its script has built it and before the first frame (the rows of a list, say).
  */
-export async function drawDialog(script: string, savedAs?: string, world?: UIWorld, frames = 1): Promise<Drawn> {
+export async function drawDialog(script: string, savedAs?: string, world?: UIWorld, frames = 1, prepare?: (dlg: CKTDGUIDialog, w: UIWorld) => void): Promise<Drawn> {
   const w = world ?? (await newWorld());
   try {
     const dlg = w.openDialog(script, 0, new CX2SlotManager(w));
+    // what the game does to a dialog after its script has built it (the rows of a list, say)
+    prepare?.(dlg, w);
     let frameError: string | undefined;
     for (let i = 0; i < frames && frameError === undefined; i++) {
       try {

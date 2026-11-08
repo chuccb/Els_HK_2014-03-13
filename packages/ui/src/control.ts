@@ -23,7 +23,7 @@ import { DVB_TYPE } from "@els/engine";
 import type { DeviceManager, DeviceSound, DeviceTexture } from "./device.ts";
 import type { CKTDGUIDialog } from "./dialog.ts";
 import type { CKTDGUIDialogManager } from "./dialogmanager.ts";
-import type { UIKeyboard } from "./input.ts";
+import type { UIKeyboard, UIMouse } from "./input.ts";
 import type { UIRender, VertexUI4 } from "./render.ts";
 import { ftoi } from "./rect.ts";
 import type { UIFonts } from "./font.ts";
@@ -81,6 +81,8 @@ export interface UIContext {
   clock(): number;
   /** `g_pKTDXApp->m_pDIManager->m_KTDIKeyboard`: the keys the controls ask for (a focused button answers the Enter key) */
   readonly keyboard: UIKeyboard;
+  /** `g_pKTDXApp->m_pDIManager->m_KTDIMouse`: where the mouse is (the list box asks which row it is over) */
+  readonly mouse: UIMouse;
   /** the function-level statics of the `OnFrameRender`s: what the exe keeps for the life of its process, a world keeps here */
   readonly statics: RenderStatics;
 }

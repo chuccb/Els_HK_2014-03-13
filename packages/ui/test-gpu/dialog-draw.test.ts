@@ -13,8 +13,9 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { CKTDGUIButton, CKTDGUIComboBox, CKTDGUIRadioButton, CKTDGUIStatic, UKFont } from "../src/index.ts";
-import type { CKTDGUIDialog } from "../src/index.ts";
+import { CKTDGUIButton, CKTDGUIComboBox, CKTDGUIListBox, CKTDGUIRadioButton, CKTDGUIStatic, LBIT, UKFont } from "../src/index.ts";
+import type { CKTDGUIDialog, UIWorld } from "../src/index.ts";
+import { Color } from "@els/host";
 import { gpuAvailable } from "../../d3d9/test/gpu-helper.ts";
 import { compareImages, newTarget } from "./reference.ts";
 import type { Difference } from "./reference.ts";
@@ -25,14 +26,19 @@ const dataDir = join(import.meta.dir, "..", "..", "..", "data");
 const haveData = existsSync(join(dataDir, "x2.exe")) && existsSync(join(dataDir, "data036.kom")) && existsSync(join(dataDir, "general.ess"));
 const HAVE_GPU = haveData && (await gpuAvailable());
 
+/** the control classes whose `OnFrameRender` is not ported yet: each shown one is counted as not drawn */
+const NOT_PORTED = ["CKTDGUIEditBox", "CKTDGUIIMEEditBox", "CKTDGUISlot"];
+
 /**
- * What the dialog counts as not drawn: each movie of a shown static (`CMovieData::OnFrameRender` is not ported); nothing else is missing
- * (every control class of these dialogs is drawn, the strings of the statics, buttons and radio buttons included)
+ * What the dialog counts as not drawn: each movie of a shown static (`CMovieData::OnFrameRender` is not ported) and each shown control of a
+ * class that is not ported (`NOT_PORTED`; only the messenger window has one); nothing else is missing (every other control class of these
+ * dialogs is drawn, the strings of the statics, buttons, radio buttons, combo boxes and list boxes included)
  */
 function expectedUndrawn(dlg: CKTDGUIDialog): Record<string, number> {
   const out: Record<string, number> = {};
   for (const c of drawnControls(dlg)) {
     if (c instanceof CKTDGUIStatic && c.m_MovieDataList.length > 0) out["CMovieData::OnFrameRender"] = (out["CMovieData::OnFrameRender"] ?? 0) + c.m_MovieDataList.length;
+    if (NOT_PORTED.includes(c.constructor.name)) out[c.constructor.name] = (out[c.constructor.name] ?? 0) + 1;
   }
   return out;
 }
@@ -48,9 +54,10 @@ interface Spoken {
  * text (a spreading one shows `iSpreadCount` characters), and the string of each shown button and radio button (one with an empty message
  * is drawn too).  A static's string goes to `Draw2DText` unless it uses a UK font.  A closed combo box that is not static speaks the text
  * of its selected row (cut to `m_iTextLimit` characters when that is above 0) if it shows it and has string data.  (None of these dialogs
- * has an open box or a static one, whose rows are controls.)
+ * has an open box or a static one, whose rows are controls.)  A list box speaks the text of the rows from its bar's position that fit in the
+ * text rectangle (`listBoxStrings`).
  */
-function expectedStrings(dlg: CKTDGUIDialog): Spoken[] {
+function expectedStrings(dlg: CKTDGUIDialog, w: UIWorld): Spoken[] {
   const out: Spoken[] = [];
   for (const c of drawnControls(dlg)) {
     if (c instanceof CKTDGUIStatic) {
@@ -65,6 +72,31 @@ function expectedStrings(dlg: CKTDGUIDialog): Spoken[] {
       if (c.m_bSelectTextShow && c.m_pStringData && c.m_iSelected >= 0 && row) {
         out.push({ method: "OutTextMultiline", text: c.m_iTextLimit > 0 ? row.strText.slice(0, c.m_iTextLimit) : row.strText });
       }
+    } else if (c instanceof CKTDGUIListBox) out.push(...listBoxStrings(c, w));
+  }
+  return out;
+}
+
+/**
+ * What a list box (not a static one: its rows are controls) says: with string data, a UK font of the string data's index and a scroll bar, the
+ * rows from the bar's position on, as long as one more row (the height of that font's line) ends inside the text rectangle; a row that is
+ * not shown takes its place and says nothing; a row of type 0 or 1 is said by the box's font, one of type 2 or 3 (a group) by its group font
+ * (which is there or the row is silent).  A spreading row says its first `iSpreadCount` characters.
+ */
+function listBoxStrings(c: CKTDGUIListBox, w: UIWorld): Spoken[] {
+  expect(c.m_bIsStaticListBox).toBe(false);
+  const out: Spoken[] = [];
+  const font = c.m_pStringData ? w.fonts.getUKFont(c.m_pStringData.fontIndex) : null;
+  const bar = c.m_pScrollBar;
+  if (!font || !bar) return out;
+  const height = font.lineHeight();
+  let bottom = c.m_rcText.top + height;
+  for (let i = bar.m_nPosition; i < c.m_Items.length && bottom <= c.m_rcText.bottom; i++, bottom += height) {
+    const row = c.m_Items[i]!;
+    if (!row.m_bShow) continue;
+    const spoken = row.bSpread ? row.strText.slice(0, Math.min(row.iSpreadCount, row.strText.length)) : row.strText;
+    if (row.itemType === LBIT.DEFAULT || row.itemType === LBIT.NOT_ENABLE ? c.m_pUKFont : row.itemType === LBIT.GROUP_PLUS || row.itemType === LBIT.GROUP_MINUS ? c.m_pGroupUKFont : null) {
+      out.push({ method: "OutTextMultiline", text: spoken });
     }
   }
   return out;
@@ -180,7 +212,7 @@ function expectDrawnLikeDirect3D(name: string, r: Drawn, covers = 200_000): { ed
   // the movies are not ported: they are counted, nothing else is missing (no control class, no edge, no string)
   expect(Object.fromEntries(r.w.render!.undrawn)).toEqual(expectedUndrawn(r.dlg));
   // the controls asked the fonts for the strings the scripts say, and a string with something to see made quads
-  expect(spoken).toEqual(expectedStrings(r.dlg));
+  expect(spoken).toEqual(expectedStrings(r.dlg, r.w));
   expect(textDraws > 0).toBe(spoken.some((t) => /\S/.test(t.text)));
   const d = compareImages(r.image, r.reference, TOLERANCE);
   expect(d.over, report(name, d)).toBe(0);
@@ -199,9 +231,9 @@ const drawn: Drawn[] = [];
 afterEach(() => {
   for (const r of drawn.splice(0)) releaseDrawn(r);
 });
-async function draw(script: string, savedAs: string): Promise<Drawn> {
+async function draw(script: string, savedAs: string, prepare?: (dlg: CKTDGUIDialog, w: UIWorld) => void): Promise<Drawn> {
   spoken.length = 0;
-  const r = await drawDialog(script, savedAs);
+  const r = await drawDialog(script, savedAs, undefined, 1, prepare);
   drawn.push(r);
   return r;
 }
@@ -222,7 +254,7 @@ suite("dialogs drawn through @els/d3d9 by the ported UI", () => {
 
   // the rest of the controls and the edges: Static pictures with an edge, radio buttons (a tab that is checked), a slider, check boxes (one that
   // is checked), a list with a scroll bar, a navigation with one, a dialog with pictures of a key that its TET lacks (quads without area)
-  const more: { name: string; covers: number; classes: Record<string, number>; edgeBars?: number }[] = [
+  const more: { name: string; covers: number; classes: Record<string, number>; edgeBars?: number; prepare?: (dlg: CKTDGUIDialog, w: UIWorld) => void }[] = [
     { name: "DLG_SKILL_INFO_POPUP", covers: 70_000, classes: { CKTDGUIStatic: 1 }, edgeBars: 8 },
     { name: "DLG_UI_SKILL_DESC", covers: 15_000, classes: { CKTDGUIStatic: 2 }, edgeBars: 8 },
     { name: "DLG_COMMAND_SKILL", covers: 200_000, classes: { CKTDGUIRadioButton: 5, CKTDGUISlider: 1, CKTDGUIButton: 2 } },
@@ -235,10 +267,30 @@ suite("dialogs drawn through @els/d3d9 by the ported UI", () => {
     { name: "DLG_UI_OPTION_GRAPHIC", covers: 20_000, classes: { CKTDGUIComboBox: 1, CKTDGUIRadioButton: 15, CKTDGUICheckBox: 4 } },
     { name: "DLG_UI_OPTION_CAM_EX", covers: 20_000, classes: { CKTDGUIComboBox: 4, CKTDGUIRadioButton: 5 } },
     { name: "DLG_UI_SYNTHESIS", covers: 20_000, classes: { CKTDGUIComboBox: 1, CKTDGUIButton: 3 } },
+    // the list boxes: the bounding box, the rows the script put in (the emotions of the chat: seven rows, six fit; the description of a title, in
+    // Korean) and the scroll bar
+    { name: "DLG_CHATBOX_EMOTION_LIST", covers: 5_000, classes: { CKTDGUIListBox: 1, CKTDGUIStatic: 1 } },
+    { name: "DLG_TITLE_WINDOW", covers: 150_000, classes: { CKTDGUIListBox: 3, CKTDGUIButton: 14, CKTDGUIStatic: 4, CKTDGUICheckBox: 1 } },
+    // a list the game fills: group rows (the plus and minus marks), a selected row, a dimmed one, one of its own colour, more rows than fit
+    {
+      name: "DLG_MESSENGER_WINDOW",
+      covers: 20_000,
+      classes: { CKTDGUIListBox: 1, CKTDGUIButton: 7, CKTDGUIIMEEditBox: 1 },
+      prepare: (dlg) => {
+        const box = dlg.m_ControlsList.find((c): c is CKTDGUIListBox => c instanceof CKTDGUIListBox)!;
+        box.addItem("Friends (3)", null, 0, LBIT.GROUP_MINUS, false, 0);
+        box.addItem("Aisha", null, 1, LBIT.DEFAULT, false, 0);
+        box.addItem("Rena", null, 1, LBIT.NOT_ENABLE, false, 0);
+        box.addString("Raven", new Color(0.9, 0.2, 0.1, 1), null, null);
+        box.addItem("Guild (12)", null, 0, LBIT.GROUP_PLUS, false, 0);
+        for (let k = 0; k < 40; k++) box.addItem(`Guildmate ${k + 1}`, null, 1, LBIT.DEFAULT, false, 0);
+        box.m_nSelected = 1;
+      },
+    },
   ];
-  for (const { name, covers, classes, edgeBars } of more) {
+  for (const { name, covers, classes, edgeBars, prepare } of more) {
     test(name, async () => {
-      const r = await draw(`${name}.LUA`, `ui-${name}`);
+      const r = await draw(`${name}.LUA`, `ui-${name}`, prepare);
       const counts: Record<string, number> = {};
       for (const c of r.dlg.m_ControlsList) counts[c.constructor.name] = (counts[c.constructor.name] ?? 0) + 1;
       expect(counts).toMatchObject(classes);

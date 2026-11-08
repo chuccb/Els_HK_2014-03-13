@@ -30,7 +30,7 @@ import { ftoi } from "./rect.ts";
 const f = Math.fround;
 
 /** `(float)((float)(dialog * string) * control)`: one channel of the colour of a string */
-const channel = (dialog: number, string: number, control: number): number => f(f(dialog * string) * control);
+export const channel = (dialog: number, string: number, control: number): number => f(f(dialog * string) * control);
 
 /** the colours a control draws a string in: the dialog's times the string's times the control's, and the same from the outline colour */
 export function stringColors(dialog: CKTDGUIDialog, control: CKTDGUIControl, data: UIStringData): { color: ColorF; outline: ColorF } {

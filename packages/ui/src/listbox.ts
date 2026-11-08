@@ -19,8 +19,8 @@
  * GetSelectedIndex, ClearSelect, SelectItem, RemoveItem, RemoveItemByText, RemoveAllItems, SetScrollBarEndPos, SetShowAllItems,
  * SetShowTimeAllItems, GetPos and the `SetDialog` override.
  *
- * Not ported: what the box does while the game runs (`MsgProc`, `HandleMouse`, `OnFrameMove`, `OnFrameRender`, `ContainsPoint`,
- * `SetMaximize`).  The virtual functions the Lua methods of the base class reach are the base class's: the box overrides only those and
+ * `OnFrameMove` (32943980) and `OnFrameRender` (32943BA0, see `onFrameRender`) are ported.  Not ported: what the box does with the input
+ * while the game runs (`MsgProc`, `HandleMouse`, `ContainsPoint`, `SetMaximize`).  The virtual functions the Lua methods of the base class reach are the base class's: the box overrides only those and
  * `UpdateRects` (vtable slot 42, which is where the setters go), `SetDialog` (slot 15) and `GetPos` (slot 27).
  */
 import { Color, Vec2 } from "@els/host";
@@ -29,13 +29,26 @@ import { CKTDGUIControl, CPictureData, UCT, UIM, UIPointData, readStringData, wc
 import type { CKTDGUIDialog } from "./dialog.ts";
 import type { UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
-import type { UKFont } from "./font.ts";
-import { copyRect, idiv, inflateRect, newRect, newVertices, setRect } from "./rect.ts";
-import type { Rect, VertexUI } from "./rect.ts";
+import { packColor } from "./font.ts";
+import type { ColorF, UKFont } from "./font.ts";
+import { copyRect, ftoi, idiv, inflateRect, newRect, offsetRect, setRect } from "./rect.ts";
+import type { Rect } from "./rect.ts";
+import { VertexUI4 } from "./render.ts";
 import { CKTDGUIScrollBar } from "./scrollbar.ts";
 import { CKTDGUIItem, CKTDGUIStatic } from "./static.ts";
+import { channel, dialogOf, stringPosition } from "./stringdraw.ts";
 
 const f = Math.fround;
+
+/** the line space of the text of a row: `OutTextMultiline(…, 0.8f, …)` */
+const LINE_SPACE = f(0.8);
+
+/** a copy of a rectangle */
+function rectOf(src: Rect): Rect {
+  const rc = newRect();
+  copyRect(rc, src);
+  return rc;
+}
 
 /** `CKTDGUIListBox::LIST_BOX_ITEM_TYPE` */
 export const LBIT = { DEFAULT: 0, NOT_ENABLE: 1, GROUP_PLUS: 2, GROUP_MINUS: 3 } as const;
@@ -101,7 +114,8 @@ export class CKTDGUIListBox extends CKTDGUIControl implements Partial<CKTDGUILis
   /** `CGrowableArray<ListBoxItem*> m_Items` */
   readonly m_Items: ListBoxItem[] = [];
   readonly m_TempPoint = new UIPointData();
-  readonly m_Vertex: VertexUI[] = newVertices();
+  /** `m_Vertex[4]`: the quad being drawn */
+  readonly m_Vertex = new VertexUI4();
   readonly m_rcBoundingBox: Rect = newRect();
   m_x = 0;
   m_y = 0;
@@ -610,6 +624,247 @@ export class CKTDGUIListBox extends CKTDGUIControl implements Partial<CKTDGUILis
       } else {
         bar.showItem(this.m_nSelected);
       }
+    }
+  }
+
+  // ---- drawing ------------------------------------------------------------------------------------------------------------------
+
+  /** the four corners of `m_TempPoint` (the exe sets the eight floats one by one) */
+  private setCorners(left: number, top: number, right: number, bottom: number): UIPointData {
+    const p = this.m_TempPoint;
+    p.leftTopPoint.set(left, top);
+    p.rightTopPoint.set(right, top);
+    p.leftBottomPoint.set(left, bottom);
+    p.rightBottomPoint.set(right, bottom);
+    return p;
+  }
+
+  /** `UpdateVertex` and `RenderVertex(m_Vertex, &m_TempPoint, 1)`: the quad of `m_TempPoint` */
+  private drawTempPoint(): void {
+    this.updateVertex(this.m_Vertex, this.m_TempPoint);
+    this.renderVertex(this.m_Vertex, this.m_TempPoint, 1);
+  }
+
+  /**
+   * `OnFrameRender` (32943BA0).  A shown box draws, in this order,
+   *  1. its bounding box (`m_rcBoundingBox` with `m_pBoudingBoxTex`: the point keeps the texture it had when the box has none);
+   *  2. with at least one row AND a scroll bar (without a bar no row is drawn at all):
+   *     - the first time any list box is drawn (the exe's `static bool bSBInit_0`, `ctx.statics`) the page size of its bar: the height of
+   *       the text rectangle over `m_nTextHeight` (the whole height when that is 0), then `Cap` and `UpdateThumbRect`; the flag is set
+   *       even by a box without a bar;
+   *     - a bar whose position is below 0 is set to 0 (`SetTrackPos`);
+   *     - the mouse-over pass (`updateMegaOver`);
+   *     - the rows, from the bar's position while they fit in the text rectangle (`drawRows`);
+   *  3. the scroll bar.
+   * A box without string data is the exe's null dereference (the port throws); a font that does not exist is a message box (strings
+   * 954 and 955) and nothing is drawn.  The rows are as high as the line of the dialog manager's UK font of the string data's font
+   * index (`m_nTextHeight` is set to it each frame); the text is drawn by the box's own fonts (`m_pUKFont`, `m_pGroupUKFont`).
+   */
+  override onFrameRender(): number {
+    if (!this.m_bShow) return 0;
+    const data = this.m_pStringData;
+    if (!data) throw new Error("CKTDGUIListBox::OnFrameRender: no string data (SetString was not called); the exe dereferences null");
+    const font = this.ctx.fonts.getUKFont(data.fontIndex);
+    if (!font) {
+      this.ctx.messageBox(this.ctx.strings.get(954), this.ctx.strings.get(955));
+      return 0;
+    }
+    const bb = this.m_rcBoundingBox;
+    const point = this.setCorners(bb.left, bb.top, bb.right, bb.bottom);
+    if (this.m_pBoudingBoxTex) point.pUITextureData = this.m_pBoudingBoxTex;
+    this.drawTempPoint();
+    if (this.m_Items.length > 0) this.drawItems(font);
+    this.m_pScrollBar?.onFrameRender();
+    return 0;
+  }
+
+  /** the part of `OnFrameRender` that needs a row: the page size of the bar (once), the mouse pass and the rows */
+  private drawItems(font: UKFont): void {
+    const text = this.m_rcText;
+    const rc = rectOf(text);
+    if (!this.m_bIsStaticListBox) {
+      rc.bottom = (rc.top + font.lineHeight()) | 0;
+      this.m_nTextHeight = (rc.bottom - rc.top) | 0;
+    } else {
+      rc.bottom = (rc.top + this.m_nTextHeight) | 0;
+    }
+    const bar = this.m_pScrollBar;
+    const statics = this.ctx.statics;
+    if (!statics.bSBInit_0) {
+      if (bar) {
+        const height = (text.bottom - text.top) | 0;
+        bar.m_nPageSize = this.m_nTextHeight !== 0 ? idiv(height, this.m_nTextHeight) : height;
+        bar.cap();
+        bar.updateThumbRect();
+      }
+      statics.bSBInit_0 = true;
+    }
+    if (!bar) return;
+    if (bar.m_nPosition < 0) bar.setTrackPos(0);
+    this.updateMegaOver(bar, rectOf(rc));
+    this.drawRows(bar, rectOf(text), font);
+  }
+
+  /**
+   * The first pass over the rows (a copy of the loop of `drawRows` that draws nothing): for each shown row of a box that is not a
+   * multi selection and has a message id (`m_iMessageID > -1`, the rows of the messenger), the mouse (`GetXPos`, `GetYPos` of the
+   * DirectInput mouse over the resolution scale, minus the dialog's position) is tested against the row's rectangle: from
+   * `m_rcSelection.left` to the box's `GetPos().x + m_width`, the row's top and bottom.  The row under the mouse makes every row from the
+   * bar's position on with its message id (and not `m_bMyMessage`) `m_bMegaOver` and ends the pass; a row that is not under it is
+   * `m_bMegaOver = false`.
+   */
+  private updateMegaOver(bar: CKTDGUIScrollBar, rc: Rect): void {
+    const size = this.m_Items.length;
+    let i = bar.m_nPosition;
+    if (i >= size) return;
+    while (rc.bottom <= this.m_rcText.bottom) {
+      const item = this.m_Items[i]!;
+      if (item.m_bShow && (this.m_dwStyle & 1) === 0 && item.m_iMessageID > -1) {
+        const scale = this.ctx.render?.resolutionScale;
+        const dialog = dialogOf(this);
+        const mouse = this.ctx.mouse;
+        const x = f(f(f(mouse.GetXPos()) / (scale ? scale.x : 1)) - dialog.m_Pos.x);
+        const y = f(f(f(mouse.GetYPos()) / (scale ? scale.y : 1)) - dialog.m_Pos.y);
+        const right = f(f(this.m_width) + this.getPos().x);
+        if (x > f(this.m_rcSelection.left) && right > x && y > f(rc.top) && f(rc.bottom) > y) {
+          const id = item.m_iMessageID;
+          for (let j = bar.m_nPosition; j < this.m_Items.length; j++) {
+            const other = this.m_Items[j]!;
+            other.m_bMegaOver = id === other.m_iMessageID && !other.m_bMyMessage;
+          }
+          break;
+        }
+        item.m_bMegaOver = false;
+      }
+      offsetRect(rc, 0, this.m_nTextHeight);
+      if (++i >= size) break;
+    }
+  }
+
+  /**
+   * Whether a row of a multi selection is drawn selected: a row of the range the mouse is dragging over (from `m_nSelStart` to
+   * `m_nSelected`, the start itself and the far end excluded or included as the exe's three comparisons say) has the state the row
+   * under `m_nSelStart` has, any other its own.
+   */
+  private multiSelected(i: number, item: ListBoxItem): boolean {
+    if (this.m_bDrag) {
+      let fromStart: boolean;
+      if (i < this.m_nSelected) fromStart = i > this.m_nSelStart;
+      else if (i < this.m_nSelStart) fromStart = true;
+      else if (i <= this.m_nSelected) fromStart = i > this.m_nSelStart;
+      else fromStart = false;
+      if (fromStart) return this.m_Items[this.m_nSelStart]!.bSelected;
+    }
+    return item.bSelected;
+  }
+
+  /**
+   * The rows: from the bar's position, each shown row (a hidden one takes its place and nothing else) inside the text rectangle,
+   * `m_nTextHeight` high.  A row is highlighted when the box is not a multi selection and the row is `m_bMegaSelect`, `m_bMegaOver` or
+   * the selected one, and in a multi selection when it is selected (`multiSelected`).
+   *  - A static box (`m_bIsStaticListBox`) puts the row's control at the corner of the text rectangle, or at the selection's left for a
+   *    highlighted row, and draws it (a row without a control draws nothing).
+   *  - Otherwise a highlighted row of type DEFAULT or NOT_ENABLE first draws the quad of the selection (`m_rcSelection.left`, the row's
+   *    top and bottom, `m_rcSelection.right` plus the bar's width **once more for every highlighted row so far**; to `GetPos().x +
+   *    m_width` for a row that is `m_bMegaSelect` or `m_bMegaOver`) with `m_pTextTex`, or `m_pButtonMouseOverTex` for a row that is only
+   *    `m_bMegaOver`, when `m_bShowTextTex`; then every row draws its text (`drawRowString`) if the box has string data.
+   */
+  private drawRows(bar: CKTDGUIScrollBar, rc: Rect, font: UKFont): void {
+    const size = this.m_Items.length;
+    const left = this.m_rcSelection.left;
+    let selectionRight = this.m_rcSelection.right;
+    rc.bottom = this.m_bIsStaticListBox ? (rc.top + this.m_nTextHeight) | 0 : (rc.top + font.lineHeight()) | 0;
+    let i = bar.m_nPosition;
+    if (i >= size) return;
+    while (rc.bottom <= this.m_rcText.bottom) {
+      const item = this.m_Items[i]!;
+      if (item.m_bShow) {
+        const highlighted = (this.m_dwStyle & 1) === 0 ? item.m_bMegaSelect || item.m_bMegaOver || i === this.m_nSelected : this.multiSelected(i, item);
+        if (!highlighted) {
+          if (this.m_bIsStaticListBox) this.drawRowControl(item, rc.left, rc.top);
+          else if (this.m_pStringData) this.drawRowString(item, rc);
+        } else {
+          selectionRight = (selectionRight + bar.m_width) | 0;
+          if (this.m_bIsStaticListBox) {
+            this.drawRowControl(item, left, rc.top);
+          } else {
+            if (item.itemType >>> 0 <= LBIT.NOT_ENABLE && this.m_bShowTextTex) {
+              const point = this.setCorners(left, rc.top, selectionRight, rc.bottom);
+              if (item.m_bMegaSelect || item.m_bMegaOver) {
+                const right = f(f(this.m_width) + this.getPos().x);
+                point.rightTopPoint.x = right;
+                point.rightBottomPoint.x = right;
+              }
+              if (this.m_pTextTex) point.pUITextureData = this.m_pTextTex;
+              if (this.m_pButtonMouseOverTex && item.m_bMegaOver && !item.m_bMegaSelect) point.pUITextureData = this.m_pButtonMouseOverTex;
+              this.drawTempPoint();
+            }
+            if (this.m_pStringData) this.drawRowString(item, rc);
+          }
+        }
+      }
+      offsetRect(rc, 0, this.m_nTextHeight);
+      if (++i >= size) break;
+    }
+  }
+
+  /** a row of a static box: its control at (`x`, `y`), drawn */
+  private drawRowControl(item: ListBoxItem, x: number, y: number): void {
+    const control = item.pControl;
+    if (!control) return;
+    control.setOffsetPos(new Vec2(x, y));
+    control.onFrameRender();
+  }
+
+  /**
+   * The text of a row (the same code in the exe for a highlighted row and for the others), at the corner of the row `rc`:
+   * `(float)(dialog.m_Pos + rc.left) + m_OffsetPos` cut to a whole pixel, then the depth (`itemDepth * m_BlankWidthByDepth` pixels) added.
+   *  - A row of type DEFAULT or NOT_ENABLE (an unsigned compare: below 2) is drawn by `m_pUKFont` (nothing without it) with the string
+   *    data's style: the colour is the dialog's times the string's times the box's per channel, or, with `m_bColor`, the row's own red,
+   *    green and blue; alpha is dialog times string times box, the string's alpha halved for NOT_ENABLE; the outline colour is the
+   *    plain product.
+   *  - A group row (GROUP_PLUS 2, GROUP_MINUS 3) first moves the group mark (`m_pGroupMark`, a static with the pictures Plus_Box and
+   *    Minus_Box) to the corner of the row plus the depth and `m_GroupMarkOffsetPos`, shows the picture of its type and draws it, then
+   *    its text through `m_pGroupUKFont` (nothing without it) with the group string data (`m_pGroupStringData`: the exe does not
+   *    look at whether there is one), `m_BlankWidthToGroupMark` further right.
+   *  - Any other type is not drawn.
+   * A spreading row shows the first `iSpreadCount` characters: the exe compares with the length as unsigned numbers, so a count below 0
+   * shows everything.  The call is `OutTextMultiline(x, y, text, colour, style, outline, 0.8, no rectangle, 0, all, 1, 1)`: a line
+   * space of 0.8 (a float) and the alignment flag 0, not the string data's `sortFlag`.
+   */
+  private drawRowString(item: ListBoxItem, rc: Rect): void {
+    const data = this.m_pStringData!;
+    const dialog = dialogOf(this);
+    const { x, y } = stringPosition(dialog, this, data, { x: rc.left, y: rc.top });
+    const depth = Math.imul(item.itemDepth, this.m_BlankWidthByDepth);
+    const type = item.itemType >>> 0;
+    const text = item.bSpread ? item.strText.slice(0, (item.strText.length >>> 0) < (item.iSpreadCount >>> 0) ? item.strText.length : item.iSpreadCount) : item.strText;
+    const d = dialog.m_Color, c = this.m_Color;
+    if (type < 2) {
+      const s = data.color, o = data.outlineColor;
+      const alpha = f(f(type !== 0 ? f(f(s.a * 0.5) * d.a) : f(d.a * s.a)) * c.a);
+      const own = item.m_bColor;
+      const color: ColorF = {
+        a: alpha,
+        r: own ? item.m_color.r : channel(d.r, s.r, c.r),
+        g: own ? item.m_color.g : channel(d.g, s.g, c.g),
+        b: own ? item.m_color.b : channel(d.b, s.b, c.b),
+      };
+      const outline: ColorF = { a: channel(d.a, o.a, c.a), r: channel(d.r, o.r, c.r), g: channel(d.g, o.g, c.g), b: channel(d.b, o.b, c.b) };
+      this.m_pUKFont?.OutTextMultiline((ftoi(x) + depth) | 0, ftoi(y), text, packColor(color), data.fontStyle, packColor(outline), LINE_SPACE, null, 0, -1, 1, 1);
+    } else if (type === 2 || type === 3) {
+      const g = this.m_pGroupStringData;
+      if (!g) throw new Error("CKTDGUIListBox::OnFrameRender: a group row without group string data (SetGroupString was not called); the exe dereferences null");
+      const s = g.color, o = g.outlineColor;
+      const color: ColorF = { a: channel(d.a, s.a, c.a), r: channel(d.r, s.r, c.r), g: channel(d.g, s.g, c.g), b: channel(d.b, s.b, c.b) };
+      const outline: ColorF = { a: channel(d.a, o.a, c.a), r: channel(d.r, o.r, c.r), g: channel(d.g, o.g, c.g), b: channel(d.b, o.b, c.b) };
+      const mark = this.m_pGroupMark;
+      const plus = item.itemType === LBIT.GROUP_PLUS;
+      mark.GetPicture(0)!.bShow = plus;
+      mark.GetPicture(1)!.bShow = !plus;
+      mark.setOffsetPos(new Vec2(f(f(depth) + f(f(rc.left) + this.m_GroupMarkOffsetPos.x)), f(f(rc.top) + this.m_GroupMarkOffsetPos.y)));
+      mark.onFrameRender();
+      this.m_pGroupUKFont?.OutTextMultiline((ftoi(x) + depth + this.m_BlankWidthToGroupMark) | 0, ftoi(y), text, packColor(color), g.fontStyle, packColor(outline), LINE_SPACE, null, 0, -1, 1, 1);
     }
   }
 }
