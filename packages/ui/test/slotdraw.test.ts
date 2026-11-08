@@ -11,7 +11,7 @@
 import { describe, expect, test } from "bun:test";
 import { D3DRS } from "@els/d3d9";
 import { Color } from "@els/host";
-import { CKTDGUIDialog, CKTDGUISlot, CPictureData, SCS, VertexUI4 } from "../src/index.ts";
+import { CKTDGUIDialog, CKTDGUISlot, CPictureData, SCS, UITextureData, VertexUI4 } from "../src/index.ts";
 import type { UIContext, UIPointData } from "../src/index.ts";
 import { fontWorld } from "./fontworld.ts";
 import { drawnCalls, drawnQuads, quad, rig, verts } from "./rig.ts";
@@ -208,6 +208,18 @@ describe("CKTDGUISlot.onFrameRender (32952670): the additional pictures", () => 
     expect(drawnQuads(dev)).toEqual([{ texture: "NOW.TGA", rect: R(20, 30) }, { texture: "SHOWN.TGA", rect: R(140, 10) }]);
   });
 
+  test("a picture whose own texture data has no device texture is skipped whole, though its point has a texture: no quad, no edge, no blend states", () => {
+    const { w, slot, dev } = scene();
+    const failed = picture(w, slot, 1, 100, 10, "FAILED.TGA");
+    failed.pTexture = new UITextureData(); // (the point keeps its texture)
+    failed.m_EdgeWidth = 3;
+    failed.pPoint!.m_eSrcBlend = 2;
+    slot.onFrameRender();
+    expect(drawnQuads(dev)).toEqual([{ texture: "NOW.TGA", rect: R(20, 30) }]);
+    expect(dev.log.filter((l) => l.startsWith("draw ")).length).toBe(1);
+    expect(dev.log.some((l) => l.startsWith("rs 19 "))).toBe(false);
+  });
+
   test("a picture is drawn with the blend states of its point pushed round the draw (SRCBLEND from the source, DESTBLEND from the destination) and popped again", () => {
     const { w, slot, dev } = scene();
     const point = picture(w, slot, 1, 100, 10, "P.TGA").pPoint!;
@@ -344,6 +356,17 @@ describe("CKTDGUISlot.drawEdge (32951310)", () => {
     slot.drawEdge(false, 3, slot.m_Color, p);
     // nWidth 64, nHeight 32; the bottom bars lie on the left-bottom corner's y (20.75 + 56 = 76.75): (21, 40, 3, 32), (21, 73, 64, 3), (82, 40, 3, 32), (21, 40, 64, 3)
     expect(strips(dev)).toEqual(bars([[21, 40, 24, 72], [21, 73, 85, 76], [82, 40, 85, 72], [21, 40, 85, 43]]));
+  });
+
+  test("a skewed quad: the width is the right-top corner's x minus the left-top corner's, the height the right-bottom corner's y minus the left-top corner's", () => {
+    const { slot, dev } = scene();
+    const p = point();
+    p.rightTopPoint.set(74, 21); // 64 wide ... (the right-bottom corner is 68 away, the left-bottom one is 61 away)
+    p.leftBottomPoint.set(13, 50);
+    p.rightBottomPoint.set(78, 55); // ... and 35 high (the left-bottom corner is 30 down, the right-top one 34 up)
+    slot.drawEdge(false, 3, slot.m_Color, p);
+    // x(lt) = 21, y(lt) = 40.75 -> 40, x(rt) = 85, y(lb) = 70.75: (21, 40, 3, 35), (21, 67, 64, 3), (82, 40, 3, 35), (21, 40, 64, 3)
+    expect(strips(dev)).toEqual(bars([[21, 40, 24, 75], [21, 67, 85, 70], [82, 40, 85, 75], [21, 40, 85, 43]]));
   });
 
   test("the size is cut to whole pixels, towards 0: 64.75 x 32.75 is 64 x 32, -64.75 x -32.75 is -64 x -32", () => {
