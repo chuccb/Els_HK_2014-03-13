@@ -4,20 +4,27 @@
  * `CKTDGFontManager::CUKFont` (a font the font manager made with `CreateNewUIUKFont_LUA`, 328B5110: see fontmanager.ts) is a thin wrapper
  * around its `CKTDGFreeTypeFont` (freetypefont.ts, which holds the faces, the glyph cache and does the drawing): it scales the
  * coordinates from the 1024 x 768 layout to the back buffer (`m_ResolutionScale`), takes the outline colour away from a style that has
- * no outline (`FONT_STYLE` below `FS_SHELL`), turns `D3DXCOLOR`s into `D3DCOLOR`s and measures the height of a text.  Not ported:
- * `DrawFontStyle`, `DrawTextFont`, `Push2DText` (the queued 2D text) and `OutProjectionText`.  The lookups `CKTDGUIDialogManager`
+ * no outline (`FONT_STYLE` below `FS_SHELL`), turns `D3DXCOLOR`s into `D3DCOLOR`s, measures the height of a text, draws the text boxes' text
+ * with its outline or shadow (`DrawTextFont`, `DrawFontStyle`) and keeps a queue of 2D texts (`Push2DText`: `FontArticle`s that
+ * `CKTDGFontManager::OnFrameMove` spreads over time; nothing in the exe draws them).  Not ported: `OutProjectionText`.  The lookups `CKTDGUIDialogManager`
  * keeps are `m_mapUKFontList` (UK font id -> font) and `m_mapFontToUKFont` (the font index a script uses -> the id of a UK font;
  * `CKTDGFontManager::MapUIFontToUKFont`, 328B7800).
  *
  * | `CUKFont` member | address |
  * |---|---|
+ * | `FontArticle::FontArticle` | 328B4AC0 |
  * | `~CUKFont` (`Destroy`) | 328B4F30 |
  * | `CalcTextRect` | 328B5010 |
+ * | `Delete2DFont` | 328B5320 |
  * | `Draw2DText` | 328B53C0 |
+ * | `DrawFontStyle` | 328B5890 |
+ * | `DrawTextFont` | 328B6610 |
+ * | `Get2DArticle` | 328B6D20 |
  * | `GetHeight` / `GetPaddedHeight` | 328B6EF0 / 328B7020 |
  * | `GetWidth(wchar_t *)` / `GetWidth(wchar_t)` | 328B7150 / 328B7170 |
  * | `OutTextMultiline` | 328B7C50 |
  * | `OutTextXY` | 328B7D80 |
+ * | `Push2DText` | 328B7EA0 |
  */
 import { idiv, ftoi } from "./rect.ts";
 import type { Rect } from "./rect.ts";
@@ -44,8 +51,31 @@ export function packColor(c: ColorF): number {
   return (((clampedByte(c.a) << 24) | (clampedByte(c.r) << 16) | (clampedByte(c.g) << 8) | clampedByte(c.b)) >>> 0);
 }
 
+/** `CKTDGFontManager::FontArticle` (0x74 bytes, constructor 328B4AC0): a text of the font's queue (`Push2DText`); the constructor zeroes everything */
+export class FontArticle {
+  ID = 0;
+  strMsg = "";
+  readonly color: ColorF = { r: 0, g: 0, b: 0, a: 0 };
+  readonly outLineColor: ColorF = { r: 0, g: 0, b: 0, a: 0 };
+  bInstance = false;
+  sortFlag = 0;
+  fontStyle: number = FONT_STYLE.FS_NONE;
+  readonly pos = { x: 0, y: 0, z: 0 };
+  readonly rect: Rect = { left: 0, top: 0, right: 0, bottom: 0 };
+  /** the text appears one character at a time: `CKTDGFontManager::OnFrameMove` counts `iSpreadCount` up every `fSpreadTimeGap` seconds */
+  bSpread = false;
+  iSpreadCount = 0;
+  fSpreadTimeGap = 0;
+  fNowSpreadTime = 0;
+}
+
 /** `CKTDGFontManager::CUKFont`: a font of the UI */
 export class UKFont {
+  /** `m_TextID` (0x1A0): the id of the text pushed last (the constructor makes it 0) */
+  m_TextID = 0;
+  /** `m_vecFont2D` (0x1A4): the queued texts in the order they were pushed */
+  readonly m_vecFont2D: FontArticle[] = [];
+
   constructor(
     /** not in the exe: the id the font was entered under (a diagnostic) */
     readonly id: number,
@@ -54,10 +84,11 @@ export class UKFont {
   ) {}
 
   /**
-   * `~CUKFont` (328B4F30): the queued 2D texts are dropped (`m_vecFont2D`: `Push2DText` is not ported, so there are none), the glyph font
-   * is unloaded (`UnLoad(true)`: its pages, cells and vertex memory go) and deleted.  The exe dereferences `m_pUKFont` without a look.
+   * `~CUKFont` (328B4F30): the queued 2D texts are deleted and the queue emptied, the glyph font is unloaded (`UnLoad(true)`: its
+   * pages, cells and vertex memory go) and deleted.  The exe dereferences `m_pUKFont` without a look (after it has emptied the queue).
    */
   Destroy(): void {
+    this.m_vecFont2D.length = 0;
     this.ft.UnLoad(true);
     this.m_pUKFont = null;
   }
@@ -194,6 +225,147 @@ export class UKFont {
       const n = nCount < 0 ? wcslen(strMsg) : nCount;
       pos.bottom = (pos.top + idiv(ft._EstimateStringHeight(strMsg, n), ft.m_EnlargeNum)) | 0;
     }
+  }
+
+  /**
+   * `Push2DText(strMsg, xPos, yPos, color, outlineColor, sortFlag, fontStyle, bInstance, bSpread, fSpreadTimeGap)` (328B7EA0): a new
+   * article (all zero, as its constructor makes it) gets the next id (`++m_TextID`), the two colours, the position `(float)xPos`,
+   * `(float)yPos` (z stays 0), the text up to its first NUL, `bInstance`, `sortFlag` and `fontStyle`, and goes to the end of the queue;
+   * the id is the answer.  Only when `bSpread` is set do `bSpread` and `fSpreadTimeGap` come into the article (the gap of a text that
+   * does not spread is dropped: it stays 0), with the time and the count of the spreading at 0.  The rectangle stays empty.
+   */
+  Push2DText(strMsg: string, xPos: number, yPos: number, color: ColorF, outlineColor: ColorF, sortFlag: number, fontStyle: number, bInstance: boolean, bSpread: boolean, fSpreadTimeGap: number): number {
+    const article = new FontArticle();
+    this.m_TextID = (this.m_TextID + 1) | 0;
+    if (bSpread) {
+      article.bSpread = true;
+      article.fSpreadTimeGap = f(fSpreadTimeGap);
+      article.fNowSpreadTime = 0;
+      article.iSpreadCount = 0;
+    }
+    Object.assign(article.color, color);
+    Object.assign(article.outLineColor, outlineColor);
+    article.pos.x = f(xPos);
+    article.pos.y = f(yPos);
+    article.strMsg = strMsg.slice(0, wcslen(strMsg));
+    article.bInstance = bInstance;
+    article.sortFlag = sortFlag >>> 0;
+    article.ID = this.m_TextID;
+    article.fontStyle = fontStyle;
+    this.m_vecFont2D.push(article);
+    return this.m_TextID;
+  }
+
+  /** `Delete2DFont(ID)` (328B5320): the first article with this id is deleted and the later ones move up (the order stays); false when there is none */
+  Delete2DFont(ID: number): boolean {
+    const at = this.m_vecFont2D.findIndex((a) => a.ID === ID);
+    if (at < 0) return false;
+    this.m_vecFont2D.splice(at, 1);
+    return true;
+  }
+
+  /** `Get2DArticle(ID)` (328B6D20): the first article with this id, null when there is none */
+  Get2DArticle(ID: number): FontArticle | null {
+    return this.m_vecFont2D.find((a) => a.ID === ID) ?? null;
+  }
+
+  /**
+   * `DrawFontStyle(strMsg, rt, sortFlag, outlineColor, fontStyle, nCount)` (328B5890): the outline or the shadow of a text, drawn BEFORE
+   * the text itself, by the glyph font directly (the exe scales the rectangle here, so it does not go through `OutTextMultiline`):
+   * `OutTextMultiline(left, top, text, outline colour, 0xFF000000, 1.0, scaled rt, flag 0, nCount, 1.0, 1.0)` (`sortFlag` is taken and
+   * not looked at).  `FS_SHADOW` is one copy one layout pixel right and down; `FS_SHELL` is eight, in the order left, right, up, down,
+   * left up, left down, right up, right down, each of them the rectangle moved by one layout pixel (then scaled and cut: `(int)((float)v * scale)`);
+   * any other style draws nothing, and so does an empty text or a count of 0.
+   */
+  DrawFontStyle(strMsg: string | null, rt: Rect, sortFlag: number, outlineColor: ColorF, fontStyle: number, nCount: number): void {
+    void sortFlag;
+    if (strMsg === null || wcslen(strMsg) === 0 || nCount === 0) return;
+    // the style is looked at before the glyph font is: the exe reads the global scale, and a style that draws nothing leaves m_pUKFont alone
+    if (fontStyle !== FONT_STYLE.FS_SHADOW && fontStyle !== FONT_STYLE.FS_SHELL) return;
+    const s = this.scale;
+    const sx = (v: number): number => ftoi(f(f(v) * s.x));
+    const sy = (v: number): number => ftoi(f(f(v) * s.y));
+    const ft = this.ft;
+    const color = packColor(outlineColor);
+    const draw = (dx: number, dy: number): void => {
+      const rect: Rect = { left: sx((rt.left + dx) | 0), top: sy((rt.top + dy) | 0), right: sx((rt.right + dx) | 0), bottom: sy((rt.bottom + dy) | 0) };
+      ft.OutTextMultiline(rect.left, rect.top, strMsg, color, 0xff000000, 1, rect, 0, nCount, 1, 1);
+    };
+    if (fontStyle === FONT_STYLE.FS_SHADOW) {
+      draw(1, 1);
+      return;
+    }
+    draw(-1, 0);
+    draw(1, 0);
+    draw(0, -1);
+    draw(0, 1);
+    draw(-1, -1);
+    draw(-1, 1);
+    draw(1, -1);
+    draw(1, 1);
+  }
+
+  /**
+   * `DrawTextFont(strMsg, pos, nCount, color, bOutline, outlineColor, sortFlag)` (328B6610): what the edit boxes draw their text with.
+   * `pos` (layout pixels; the caller's rectangle is not changed) is moved by `sortFlag`: 1 centres the text on its left side
+   * (`CalcTextRect` of the text, then half its width to the left), 2 ends it there, 4 centres it vertically (the rectangle gets the
+   * text's height: top `+ h/2 - t/2`, bottom `+ t/2 - h/2`, `h` the rectangle's height and `t` the height of the text over
+   * `m_EnlargeNum`), 5 does both (the height is then the one `CalcTextRect` left); any other value leaves it.  The text is drawn
+   * after its `FS_SHELL` outline (`DrawFontStyle`, with the moved rectangle) when `bOutline`, and drawn by
+   * `OutTextMultiline(left, top, text, colour, 0xFF000000, 1.0, scaled rectangle, sortFlag, nCount, 1.0, 1.0)` of the glyph font
+   * in both cases.  No rectangle, no text, an empty one or a count of 0 draws nothing.
+   */
+  DrawTextFont(strMsg: string | null, pos: Rect | null, nCount: number, color: ColorF, bOutline: boolean, outlineColor: ColorF, sortFlag: number): void {
+    if (pos === null || strMsg === null || wcslen(strMsg) === 0 || nCount === 0) return;
+    const rt: Rect = { left: pos.left, top: pos.top, right: pos.right, bottom: pos.bottom };
+    switch (sortFlag >>> 0) {
+      case 1:
+        this.CalcTextRect(strMsg, rt, nCount, 0);
+        this.shiftHalfWidth(rt);
+        break;
+      case 2: {
+        this.CalcTextRect(strMsg, rt, nCount, 0);
+        const width = (rt.right - rt.left) | 0;
+        rt.right = rt.left;
+        rt.left = (rt.left - width) | 0;
+        break;
+      }
+      case 4:
+        this.centreVertically(strMsg, rt, nCount);
+        break;
+      case 5:
+        this.CalcTextRect(strMsg, rt, nCount, 0);
+        this.shiftHalfWidth(rt);
+        this.centreVertically(strMsg, rt, nCount);
+        break;
+      default:
+        break;
+    }
+    if (bOutline) this.DrawFontStyle(strMsg, rt, 0x100, outlineColor, FONT_STYLE.FS_SHELL, nCount);
+    const s = this.scale;
+    const scaled: Rect = {
+      left: ftoi(f(f(rt.left) * s.x)),
+      top: ftoi(f(f(rt.top) * s.y)),
+      right: ftoi(f(f(rt.right) * s.x)),
+      bottom: ftoi(f(f(rt.bottom) * s.y)),
+    };
+    this.ft.OutTextMultiline(scaled.left, scaled.top, strMsg, packColor(color), 0xff000000, 1, scaled, sortFlag, nCount, 1, 1);
+  }
+
+  /** the rectangle moved left by half its width (`/ 2` of ints) */
+  private shiftHalfWidth(rt: Rect): void {
+    const half = idiv((rt.right - rt.left) | 0, 2);
+    rt.left = (rt.left - half) | 0;
+    rt.right = (rt.right - half) | 0;
+  }
+
+  /** the rectangle cut down to the height of the text, centred (`h` its height, `t` the text's: top `+ h/2 - t/2`, bottom `+ t/2 - h/2`) */
+  private centreVertically(strMsg: string, rt: Rect, nCount: number): void {
+    const ft = this.ft;
+    const h = (rt.bottom - rt.top) | 0;
+    const t = idiv(ft._EstimateStringHeight(strMsg, nCount >= 0 ? nCount : wcslen(strMsg)), ft.m_EnlargeNum);
+    rt.top = (rt.top + idiv(h, 2) - idiv(t, 2)) | 0;
+    rt.bottom = (rt.bottom + idiv(t, 2) - idiv(h, 2)) | 0;
   }
 }
 

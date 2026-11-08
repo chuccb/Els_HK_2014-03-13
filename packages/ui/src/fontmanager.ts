@@ -15,7 +15,8 @@
  * also owns the one `FT_Library` (`m_FreeTypeLibrary`, made by its constructor 328B45A0) every face of every font is opened with.
  *
  * The life of the device: `OnLostDevice` (328B79E0) / `OnResetDevice` (328B7A20) pass a reset on to the glyph font of every UK font of
- * the list (freetypefont.ts); the destructor `~CKTDGFontManager` (328B4D90) is `Destroy()` here (a C++ destructor is a TypeScript
+ * the list (freetypefont.ts); `OnFrameMove` (328B7940) lets the queued texts that spread (`CUKFont::Push2DText`) show one more character
+ * every so often; the destructor `~CKTDGFontManager` (328B4D90) is `Destroy()` here (a C++ destructor is a TypeScript
  * `Destroy()`): every UK font is deleted (`~CUKFont`, 328B4F30, gives the pages back) and the lists and maps are emptied.
  */
 import { FtLibrary } from "@els/freetype";
@@ -27,6 +28,8 @@ import type { UIFonts } from "./font.ts";
 
 /** `_toupper` on every byte: the names and file names are ASCII (a byte that is not a lower-case letter stays) */
 const upper = (s: string): string => s.replace(/[a-z]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 32));
+
+const f = Math.fround;
 
 /** `CKTDGFontManager::GetFontMemory`'s `static std::vector<unsigned char> s_vecDummy`: what a font that is not installed has */
 const DUMMY_FONT: Uint8Array = new Uint8Array(0);
@@ -123,5 +126,25 @@ export class CKTDGFontManager implements Partial<CKTDGFontManager_Methods>, Font
   OnResetDevice(): number {
     for (const font of this.m_UKFontList) font.m_pUKFont?.OnResetDevice();
     return 0;
+  }
+
+  /**
+   * `OnFrameMove(fTime, fElapsedTime)` (328B7940): of every queued text (`CUKFont::m_vecFont2D`) of every UK font, in the order of the list and
+   * of the queues, those that spread (`bSpread`) have `fElapsedTime` added to the time they have waited (a float sum, stored first); when
+   * that is not below the gap (`fSpreadTimeGap`: the `comiss` + `ja` skip only when the gap is greater, so a NaN counts as reached) the time
+   * is 0 again and the count of shown characters (`iSpreadCount`) goes up by one while it is below the length of the text.  `fTime` is not used.
+   */
+  OnFrameMove(fTime: number, fElapsedTime: number): void {
+    void fTime;
+    for (const font of this.m_UKFontList) {
+      for (const article of font.m_vecFont2D) {
+        if (!article.bSpread) continue;
+        article.fNowSpreadTime = f(f(fElapsedTime) + article.fNowSpreadTime);
+        if (!(article.fSpreadTimeGap > article.fNowSpreadTime)) {
+          article.fNowSpreadTime = 0;
+          if (article.iSpreadCount < article.strMsg.length) article.iSpreadCount++;
+        }
+      }
+    }
   }
 }
