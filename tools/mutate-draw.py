@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Mutation check of the UI drawing classes (CKTDXDeviceTexture::Draw, the edges of the static / button / radio button, the
-OnFrameRender of the radio button, check box, slider, navigation, control list and scroll bar, and the strings the static, button and
-radio button draw: stringdraw.ts): apply one small change at a time to a source file of packages/ui/src, run
-packages/ui/test/controldraw.test.ts, render.test.ts and stringdraw.test.ts and report whether a test notices (killed) or not
-(SURVIVED).  The last mutants are of the CPU reference of the GPU test (packages/ui/test-gpu/reference.ts: corners, culling, alpha
+OnFrameRender of the radio button, check box, slider, navigation, control list and scroll bar, the strings the static, button and
+radio button draw: stringdraw.ts, and the combo box: combobox.ts, OnFrameRender and OnFrameRenderEnd): apply one small change at a
+time to a source file of packages/ui/src, run packages/ui/test/controldraw.test.ts, render.test.ts, stringdraw.test.ts and
+comboboxdraw.test.ts and report whether a test notices (killed) or not (SURVIVED).  The last mutants are of the CPU reference of the GPU test (packages/ui/test-gpu/reference.ts: corners, culling, alpha
 test), which packages/ui/test/reference.test.ts must pin.
 
     python3 tools/mutate-draw.py [--list] [substring of a mutant name ...]
 
 A mutant that must be killed and survives makes the exit code 1; a mutant with a reason is expected to survive.  The source is restored
 after every mutant (also on Ctrl-C), but do not run this with uncommitted edits in the mutated files you cannot afford to lose.  Needs
-`bun` in ./node_modules/.bin; the run takes ~2 s per mutant.  Each run has a 90 s timeout and an 8 GB address-space limit.
+`bun` in ./node_modules/.bin; the run takes ~2-4 s per mutant (380 mutants: ~23 minutes).  Each run has a 90 s timeout and an 8 GB address-space limit.
 """
 import os, resource, subprocess, sys
 

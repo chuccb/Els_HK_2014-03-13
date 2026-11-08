@@ -129,7 +129,7 @@ if (mdOut) {
   md += `| **fully ported** (every method they call is implemented) | **${ported.length}** |\n`;
   md += `| of those, run in strict mode without an error | ${strict.filter((r) => r.ok).length} |\n`;
   md += `| of those, wait for a sibling script (a global it defines is used, the sibling is not ported yet) | ${waiting.length} |\n\n`;
-  md += `## Drawing\n\nThe control classes the finished dialogs hold, by the number of dialogs that hold one, and whether the class has its own \`OnFrameRender\` (otherwise \`CKTDGUIControl\`'s counts it as not drawn). **${allClassesDrawn} of ${okRuns.length}** dialogs hold only classes that draw their pictures; the text of Static / Button / RadioButton strings is not drawn yet in any of them.\n\n`;
+  md += `## Drawing\n\nThe control classes the finished dialogs hold, by the number of dialogs that hold one, and whether the class has its own \`OnFrameRender\` (otherwise \`CKTDGUIControl\`'s counts it as not drawn). **${allClassesDrawn} of ${okRuns.length}** dialogs hold only classes that draw their pictures; the strings of Static, Button, RadioButton and ComboBox are drawn too (FINDINGS 17.13, 17.14), those of ListBox, Slot, EditBox and IMEEditBox not yet.\n\n`;
   md += `| control class | dialogs | controls | OnFrameRender |\n|---|---:|---:|---|\n`;
   for (const [k, e] of [...classUse].sort((a, b) => b[1].dialogs - a[1].dialogs || (a[0] < b[0] ? -1 : 1))) md += `| \`${k}\` | ${e.dialogs} | ${e.controls} | ${undrawnClasses.has(k) ? "not ported" : "ported"} |\n`;
   md += `\n`;

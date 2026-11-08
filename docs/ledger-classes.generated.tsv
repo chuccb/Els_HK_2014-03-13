@@ -72,7 +72,7 @@ CxImage	52	1234	328CFA50	todo
 CX2StateDungeonRoom	52	9030	32F17C10	todo		
 CKTDGLineMap	51	8291	328C0DE0	todo		
 CX2GameEdit	51	5245	32A2B500	todo		
-CKTDGUIComboBox	50	4330	328CD110	partial	packages/ui/src/combobox.ts	constructor, UpdateRects (32940DE0), all 34 Lua methods; OnFrameMove (3293D960); not ported: input handling and drawing
+CKTDGUIComboBox	50	4330	328CD110	partial	packages/ui/src/combobox.ts	constructor, UpdateRects (32940DE0), all 34 Lua methods; OnFrameMove (3293D960); OnFrameRender (3293DB00: the button, the text rectangle, the selected row, the first-box rule of the scroll bar's page size) and OnFrameRenderEnd (3293E390: the layout of the rows, the dropdown, its highlight, rows and bar); not ported: input handling (MsgProc, HandleMouse, OnFocusOut, OnHotkey)
 CX2Camera	50	5039	32A28A60	todo		
 CX2BuffFactor	50	4516	32AE3730	todo		
 CX2StateBattleField	50	3506	32D75F80	todo		
