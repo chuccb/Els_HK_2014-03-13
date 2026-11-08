@@ -10,7 +10,7 @@
  * adapter (`./tools/gpu.sh`: SwiftShader) and the client's data; skipped without them.  Heavy (all the textures of a dialog are decoded and
  * uploaded), so `tools/test-packages.sh` runs this folder in a process of its own.
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { CKTDGUIButton, CKTDGUIRadioButton, CKTDGUIStatic } from "../src/index.ts";
@@ -18,7 +18,7 @@ import type { CKTDGUIDialog } from "../src/index.ts";
 import { gpuAvailable } from "../../d3d9/test/gpu-helper.ts";
 import { compareImages, newTarget } from "./reference.ts";
 import type { Difference } from "./reference.ts";
-import { CLEAR, HEIGHT, TOLERANCE, WIDTH, drawDialog, drawnControls } from "./draw.ts";
+import { CLEAR, HEIGHT, TOLERANCE, WIDTH, drawDialog, drawnControls, releaseDrawn } from "./draw.ts";
 import type { Draw, Drawn } from "./draw.ts";
 
 const dataDir = join(import.meta.dir, "..", "..", "..", "data");
@@ -116,9 +116,23 @@ function expectDrawnLikeDirect3D(name: string, r: Drawn, covers = 200_000): { ed
 
 const suite = HAVE_GPU ? describe : describe.skip;
 
+/**
+ * Every dialog is drawn in a world of its own, and a world keeps its GPU memory until it is released: the textures of the dialog, the buffers
+ * of the dynamic vertex buffer manager and the page textures of the fonts (48 for the client's seven).  A test that fails gives it back too.
+ */
+const drawn: Drawn[] = [];
+afterEach(() => {
+  for (const r of drawn.splice(0)) releaseDrawn(r);
+});
+async function draw(script: string, savedAs: string): Promise<Drawn> {
+  const r = await drawDialog(script, savedAs);
+  drawn.push(r);
+  return r;
+}
+
 suite("dialogs drawn through @els/d3d9 by the ported UI", () => {
   test("DLG_UI_EVENT_BINGO_MAIN (pictures and buttons with alpha: the buttons' own blend states are the baseline's)", async () => {
-    const r = await drawDialog("DLG_UI_EVENT_BINGO_MAIN.LUA", "ui-DLG_UI_EVENT_BINGO_MAIN");
+    const r = await draw("DLG_UI_EVENT_BINGO_MAIN.LUA", "ui-DLG_UI_EVENT_BINGO_MAIN");
     expectDrawnLikeDirect3D("DLG_UI_EVENT_BINGO_MAIN", r);
     expect(r.draws.length).toBeGreaterThan(50);
   }, 120_000);
@@ -126,7 +140,7 @@ suite("dialogs drawn through @els/d3d9 by the ported UI", () => {
   // a window of pictures and buttons, the character sheet, a list of 52 controls, the backdrop of three stretched textures, a world map
   for (const name of ["DLG_MAP_SELECT_WINDOW", "DLG_UI_CHARACTER_NEW", "DLG_UI_CHANNEL_SELECTION", "DLG_UNIT_CREATE_BACK", "DLG_UI_WORLD_MAP_NEW"]) {
     test(name, async () => {
-      expectDrawnLikeDirect3D(name, await drawDialog(`${name}.LUA`, `ui-${name}`));
+      expectDrawnLikeDirect3D(name, await draw(`${name}.LUA`, `ui-${name}`));
     }, 120_000);
   }
 
@@ -144,7 +158,7 @@ suite("dialogs drawn through @els/d3d9 by the ported UI", () => {
   ];
   for (const { name, covers, classes, edgeBars } of more) {
     test(name, async () => {
-      const r = await drawDialog(`${name}.LUA`, `ui-${name}`);
+      const r = await draw(`${name}.LUA`, `ui-${name}`);
       const counts: Record<string, number> = {};
       for (const c of r.dlg.m_ControlsList) counts[c.constructor.name] = (counts[c.constructor.name] ?? 0) + 1;
       expect(counts).toMatchObject(classes);

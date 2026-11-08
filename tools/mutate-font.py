@@ -711,7 +711,8 @@ m(DT, 'ResetDevice: the new texture is in the default pool', RD, RD.replace('D3D
 m(DT, 'ResetDevice: a failure is error 0xB', 'this.host.log.push(0xb, hresultName(made.hr));', 'this.host.log.push(0xc, hresultName(made.hr));')
 m(DT, 'ResetDevice: a failure has the name of the HRESULT', 'this.host.log.push(0xb, hresultName(made.hr));', 'this.host.log.push(0xb);')
 m(DT, 'ResetDevice: a failure ends it', 'this.host.log.push(0xb, hresultName(made.hr));\n      return;', 'this.host.log.push(0xb, hresultName(made.hr));')
-m(DT, 'ResetDevice: no texture without a texture', 'if (made.hr < 0 || !made.tex) {', 'if (made.hr < 0) {')
+m(DT, 'ResetDevice: no texture without a texture', 'if (made.hr < 0 || !made.tex) {', 'if (made.hr < 0) {',
+  'equivalent: a D3DXCreateTexture that succeeds always answers its texture (the second test is the type narrowing)')
 m(DT, 'ResetDevice: the video texture is kept', '    this.m_pTextureVid = made.tex;\n    const sys', '    const sys')
 m(DT, 'ResetDevice: no system texture is fine', '    const sys = this.m_pTextureSys;\n    if (sys) {\n      sys.UnlockRect(0);\n      if (device', '    const sys = this.m_pTextureSys;\n    if (true) {\n      sys!.UnlockRect(0);\n      if (device')
 m(DT, 'ResetDevice: the system texture is unlocked', '      sys.UnlockRect(0);\n      if (device', '      if (device')

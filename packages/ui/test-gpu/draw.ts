@@ -3,8 +3,12 @@
  * the controls and the edges through `CKTDGUIDialog::OnFrameRender`), the state manager, the dynamic vertex buffers, and `Direct3DDevice9` on
  * WebGPU; and the same quads composed again on the CPU by the rules of Direct3D 9 (`reference.ts`).
  *
- * Shared by `dialog-draw.test.ts` (14 dialogs, asserted) and `tools/ui-draw.ts` (every DLG script, counted).  Needs a WebGPU adapter
- * (`./tools/gpu.sh`: SwiftShader) and the client's data.
+ * Shared by `dialog-draw.test.ts` (14 dialogs, asserted), `text-draw.test.ts` (text of the client's fonts) and `tools/ui-draw.ts` (every DLG
+ * script, counted).  Needs a WebGPU adapter (`./tools/gpu.sh`: SwiftShader) and the client's data.
+ *
+ * `drawScene` is the common part: whatever the UI hands to `DrawPrimitive` while a body runs is written down with the device state of each
+ * draw (`recordDraws`), the picture is read back, and the same draws are composed again on the CPU (`composeDraws`).  A dialog's textures
+ * are the files of its device textures; the pages of a glyph font change between draws, so their pixels are copied at each draw.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -60,6 +64,8 @@ export interface Draw {
   magFilter: number;
   addressU: number;
   addressV: number;
+  /** the pixels of `texture` at the time of the draw, when the recording was given a `snapshot` (a texture the CPU changes between draws) */
+  image?: RefImage | null;
 }
 
 export interface Drawn {
@@ -87,6 +93,129 @@ export async function newWorld(): Promise<UIWorld> {
   return w;
 }
 
+type Render = NonNullable<UIWorld["render"]>;
+/** `D3DPT_TRIANGLELIST`: what the glyph fonts draw (the controls' quads are triangle strips) */
+const D3DPT_TRIANGLELIST = 4;
+/** the dynamic buffer manager's vertex type 3 (XYZRHW, diffuse, one set of coordinates): 28 bytes */
+const DVB_XYZRHW_DIFFUSE_TEX1 = 3;
+const VERTEX_RHW = 28;
+
+export interface Recording {
+  draws: Draw[];
+  /** put the buffer manager back as it was */
+  stop(): void;
+}
+
+/**
+ * Write down every `DrawPrimitive` of the render's dynamic vertex buffer manager with the device state it is made with (the manager
+ * still draws).  `snapshot` is asked for the pixels of the texture on stage 0 at the moment of each draw.
+ */
+export function recordDraws(render: Render, snapshot?: (texture: Direct3DTexture9 | null) => RefImage | null): Recording {
+  const draws: Draw[] = [];
+  const real = render.dvb.drawPrimitive.bind(render.dvb);
+  render.dvb.drawPrimitive = (type, primitive, numPrimitives, data, numDraws) => {
+    const s = render.states;
+    const texture = s.apd3dTextures[0] ?? null;
+    draws.push({
+      type, primitive, numPrimitives, numDraws, data: data ? data.slice() : new Uint8Array(0), texture,
+      ...(snapshot ? { image: snapshot(texture) } : {}),
+      blendEnable: s.adwRenderState[D3DRS.ALPHABLENDENABLE]!, srcBlend: s.adwRenderState[D3DRS.SRCBLEND]!, destBlend: s.adwRenderState[D3DRS.DESTBLEND]!,
+      alphaTest: s.adwRenderState[D3DRS.ALPHATESTENABLE]!, alphaFunc: s.adwRenderState[D3DRS.ALPHAFUNC]!, alphaRef: s.adwRenderState[D3DRS.ALPHAREF]!,
+      cullMode: s.adwRenderState[D3DRS.CULLMODE]!, zEnable: s.adwRenderState[D3DRS.ZENABLE]!, zWrite: s.adwRenderState[D3DRS.ZWRITEENABLE]!,
+      minFilter: s.adwSamplerState[D3DSAMP.MINFILTER]!, magFilter: s.adwSamplerState[D3DSAMP.MAGFILTER]!,
+      addressU: s.adwSamplerState[D3DSAMP.ADDRESSU]!, addressV: s.adwSamplerState[D3DSAMP.ADDRESSV]!,
+    });
+    real(type, primitive, numPrimitives, data, numDraws);
+  };
+  return { draws, stop: () => { render.dvb.drawPrimitive = real; } };
+}
+
+const same = (a: Uint8Array, b: Uint8Array): boolean => a.length === b.length && a.every((v, i) => v === b[i]);
+
+/**
+ * The quads of a triangle list the glyph fonts draw: six vertices (v0 v1 v2 | v3 v4 v5) of the 28-byte RHW type, the second triangle's
+ * first vertex the first's second (v3 = v1) and its last the first's last (v5 = v2).  The reference draws a quad as a strip of four
+ * vertices; v0 v1 v2 v4 is the same two triangles (the shared edge v1 - v2, the same winding).
+ */
+export function listQuads(d: Draw): Uint8Array[] {
+  if (d.primitive !== D3DPT_TRIANGLELIST || d.type !== DVB_XYZRHW_DIFFUSE_TEX1) throw new Error(`a draw of primitive ${d.primitive}, vertex type ${d.type} is not a list of RHW quads`);
+  if (d.numPrimitives % 2 !== 0) throw new Error(`a list of ${d.numPrimitives} triangles is not made of quads`);
+  const quads: Uint8Array[] = [];
+  for (let q = 0; q < d.numPrimitives / 2; q++) {
+    const v = (k: number): Uint8Array => d.data.subarray((q * 6 + k) * VERTEX_RHW, (q * 6 + k + 1) * VERTEX_RHW);
+    if (!same(v(3), v(1)) || !same(v(5), v(2))) throw new Error(`the six vertices of quad ${q} of a list are not two triangles of one quad`);
+    const strip = new Uint8Array(4 * VERTEX_RHW);
+    [0, 1, 2, 4].forEach((k, i) => strip.set(v(k), i * VERTEX_RHW));
+    quads.push(strip);
+  }
+  return quads;
+}
+
+/**
+ * Compose the draws on a cleared target by the rules of Direct3D 9 (`reference.ts`).  `textureOf` gives the pixels of the texture a draw
+ * had on stage 0.  A quad it has no rule for, or a texture it cannot give, stops the composition: `referenceError` says why and
+ * `reference` is what was composed before.
+ */
+export function composeDraws(draws: Draw[], textureOf: (d: Draw) => RefImage | null): { reference: RefImage; referenceError?: string } {
+  const reference = newTarget(WIDTH, HEIGHT, CLEAR[0]!, CLEAR[1]!, CLEAR[2]!);
+  try {
+    for (const d of draws) {
+      const state = {
+        texture: textureOf(d), blendEnable: d.blendEnable !== 0, srcBlend: d.srcBlend, destBlend: d.destBlend,
+        minFilter: d.minFilter, magFilter: d.magFilter, addressU: d.addressU, addressV: d.addressV, numDraws: d.numDraws,
+        alphaTest: d.alphaTest !== 0, alphaFunc: d.alphaFunc, alphaRef: d.alphaRef, cullMode: d.cullMode,
+      };
+      if (d.primitive === D3DPT_TRIANGLELIST) for (const vertices of listQuads(d)) drawQuad(reference, { ...state, vertices });
+      else drawQuad(reference, { ...state, vertices: d.data });
+    }
+    return { reference };
+  } catch (e) {
+    return { reference, referenceError: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export interface SceneOptions {
+  /** the pixels of a texture on stage 0 at the time of a draw (see `recordDraws`) */
+  snapshot?: (texture: Direct3DTexture9 | null) => RefImage | null;
+  /** the pixels the CPU composition samples for a draw (default: what `snapshot` copied) */
+  textureOf?: (d: Draw) => RefImage | null;
+  /** the file name the picture is saved as in `D3D9_TEST_OUT` */
+  savedAs?: string;
+}
+
+export interface Scene<T> {
+  /** what the body answered */
+  ret: T;
+  draws: Draw[];
+  image: RefImage;
+  reference: RefImage;
+  referenceError?: string;
+}
+
+/**
+ * Run `body` inside a scene on the cleared back buffer of the fixture's device, with the draws of `w` recorded; then read the picture
+ * back and compose the draws on the CPU.  A body that throws leaves neither the device inside a scene nor the recording in the buffer
+ * manager of a world that goes on.
+ */
+export async function drawScene<T>(w: UIWorld, body: () => T, options: SceneOptions = {}): Promise<Scene<T>> {
+  const { dev } = await getFixture();
+  const rec = recordDraws(w.render!, options.snapshot);
+  dev.BeginScene();
+  let ret: T;
+  try {
+    dev.Clear(null, D3DCLEAR.TARGET | D3DCLEAR.ZBUFFER, (0xff000000 | (CLEAR[0]! << 16) | (CLEAR[1]! << 8) | CLEAR[2]!) >>> 0, 1, 0);
+    ret = body();
+  } finally {
+    dev.EndScene();
+    rec.stop();
+  }
+  const shot = await snap(dev);
+  if (options.savedAs) shot.save(options.savedAs);
+  const image: RefImage = { width: shot.width, height: shot.height, rgba: shot.rgba };
+  const { reference, referenceError } = composeDraws(rec.draws, options.textureOf ?? ((d) => d.image ?? null));
+  return { ret, draws: rec.draws, image, reference, referenceError };
+}
+
 /**
  * Open a dialog script (in `world`, or in a new one), run `frames` frames of it, draw it once on a cleared back buffer, and compose the
  * same quads on the CPU.  A world that draws several dialogs one after the other must `releaseTextures` between them.
@@ -96,10 +225,9 @@ export async function newWorld(): Promise<UIWorld> {
  * (what the frame does that is not ported) is kept in `frameError` and the dialog is drawn as it was left.
  */
 export async function drawDialog(script: string, savedAs?: string, world?: UIWorld, frames = 1): Promise<Drawn> {
-  const { dev } = await getFixture();
   const w = world ?? (await newWorld());
-  const dlg = w.openDialog(script, 0, new CX2SlotManager(w));
   try {
+    const dlg = w.openDialog(script, 0, new CX2SlotManager(w));
     let frameError: string | undefined;
     for (let i = 0; i < frames && frameError === undefined; i++) {
       try {
@@ -108,68 +236,34 @@ export async function drawDialog(script: string, savedAs?: string, world?: UIWor
         frameError = e instanceof Error ? e.message : String(e);
       }
     }
-    const render = w.render!;
 
-    const draws: Draw[] = [];
-    const real = render.dvb.drawPrimitive.bind(render.dvb);
-    render.dvb.drawPrimitive = (type, primitive, numPrimitives, data, numDraws) => {
-      const s = render.states;
-      draws.push({
-        type, primitive, numPrimitives, numDraws, data: data ? data.slice() : new Uint8Array(0), texture: s.apd3dTextures[0] ?? null,
-        blendEnable: s.adwRenderState[D3DRS.ALPHABLENDENABLE]!, srcBlend: s.adwRenderState[D3DRS.SRCBLEND]!, destBlend: s.adwRenderState[D3DRS.DESTBLEND]!,
-        alphaTest: s.adwRenderState[D3DRS.ALPHATESTENABLE]!, alphaFunc: s.adwRenderState[D3DRS.ALPHAFUNC]!, alphaRef: s.adwRenderState[D3DRS.ALPHAREF]!,
-        cullMode: s.adwRenderState[D3DRS.CULLMODE]!, zEnable: s.adwRenderState[D3DRS.ZENABLE]!, zWrite: s.adwRenderState[D3DRS.ZWRITEENABLE]!,
-        minFilter: s.adwSamplerState[D3DSAMP.MINFILTER]!, magFilter: s.adwSamplerState[D3DSAMP.MAGFILTER]!,
-        addressU: s.adwSamplerState[D3DSAMP.ADDRESSU]!, addressV: s.adwSamplerState[D3DSAMP.ADDRESSV]!,
-      });
-      real(type, primitive, numPrimitives, data, numDraws);
-    };
-
-    dev.BeginScene();
-    let ret: number;
-    try {
-      dev.Clear(null, D3DCLEAR.TARGET | D3DCLEAR.ZBUFFER, (0xff000000 | (CLEAR[0]! << 16) | (CLEAR[1]! << 8) | CLEAR[2]!) >>> 0, 1, 0);
-      ret = dlg.onFrameRender(true);
-    } finally {
-      dev.EndScene(); // a dialog that throws must not leave the device inside a scene for the next one
-      render.dvb.drawPrimitive = real; // nor the recording in the buffer manager of a world that goes on
-    }
-    const shot = await snap(dev);
-    if (savedAs) shot.save(savedAs);
-    const image: RefImage = { width: shot.width, height: shot.height, rgba: shot.rgba };
-
-    // the textures as the files say they are, found through the Direct3D texture the stage held
-    const owner = new Map<Direct3DTexture9, Uint8Array>();
-    for (const t of w.devices.devices.values()) if (t.m_pTexture) owner.set(t.m_pTexture, t.data);
+    // the textures as the files say they are, found through the Direct3D texture the stage held (looked up when the composition asks, which is
+    // after the drawing)
+    let owner: Map<Direct3DTexture9, Uint8Array> | undefined;
     const decoded = new Map<Direct3DTexture9, RefImage>();
-    const textureOf = (t: Direct3DTexture9 | null): RefImage | null => {
+    const textureOf = (d: Draw): RefImage | null => {
+      const t = d.texture;
       if (!t) return null;
       let img = decoded.get(t);
       if (!img) {
+        if (!owner) {
+          owner = new Map();
+          for (const c of w.devices.devices.values()) if (c.m_pTexture) owner.set(c.m_pTexture, c.data);
+        }
         const bytes = owner.get(t);
         if (!bytes) throw new Error("a texture on stage 0 that no device texture owns");
-        const d = decodeImage(bytes);
-        img = { width: d.width, height: d.height, rgba: d.rgba };
+        const decodedImage = decodeImage(bytes);
+        img = { width: decodedImage.width, height: decodedImage.height, rgba: decodedImage.rgba };
         decoded.set(t, img);
       }
       return img;
     };
-    const reference = newTarget(WIDTH, HEIGHT, CLEAR[0]!, CLEAR[1]!, CLEAR[2]!);
-    let referenceError: string | undefined;
-    try {
-      for (const d of draws) {
-        drawQuad(reference, {
-          vertices: d.data, texture: textureOf(d.texture), blendEnable: d.blendEnable !== 0, srcBlend: d.srcBlend, destBlend: d.destBlend,
-          minFilter: d.minFilter, magFilter: d.magFilter, addressU: d.addressU, addressV: d.addressV, numDraws: d.numDraws,
-          alphaTest: d.alphaTest !== 0, alphaFunc: d.alphaFunc, alphaRef: d.alphaRef, cullMode: d.cullMode,
-        });
-      }
-    } catch (e) {
-      referenceError = e instanceof Error ? e.message : String(e);
-    }
-    return { w, dlg, ret, draws, image, reference, referenceError, frameError };
+    const scene = await drawScene(w, () => dlg.onFrameRender(true), { ...(savedAs ? { savedAs } : {}), textureOf });
+    return { w, dlg, ret: scene.ret, draws: scene.draws, image: scene.image, reference: scene.reference, referenceError: scene.referenceError, frameError };
   } catch (e) {
-    releaseTextures(w); // the textures of a dialog that failed half way
+    // the textures of a dialog that failed half way (and, for a world of its own, all it held)
+    if (world) releaseTextures(w);
+    else releaseDrawn({ w });
     throw e;
   }
 }
@@ -190,10 +284,14 @@ export function releaseTextures(w: UIWorld): void {
   w.devices.devices.clear();
 }
 
-/** Give the GPU back everything a world held: its textures and the vertex buffers of its dynamic buffer manager (the world is done). */
+/**
+ * Give the GPU back everything a world held: its textures, the vertex buffers of its dynamic buffer manager and the page textures of its
+ * fonts (`~CKTDGFontManager`: every font of a booted world has up to eight, 48 for the client's seven; the world is done).
+ */
 export function releaseDrawn(r: Pick<Drawn, "w">): void {
   releaseTextures(r.w);
   r.w.render?.dvb.onLostDevice();
+  r.w.fontManager.Destroy();
 }
 
 /**
