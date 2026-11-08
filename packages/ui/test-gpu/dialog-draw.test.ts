@@ -13,7 +13,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { CKTDGUIButton, CKTDGUIComboBox, CKTDGUIListBox, CKTDGUIRadioButton, CKTDGUIStatic, LBIT, UKFont } from "../src/index.ts";
+import { CKTDGUIButton, CKTDGUIComboBox, CKTDGUIListBox, CKTDGUIRadioButton, CKTDGUISlot, CKTDGUIStatic, FONT_STYLE, LBIT, SCS, UIStringData, UKFont } from "../src/index.ts";
 import type { CKTDGUIDialog, UIWorld } from "../src/index.ts";
 import { Color } from "@els/host";
 import { gpuAvailable } from "../../d3d9/test/gpu-helper.ts";
@@ -27,12 +27,12 @@ const haveData = existsSync(join(dataDir, "x2.exe")) && existsSync(join(dataDir,
 const HAVE_GPU = haveData && (await gpuAvailable());
 
 /** the control classes whose `OnFrameRender` is not ported yet: each shown one is counted as not drawn */
-const NOT_PORTED = ["CKTDGUIEditBox", "CKTDGUIIMEEditBox", "CKTDGUISlot"];
+const NOT_PORTED = ["CKTDGUIEditBox", "CKTDGUIIMEEditBox"];
 
 /**
  * What the dialog counts as not drawn: each movie of a shown static (`CMovieData::OnFrameRender` is not ported) and each shown control of a
  * class that is not ported (`NOT_PORTED`; only the messenger window has one); nothing else is missing (every other control class of these
- * dialogs is drawn, the strings of the statics, buttons, radio buttons, combo boxes and list boxes included)
+ * dialogs is drawn, the strings of the statics, buttons, radio buttons, combo boxes, list boxes and slots included)
  */
 function expectedUndrawn(dlg: CKTDGUIDialog): Record<string, number> {
   const out: Record<string, number> = {};
@@ -55,7 +55,7 @@ interface Spoken {
  * is drawn too).  A static's string goes to `Draw2DText` unless it uses a UK font.  A closed combo box that is not static speaks the text
  * of its selected row (cut to `m_iTextLimit` characters when that is above 0) if it shows it and has string data.  (None of these dialogs
  * has an open box or a static one, whose rows are controls.)  A list box speaks the text of the rows from its bar's position that fit in the
- * text rectangle (`listBoxStrings`).
+ * text rectangle (`listBoxStrings`).  A slot with string data speaks its whole message, an empty one too (the key setting has 142 of them).
  */
 function expectedStrings(dlg: CKTDGUIDialog, w: UIWorld): Spoken[] {
   const out: Spoken[] = [];
@@ -73,6 +73,7 @@ function expectedStrings(dlg: CKTDGUIDialog, w: UIWorld): Spoken[] {
         out.push({ method: "OutTextMultiline", text: c.m_iTextLimit > 0 ? row.strText.slice(0, c.m_iTextLimit) : row.strText });
       }
     } else if (c instanceof CKTDGUIListBox) out.push(...listBoxStrings(c, w));
+    else if (c instanceof CKTDGUISlot && c.m_pStringData) out.push({ method: "OutTextMultiline", text: c.m_pStringData.msg });
   }
   return out;
 }
@@ -134,7 +135,7 @@ afterAll(() => listening?.());
 /**
  * How many bars of edges the dialog draws (`CKTDXDeviceTexture::Draw` each; an edge is eight of them, two passes of four before and after the
  * quad): a shown static's picture that has an edge width, a button that has the focus (none at the start) and a width, a checked radio button
- * with a width
+ * with a width, a shown additional picture of a slot that has an edge width
  */
 function expectedEdgeBars(dlg: CKTDGUIDialog): number {
   let edges = 0;
@@ -142,6 +143,7 @@ function expectedEdgeBars(dlg: CKTDGUIDialog): number {
     if (c instanceof CKTDGUIStatic) edges += c.m_PictureDataList.filter((p) => p.bShow && p.pPoint && p.pTexture?.pTexture && p.m_EdgeWidth !== 0).length;
     else if (c instanceof CKTDGUIButton) edges += c.m_bHasFocus && c.m_EdgeWidth > 0 ? 1 : 0;
     else if (c instanceof CKTDGUIRadioButton) edges += c.m_bChecked && c.m_CheckedEdgeWidth !== 0 ? 1 : 0;
+    else if (c instanceof CKTDGUISlot) edges += [...c.m_mapAdditionalPictureDataList.values()].filter((p) => p.bShow && p.pPoint && p.pTexture?.pTexture && p.m_EdgeWidth !== 0).length;
   }
   return edges * 8;
 }
@@ -231,9 +233,9 @@ const drawn: Drawn[] = [];
 afterEach(() => {
   for (const r of drawn.splice(0)) releaseDrawn(r);
 });
-async function draw(script: string, savedAs: string, prepare?: (dlg: CKTDGUIDialog, w: UIWorld) => void): Promise<Drawn> {
+async function draw(script: string, savedAs: string, prepare?: (dlg: CKTDGUIDialog, w: UIWorld) => void, after?: (dlg: CKTDGUIDialog, w: UIWorld) => void): Promise<Drawn> {
   spoken.length = 0;
-  const r = await drawDialog(script, savedAs, undefined, 1, prepare);
+  const r = await drawDialog(script, savedAs, undefined, 1, prepare, after);
   drawn.push(r);
   return r;
 }
@@ -287,6 +289,29 @@ suite("dialogs drawn through @els/d3d9 by the ported UI", () => {
         box.m_nSelected = 1;
       },
     },
+    // the slots: the quad of each one's current point (the item's picture); none has a mouse over point drawn (the mouse is nowhere), pictures
+    // or an edge.  The key setting gives each of its 142 slots an empty string (the font is asked, and draws nothing); the skill slots have no
+    // string, so the test gives the eight slots of DLG_GAME_SKILL_SLOT_NEW one (a number at the bottom right of the picture, font 0)
+    { name: "DLG_UI_KEY_SETTING", covers: 300_000, classes: { CKTDGUISlot: 142, CKTDGUIButton: 21, CKTDGUIStatic: 2 } },
+    { name: "DLG_RIDING_SKILL_SLOT", covers: 8_000, classes: { CKTDGUISlot: 4, CKTDGUIStatic: 5 } },
+    {
+      name: "DLG_GAME_SKILL_SLOT_NEW",
+      covers: 15_000,
+      classes: { CKTDGUISlot: 8, CKTDGUIStatic: 14, CKTDGUIButton: 1 },
+      prepare: (dlg) => {
+        dlg.m_ControlsList.filter((c): c is CKTDGUISlot => c instanceof CKTDGUISlot).forEach((slot, i) => {
+          const corner = slot.m_pNormalPoint!.leftTopPoint;
+          const text = new UIStringData();
+          text.fontIndex = 0;
+          text.msg = String(i + 1);
+          text.pos.set(corner.x + 32, corner.y + 28);
+          text.color.set(1, 1, 1, 1);
+          text.outlineColor.set(0, 0, 0, 1);
+          text.fontStyle = FONT_STYLE.FS_SHELL;
+          slot.m_pStringData = text;
+        });
+      },
+    },
   ];
   for (const { name, covers, classes, edgeBars, prepare } of more) {
     test(name, async () => {
@@ -306,4 +331,27 @@ suite("dialogs drawn through @els/d3d9 by the ported UI", () => {
       }
     }, 120_000);
   }
+
+  // what the dialog manager does after the dialogs: `RenderDragSlot` of the slot that is being dragged, in the same scene
+  test("DLG_UI_KEY_SETTING with a key being dragged: the dialog manager's last draw puts it under the mouse", async () => {
+    const name = "DLG_UI_KEY_SETTING";
+    const first = (dlg: CKTDGUIDialog): CKTDGUISlot => dlg.m_ControlsList.find((c): c is CKTDGUISlot => c instanceof CKTDGUISlot)!;
+    const r = await draw(
+      `${name}.LUA`,
+      `ui-${name}-drag`,
+      (dlg, w) => {
+        first(dlg).m_eControlState = SCS.ONDRAG;
+        first(dlg).m_bHasFocus = true;
+        w.mouse.m_XPos = 600;
+        w.mouse.m_YPos = 600;
+      },
+      (dlg) => expect(first(dlg).renderDragSlot()).toBe(0),
+    );
+    expectDrawnLikeDirect3D(name, r, 300_000);
+    expect(r.draws.length).toBe(183); // the 182 quads of the dialog, and the dragged one after them
+    // the key is 35 x 35, (92, 180) .. (127, 215); centred on the mouse (600, 600) it covers 582.5 .. 617.5 both ways: cut, moved half a pixel
+    const last = r.draws[182]!;
+    const f = new Float32Array(last.data.buffer, last.data.byteOffset, 28);
+    expect([f[0], f[1], f[7], f[8], f[14], f[15], f[21], f[22]]).toEqual([581.5, 581.5, 616.5, 581.5, 581.5, 616.5, 616.5, 616.5]);
+  }, 120_000);
 });

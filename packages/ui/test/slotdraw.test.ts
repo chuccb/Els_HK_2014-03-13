@@ -9,6 +9,7 @@
  * of the font is written down).  The last two groups (the dragged slot) use the back buffer of rig.ts (1536 x 1536: the scale is (1.5, 2)).
  */
 import { describe, expect, test } from "bun:test";
+import { D3DRS } from "@els/d3d9";
 import { Color } from "@els/host";
 import { CKTDGUIDialog, CKTDGUISlot, CPictureData, SCS, VertexUI4 } from "../src/index.ts";
 import type { UIContext, UIPointData } from "../src/index.ts";
@@ -98,6 +99,14 @@ describe("CKTDGUISlot.onFrameRender (32952670): the points", () => {
     expect(drawnQuads(dev, from)).toEqual([{ texture: "NOW.TGA", rect: R(20, 30) }]);
   });
 
+  test("the mouse over point is drawn once too, whatever its draw count is", () => {
+    const { slot, dev } = scene();
+    slot.m_bMouseOver = true;
+    slot.m_pMouseOverPoint!.m_iDrawCount = 3;
+    slot.onFrameRender();
+    expect(draws(dev)).toBe(2);
+  });
+
   test("a hidden slot draws nothing and says nothing", () => {
     const { slot, dev, calls } = scene();
     slot.m_bShow = false;
@@ -175,6 +184,7 @@ describe("CKTDGUISlot.onFrameRender (32952670): the additional pictures", () => 
     picture(w, slot, 5, 100, 10, "P5.TGA");
     picture(w, slot, -3, 110, 10, "PM3.TGA");
     picture(w, slot, 2, 120, 10, "P2.TGA");
+    picture(w, slot, 10, 130, 10, "P10.TGA"); // (as text "10" comes before "2")
     slot.m_bMouseOver = true;
     slot.onFrameRender();
     expect(drawnQuads(dev)).toEqual([
@@ -183,6 +193,7 @@ describe("CKTDGUISlot.onFrameRender (32952670): the additional pictures", () => 
       { texture: "PM3.TGA", rect: R(110, 10) },
       { texture: "P2.TGA", rect: R(120, 10) },
       { texture: "P5.TGA", rect: R(100, 10) },
+      { texture: "P10.TGA", rect: R(130, 10) },
     ]);
   });
 
@@ -211,6 +222,28 @@ describe("CKTDGUISlot.onFrameRender (32952670): the additional pictures", () => 
       "rs 19 2", "rs 20 3", "tex 0 P.TGA", "fvf 324", "src 12 28", "draw 5 4 2", "draw 5 4 2", "rs 20 6", "rs 19 5",
     ]);
     expect(w.render!.states.stackPointer).toBe(0);
+  });
+
+  test("the blend states are popped back to where the stack was: a state pushed before stays", () => {
+    const { w, slot, dev } = scene();
+    const point = picture(w, slot, 1, 100, 10, "P.TGA").pPoint!;
+    point.m_eSrcBlend = 2;
+    w.render!.states.setRenderState(D3DRS.ZENABLE, 0);
+    expect(w.render!.states.stackPointer).toBe(1);
+    expect(dev.log).toEqual(["rs 7 0"]);
+    slot.onFrameRender();
+    expect(w.render!.states.stackPointer).toBe(1);
+    expect(dev.log.slice(-2)).toEqual(["draw 5 4 2", "rs 19 5"]); // the picture's SRCBLEND comes back; ZENABLE does not
+  });
+
+  test("the edges are drawn outside the blend states of the picture: the first before they are pushed, the second after they are popped", () => {
+    const { w, slot, dev } = scene();
+    const p = picture(w, slot, 1, 10, 20, "P.TGA");
+    p.m_EdgeWidth = 3;
+    p.pPoint!.m_eSrcBlend = 2;
+    slot.onFrameRender();
+    // the bars push the blend states of their own (SRCALPHA: what the baseline holds); the picture's SRCBLEND is the only change of it
+    expect(dev.log.filter((l) => l.startsWith("rs 19 "))).toEqual(["rs 19 2", "rs 19 5"]);
   });
 
   test("a picture with an edge width has the edge drawn outside the quad before and after it (the picture's own flag is used both times)", () => {
@@ -311,6 +344,22 @@ describe("CKTDGUISlot.drawEdge (32951310)", () => {
     slot.drawEdge(false, 3, slot.m_Color, p);
     // nWidth 64, nHeight 32; the bottom bars lie on the left-bottom corner's y (20.75 + 56 = 76.75): (21, 40, 3, 32), (21, 73, 64, 3), (82, 40, 3, 32), (21, 40, 64, 3)
     expect(strips(dev)).toEqual(bars([[21, 40, 24, 72], [21, 73, 85, 76], [82, 40, 85, 72], [21, 40, 85, 43]]));
+  });
+
+  test("the size is cut to whole pixels, towards 0: 64.75 x 32.75 is 64 x 32, -64.75 x -32.75 is -64 x -32", () => {
+    const { slot, dev } = scene();
+    const p = point();
+    p.rightTopPoint.set(74.75, 20);
+    p.rightBottomPoint.set(74.75, 52.75);
+    slot.drawEdge(false, 3, slot.m_Color, p);
+    expect(strips(dev)).toEqual(bars(INSIDE)); // (x(rt) = 85.75 - 3 = 82.75 -> 82 as before)
+    const from = dev.log.length;
+    const q = point();
+    q.rightTopPoint.set(-54.75, 20); // 64.75 to the left of the left-top corner
+    q.rightBottomPoint.set(0, -12.75); // 32.75 above it
+    slot.drawEdge(false, 3, slot.m_Color, q);
+    // x(rt) = 11 - 54.75 = -43.75: (21, 40, 3, -32), (21, 69, -64, 3), (-46, 40, 3, -32), (21, 40, -64, 3) with x(rt) - 3 = -46.75 -> -46
+    expect(strips(dev, from)).toEqual(bars([[21, 40, 24, 8], [21, 69, -43, 72], [-46, 40, -43, 8], [21, 40, -43, 43]]));
   });
 
   test("the offset of the slot moves the bars: (2, 4) -> x 10.25 + 2 + 10 = 22.25, y 20.5 + 4 + 20 = 44.5", () => {
@@ -427,14 +476,14 @@ describe("CKTDGUISlot.updateDraggingVertex (329545B0)", () => {
     place(dialog, slot);
     return { ...s, dialog, slot };
   }
-  /** a point at (10.25, 20.75), 64.25 x 31.75, in the colour (r 0.25, g 0.5, b 0.75, a 0.875), with a texture (the UVs 0, 0 / 1, 0 / 0, 0.5 / 1, 0.5) */
+  /** a point at (10.25, 20.75), 64.25 x 31.75, in the colour (r 0.25, g 0.375, b 0.125, a 0.5), with a texture (the UVs 0, 0 / 1, 0 / 0, 0.5 / 1, 0.5) */
   const pointOf = (w: UIContext, x = 10.25, y = 20.75): UIPointData => {
     const p = quad(w, 0, 0);
     p.leftTopPoint.set(x, y);
     p.rightTopPoint.set(x + 64.25, y);
     p.leftBottomPoint.set(x, y + 31.75);
     p.rightBottomPoint.set(x + 64.25, y + 31.75);
-    p.color.set(0.25, 0.5, 0.75, 0.875);
+    p.color.set(0.25, 0.375, 0.125, 0.5);
     return p;
   };
 
@@ -443,8 +492,9 @@ describe("CKTDGUISlot.updateDraggingVertex (329545B0)", () => {
     const v = new VertexUI4();
     slot.updateDraggingVertex(v, pointOf(w));
     // x 10.25 -> 15.375 -> 15 -> 14.5, 74.5 -> 111.75 -> 111 -> 110.5; y 20.75 -> 41.5 -> 41 -> 40.5, 52.5 -> 105 -> 104.5
-    // the colour: r 0.25 -> 64, g 0.5 -> 128, b 0.75 -> 191, a 0.875 -> 223: the point's alone (the dialog's and the slot's colours are not in it)
-    const c = 0xdf4080bf;
+    // the colour: (int)(c * 255 + 0.5) of r 0.25 -> 64, g 0.375 -> 96 (95.6), b 0.125 -> 32 (31.9), a 0.5 -> 128 (127.5): the point's alone (the dialog's
+    // and the slot's colours are not in it)
+    const c = 0x80406020;
     expect(verts(v)).toEqual([
       [14.5, 40.5, 1, 1, c, 0, 0],
       [110.5, 40.5, 1, 1, c, 1, 0],
@@ -559,13 +609,45 @@ describe("CKTDGUISlot.renderDragSlot (32952DD0)", () => {
 
   test("the quad is the dragging point's own (its texture and its colour alone: the dialog's and the slot's colours are not in it), made with the slot's drag vertices", () => {
     const { slot, dev } = scene2();
-    slot.m_pDraggingPoint!.color.set(0.25, 0.5, 0.75, 0.875);
+    slot.m_pDraggingPoint!.color.set(0.25, 0.375, 0.125, 0.5);
     slot.renderDragSlot();
     expect(drawnCalls(dev, PUSH.length)[0]!.vertices.map((v) => [v[4], v[5], v[6]])).toEqual([
-      [0xdf4080bf, 0, 0], [0xdf4080bf, 1, 0], [0xdf4080bf, 0, 0.5], [0xdf4080bf, 1, 0.5],
+      [0x80406020, 0, 0], [0x80406020, 1, 0], [0x80406020, 0, 0.5], [0x80406020, 1, 0.5],
     ]);
     expect(verts(slot.m_DragVertex).map((r) => [r[0], r[1]])).toEqual([[251.5, 367.5], [347.5, 367.5], [251.5, 431.5], [347.5, 431.5]]);
     expect(verts(slot.m_Vertex).flat().every((x) => x === 0)).toBe(true); // the other vertices are not used
+  });
+
+  test("the dragging point's draw count is not the count of the draw: one quad", () => {
+    const { slot, dev } = scene2();
+    slot.m_pDraggingPoint!.m_iDrawCount = 3;
+    slot.renderDragSlot();
+    expect(draws(dev)).toBe(1);
+  });
+
+  test("the states are popped back to where the stack was: a state pushed before stays", () => {
+    const { slot, dev, w } = scene2();
+    w.render!.states.setRenderState(D3DRS.ALPHAREF, 7);
+    expect(w.render!.states.stackPointer).toBe(1);
+    dev.log.length = 0;
+    slot.renderDragSlot();
+    expect(w.render!.states.stackPointer).toBe(1);
+    expect(dev.log).toEqual([...PUSH, "tex 0 DRAG.TGA", "fvf 324", "src 12 28", "draw 5 0 2", ...POP]);
+  });
+
+  test("without a device the scale is 1 and nothing is drawn: the point moves to the mouse (300, 400)", () => {
+    const s = fontWorld({}, { device: false });
+    const dialog = new CKTDGUIDialog(s.w);
+    const slot = new CKTDGUISlot(s.w);
+    place(dialog, slot);
+    slot.m_pNormalPoint = quad(s.w, 22, 32, "NORMAL.TGA");
+    slot.m_pDraggingPoint = quad(s.w, 10, 20, "DRAG.TGA");
+    slot.m_eControlState = SCS.ONDRAG;
+    slot.m_bHasFocus = true;
+    s.w.mouse.m_XPos = 300;
+    s.w.mouse.m_YPos = 400;
+    expect(slot.renderDragSlot()).toBe(0);
+    expect(corners(slot.m_pDraggingPoint!)).toEqual([[268, 384], [332, 384], [268, 416], [332, 416]]);
   });
 
   test("a slot that is not being dragged only pushes and pops the states", () => {

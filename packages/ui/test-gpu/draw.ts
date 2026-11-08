@@ -288,9 +288,17 @@ export function forgetGlyphs(w: UIWorld): void {
  * The client calls `OnFrameMove` before every `OnFrameRender`; one frame of no time (`OnFrameMove(0, 0)`: nothing moves, the first
  * `ChangeState` of the buttons that wait for it is made) is what a dialog looks like when it is first drawn.  An exception in a frame
  * (what the frame does that is not ported) is kept in `frameError` and the dialog is drawn as it was left.  `prepare` is what the game
- * does to the dialog after its script has built it and before the first frame (the rows of a list, say).
+ * does to the dialog after its script has built it and before the first frame (the rows of a list, say); `after` is what the dialog manager
+ * draws once the dialogs are drawn (`CKTDGUISlot::RenderDragSlot` of the slot that is being dragged), inside the same scene.
  */
-export async function drawDialog(script: string, savedAs?: string, world?: UIWorld, frames = 1, prepare?: (dlg: CKTDGUIDialog, w: UIWorld) => void): Promise<Drawn> {
+export async function drawDialog(
+  script: string,
+  savedAs?: string,
+  world?: UIWorld,
+  frames = 1,
+  prepare?: (dlg: CKTDGUIDialog, w: UIWorld) => void,
+  after?: (dlg: CKTDGUIDialog, w: UIWorld) => void,
+): Promise<Drawn> {
   const w = world ?? (await newWorld());
   try {
     const dlg = w.openDialog(script, 0, new CX2SlotManager(w));
@@ -326,7 +334,15 @@ export async function drawDialog(script: string, savedAs?: string, world?: UIWor
       }
       return img;
     };
-    const scene = await drawScene(w, () => dlg.onFrameRender(true), { ...(savedAs ? { savedAs } : {}), snapshot: pageSnapshot(w), textureOf: (d) => d.image ?? textureOf(d) });
+    const scene = await drawScene(
+      w,
+      () => {
+        const ret = dlg.onFrameRender(true);
+        after?.(dlg, w);
+        return ret;
+      },
+      { ...(savedAs ? { savedAs } : {}), snapshot: pageSnapshot(w), textureOf: (d) => d.image ?? textureOf(d) },
+    );
     return { w, dlg, ret: scene.ret, draws: scene.draws, image: scene.image, reference: scene.reference, referenceError: scene.referenceError, frameError };
   } catch (e) {
     // the textures of a dialog that failed half way (and, for a world of its own, all it held)

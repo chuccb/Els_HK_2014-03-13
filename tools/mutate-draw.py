@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Mutation check of the UI drawing classes (CKTDXDeviceTexture::Draw, the edges of the static / button / radio button, the
 OnFrameRender of the radio button, check box, slider, navigation, control list and scroll bar, the strings the static, button and
-radio button draw: stringdraw.ts, and the combo box: combobox.ts, OnFrameRender and OnFrameRenderEnd): apply one small change at a
-time to a source file of packages/ui/src, run packages/ui/test/controldraw.test.ts, render.test.ts, stringdraw.test.ts and
-comboboxdraw.test.ts and report whether a test notices (killed) or not (SURVIVED).  The last mutants are of the CPU reference of the GPU test (packages/ui/test-gpu/reference.ts: corners, culling, alpha
+radio button draw: stringdraw.ts, the combo box: combobox.ts, OnFrameRender and OnFrameRenderEnd, the list box: listbox.ts, and the slot:
+slot.ts, OnFrameRender, DrawEdge, UpdateDraggingVertex and RenderDragSlot): apply one small change at a time to a source file of
+packages/ui/src, run packages/ui/test/controldraw.test.ts, render.test.ts, stringdraw.test.ts, comboboxdraw.test.ts and listboxdraw.test.ts
+(for slot.ts: slotdraw.test.ts) and report whether a test notices (killed) or not (SURVIVED).  The last mutants are of the CPU reference of the GPU test (packages/ui/test-gpu/reference.ts: corners, culling, alpha
 test), which packages/ui/test/reference.test.ts must pin.
 
     python3 tools/mutate-draw.py [--list] [substring of a mutant name ...]
@@ -26,8 +27,12 @@ def path_of(f):
     return os.path.join(ROOT, f if f.startswith('packages/') else SRC + f)
 
 
+SLOT_TESTS = [os.path.join(ROOT, 'packages/ui/test/slotdraw.test.ts')]
+
+
 def tests_of(f):
-    return REFERENCE_TESTS if f == REFERENCE else TESTS
+    # the slot is drawn by its own tests only: a mutant of slot.ts needs no other file (a run takes 1 s instead of 4)
+    return REFERENCE_TESTS if f == REFERENCE else SLOT_TESTS if f == 'slot.ts' else TESTS
 
 # (file, name, original text, mutated text, why it may survive ('' = must be killed))
 M = [
@@ -738,6 +743,261 @@ for _c in 'argb':
             (L, f"list the plain row colour: {_c} takes the box's {_n}", _p, f'{_c}: own ? item.m_color.{_c} : channel(d.{_c}, s.{_c}, c.{_n})', ''),
             (L, f'list the plain row colour: {_c} is the outline not the colour', _p, f'{_c}: own ? item.m_color.{_c} : channel(d.{_c}, o.{_c}, c.{_c})', ''),
         ]
+
+# ---- slot.ts: OnFrameRender 32952670, DrawEdge 32951310, UpdateDraggingVertex 329545B0, RenderDragSlot 32952DD0 (packages/ui/test/slotdraw.test.ts)
+K = 'slot.ts'
+_SORT = '[...this.m_mapAdditionalPictureDataList.keys()].sort((a, b) => a - b)'
+_EDGE_CALL = 'this.drawEdge(picture.m_bDrawEdgeOut, picture.m_EdgeWidth, picture.m_EdgeColor, point);'
+_EDGE_1 = f'if (picture.m_EdgeWidth !== 0) {_EDGE_CALL}\n      this.updateVertex(this.m_Vertex, point);'
+_EDGE_2 = f'render?.states.popTo(top);\n      if (picture.m_EdgeWidth !== 0) {_EDGE_CALL}'
+_SKIP = 'if (!(picture.bShow && point && picture.pTexture && picture.pTexture.pTexture)) continue;'
+_MOUSE_OVER = 'if (this.m_bMouseOver && this.m_eControlState !== SCS.ONDRAG && this.m_bEnable) {'
+_GUARD = 'if (edgeWidth === 0 || !this.m_pEdgeTexture || !point) return;'
+_NW = 'const nWidth = ftoi(f(point.rightTopPoint.x - point.leftTopPoint.x));'
+_NH = 'const nHeight = ftoi(f(point.rightBottomPoint.y - point.leftTopPoint.y));'
+_BARS = 'this.drawEdgeBars(this.m_pEdgeTexture, drawOut, edgeWidth, edgeColor, point, nWidth, nHeight);'
+M += [
+ # -- OnFrameRender: the points
+ (K, 'slot draw: a hidden slot draws', 'if (!this.m_bShow) return 0;\n    this.updateVertex(this.m_Vertex, this.m_NowPoint);', 'this.updateVertex(this.m_Vertex, this.m_NowPoint);', ''),
+ (K, 'slot draw: a hidden slot answers 1', 'if (!this.m_bShow) return 0;\n    this.updateVertex(this.m_Vertex, this.m_NowPoint);', 'if (!this.m_bShow) return 1;\n    this.updateVertex(this.m_Vertex, this.m_NowPoint);', ''),
+ (K, 'slot draw: the current point is the end point (the update)', 'this.updateVertex(this.m_Vertex, this.m_NowPoint);', 'this.updateVertex(this.m_Vertex, this.m_EndPoint);', ''),
+ (K, 'slot draw: the current point is the end point (the draw)', 'this.renderVertex(this.m_Vertex, this.m_NowPoint, 1);', 'this.renderVertex(this.m_Vertex, this.m_EndPoint, 1);', ''),
+ (K, 'slot draw: the current point is drawn as often as its count says', 'this.renderVertex(this.m_Vertex, this.m_NowPoint, 1);', 'this.renderVertex(this.m_Vertex, this.m_NowPoint, this.m_NowPoint.m_iDrawCount);', ''),
+ (K, 'slot draw: the current point is drawn twice', 'this.renderVertex(this.m_Vertex, this.m_NowPoint, 1);', 'this.renderVertex(this.m_Vertex, this.m_NowPoint, 2);', ''),
+ (K, 'slot draw: the mouse over point does not need the mouse', _MOUSE_OVER, 'if (this.m_eControlState !== SCS.ONDRAG && this.m_bEnable) {', ''),
+ (K, 'slot draw: the mouse over point is drawn while dragged', _MOUSE_OVER, 'if (this.m_bMouseOver && this.m_bEnable) {', ''),
+ (K, 'slot draw: the mouse over point is drawn when disabled', _MOUSE_OVER, 'if (this.m_bMouseOver && this.m_eControlState !== SCS.ONDRAG) {', ''),
+ (K, 'slot draw: the mouse over point needs the mouse or the rest', _MOUSE_OVER, 'if (this.m_bMouseOver || this.m_eControlState !== SCS.ONDRAG && this.m_bEnable) {', ''),
+ (K, 'slot draw: the mouse over point needs one of dragging and enabled', _MOUSE_OVER, 'if (this.m_bMouseOver && (this.m_eControlState !== SCS.ONDRAG || this.m_bEnable)) {', ''),
+ (K, 'slot draw: the mouse over point is for the dragged slot', _MOUSE_OVER, 'if (this.m_bMouseOver && this.m_eControlState === SCS.ONDRAG && this.m_bEnable) {', ''),
+ (K, 'slot draw: the mouse over point is for the disabled slot', _MOUSE_OVER, 'if (this.m_bMouseOver && this.m_eControlState !== SCS.ONDRAG && !this.m_bEnable) {', ''),
+ (K, 'slot draw: the mouse over point is not for the mouse over state', _MOUSE_OVER, 'if (this.m_bMouseOver && this.m_eControlState !== SCS.ONDRAG && this.m_eControlState !== SCS.MOUSEOVER && this.m_bEnable) {', ''),
+ (K, 'slot draw: only the down state keeps the mouse over point away', _MOUSE_OVER, 'if (this.m_bMouseOver && this.m_eControlState !== SCS.DOWN && this.m_bEnable) {', ''),
+ (K, 'slot draw: only the normal state keeps the mouse over point away', _MOUSE_OVER, 'if (this.m_bMouseOver && this.m_eControlState !== SCS.NORMAL && this.m_bEnable) {', ''),
+ (K, 'slot draw: only the disabled state keeps the mouse over point away', _MOUSE_OVER, 'if (this.m_bMouseOver && this.m_eControlState !== SCS.DISABLE && this.m_bEnable) {', ''),
+ (K, 'slot draw: a mouse over without a mouse over point is not noticed', '      if (!over) throw new Error("CKTDGUISlot::OnFrameRender: the mouse is over a slot that has no mouse over point (SetPoint makes it); the exe dereferences null");\n', '', ''),
+ (K, 'slot draw: the mouse over quad is placed by the current point', 'this.updateVertex(this.m_Vertex, over);', 'this.updateVertex(this.m_Vertex, this.m_NowPoint);', ''),
+ (K, 'slot draw: the mouse over quad is drawn with the current point', 'this.renderVertex(this.m_Vertex, over, 1);', 'this.renderVertex(this.m_Vertex, this.m_NowPoint, 1);', ''),
+ (K, 'slot draw: the mouse over quad is drawn as often as its count says', 'this.renderVertex(this.m_Vertex, over, 1);', 'this.renderVertex(this.m_Vertex, over, over.m_iDrawCount);', ''),
+ (K, 'slot draw: the mouse over quad is drawn twice', 'this.renderVertex(this.m_Vertex, over, 1);', 'this.renderVertex(this.m_Vertex, over, 2);', ''),
+ (K, 'slot draw: the mouse over quad is not drawn', '      this.renderVertex(this.m_Vertex, over, 1);\n', '', ''),
+ # -- OnFrameRender: the additional pictures
+ (K, 'slot draw: the pictures are drawn in the order they were added', 'for (const picture of this.additionalPictures()) {\n      const point', 'for (const picture of this.m_mapAdditionalPictureDataList.values()) {\n      const point', ''),
+ (K, 'slot draw: the pictures are not sorted by their keys', _SORT, '[...this.m_mapAdditionalPictureDataList.keys()]', ''),
+ (K, 'slot draw: the pictures are in the opposite order', _SORT, '[...this.m_mapAdditionalPictureDataList.keys()].sort((a, b) => b - a)', ''),
+ (K, 'slot draw: the keys are sorted as text', _SORT, '[...this.m_mapAdditionalPictureDataList.keys()].sort()', ''),
+ (K, 'slot draw: a hidden picture is drawn', _SKIP, 'if (!(point && picture.pTexture && picture.pTexture.pTexture)) continue;', ''),
+ (K, 'slot draw: a picture without a point is drawn', _SKIP, 'if (!(picture.bShow && picture.pTexture && picture.pTexture.pTexture)) continue;', ''),
+ (K, 'slot draw: a picture without a texture is drawn', _SKIP, 'if (!(picture.bShow && point && picture.pTexture.pTexture)) continue;', ''),
+ (K, 'slot draw: a picture whose texture did not open is drawn', _SKIP, 'if (!(picture.bShow && point && picture.pTexture)) continue;', ''),
+ (K, 'slot draw: a picture needs one of the four things', _SKIP, 'if (!(picture.bShow || point || picture.pTexture || picture.pTexture.pTexture)) continue;', ''),
+ (K, 'slot draw: a picture that is skipped ends the loop', _SKIP, 'if (!(picture.bShow && point && picture.pTexture && picture.pTexture.pTexture)) break;', ''),
+ (K, 'slot draw: a picture is placed by the current point', 'this.updateVertex(this.m_Vertex, point);\n      const top', 'this.updateVertex(this.m_Vertex, this.m_NowPoint);\n      const top', ''),
+ (K, 'slot draw: a picture takes the draw count of one', 'this.renderVertex(this.m_Vertex, point, point.m_iDrawCount);', 'this.renderVertex(this.m_Vertex, point, 1);', ''),
+ (K, 'slot draw: a picture is drawn with the current point', 'this.renderVertex(this.m_Vertex, point, point.m_iDrawCount);', 'this.renderVertex(this.m_Vertex, this.m_NowPoint, point.m_iDrawCount);', ''),
+ (K, 'slot draw: a picture draws with the count of the current point', 'this.renderVertex(this.m_Vertex, point, point.m_iDrawCount);', 'this.renderVertex(this.m_Vertex, point, this.m_NowPoint.m_iDrawCount);', ''),
+ # the blend states
+ (K, 'slot draw: SRCBLEND takes the destination blend', 'render?.states.setRenderState(D3DRS.SRCBLEND, point.m_eSrcBlend);', 'render?.states.setRenderState(D3DRS.SRCBLEND, point.m_eDestBlend);', ''),
+ (K, 'slot draw: DESTBLEND takes the source blend', 'render?.states.setRenderState(D3DRS.DESTBLEND, point.m_eDestBlend);', 'render?.states.setRenderState(D3DRS.DESTBLEND, point.m_eSrcBlend);', ''),
+ (K, 'slot draw: the source blend goes to DESTBLEND', 'render?.states.setRenderState(D3DRS.SRCBLEND, point.m_eSrcBlend);', 'render?.states.setRenderState(D3DRS.DESTBLEND, point.m_eSrcBlend);', ''),
+ (K, 'slot draw: the destination blend goes to SRCBLEND', 'render?.states.setRenderState(D3DRS.DESTBLEND, point.m_eDestBlend);', 'render?.states.setRenderState(D3DRS.SRCBLEND, point.m_eDestBlend);', ''),
+ (K, 'slot draw: SRCBLEND is not set', '      render?.states.setRenderState(D3DRS.SRCBLEND, point.m_eSrcBlend);\n', '', ''),
+ (K, 'slot draw: DESTBLEND is not set', '      render?.states.setRenderState(D3DRS.DESTBLEND, point.m_eDestBlend);\n', '', ''),
+ (K, 'slot draw: the blend states are not popped', 'this.renderVertex(this.m_Vertex, point, point.m_iDrawCount);\n      render?.states.popTo(top);', 'this.renderVertex(this.m_Vertex, point, point.m_iDrawCount);', ''),
+ (K, 'slot draw: the blend states are popped to the bottom of the stack', 'render?.states.popTo(top);', 'render?.states.popTo(0);', ''),
+ (K, 'slot draw: the blend states are popped from a stack top of 0', 'const top = render?.states.stackPointer ?? 0;', 'const top = 0;', ''),
+ # the edges of a picture
+ (K, 'slot draw: no edge before the picture', _EDGE_1, 'this.updateVertex(this.m_Vertex, point);', ''),
+ (K, 'slot draw: no edge after the picture', _EDGE_2, 'render?.states.popTo(top);', ''),
+ (K, 'slot draw: the first edge is drawn inside the blend states', f'{_EDGE_1}\n      const top = render?.states.stackPointer ?? 0;\n      render?.states.setRenderState(D3DRS.SRCBLEND, point.m_eSrcBlend);\n      render?.states.setRenderState(D3DRS.DESTBLEND, point.m_eDestBlend);', f'this.updateVertex(this.m_Vertex, point);\n      const top = render?.states.stackPointer ?? 0;\n      render?.states.setRenderState(D3DRS.SRCBLEND, point.m_eSrcBlend);\n      render?.states.setRenderState(D3DRS.DESTBLEND, point.m_eDestBlend);\n      if (picture.m_EdgeWidth !== 0) {_EDGE_CALL}', ''),
+ (K, 'slot draw: the second edge is drawn inside the blend states', _EDGE_2, f'if (picture.m_EdgeWidth !== 0) {_EDGE_CALL}\n      render?.states.popTo(top);', ''),
+]
+# the two edges of a picture: each argument, each of the two calls
+for _where, _anchor, _wrap in (('first', _EDGE_1, lambda call: f'if (picture.m_EdgeWidth !== 0) {call}\n      this.updateVertex(this.m_Vertex, point);'), ('second', _EDGE_2, lambda call: f'render?.states.popTo(top);\n      if (picture.m_EdgeWidth !== 0) {call}')):
+    M += [
+        (K, f'slot draw: the {_where} edge is drawn outside always', _anchor, _wrap(_EDGE_CALL.replace('picture.m_bDrawEdgeOut', 'true')), ''),
+        (K, f'slot draw: the {_where} edge is drawn inside always', _anchor, _wrap(_EDGE_CALL.replace('picture.m_bDrawEdgeOut', 'false')), ''),
+        (K, f'slot draw: the {_where} edge is drawn on the other side', _anchor, _wrap(_EDGE_CALL.replace('picture.m_bDrawEdgeOut', '!picture.m_bDrawEdgeOut')), ''),
+        (K, f'slot draw: the {_where} edge is one wide', _anchor, _wrap(_EDGE_CALL.replace('picture.m_EdgeWidth, picture.m_EdgeColor', '1, picture.m_EdgeColor')), ''),
+        (K, f'slot draw: the {_where} edge has the colour of the slot', _anchor, _wrap(_EDGE_CALL.replace('picture.m_EdgeColor', 'this.m_Color')), ''),
+        (K, f'slot draw: the {_where} edge is of the current point', _anchor, _wrap(_EDGE_CALL.replace(', point);', ', this.m_NowPoint);')), ''),
+        (K, f'slot draw: the {_where} edge is drawn for a width other than 0 only when positive', _anchor, _wrap(_EDGE_CALL).replace('picture.m_EdgeWidth !== 0', 'picture.m_EdgeWidth > 0'), ''),
+        (K, f'slot draw: the {_where} edge is drawn for a width of 0', _anchor, _wrap(_EDGE_CALL).replace('picture.m_EdgeWidth !== 0', 'picture.m_EdgeWidth === 0'), ''),
+    ]
+M += [
+ # -- OnFrameRender: the string
+ (K, 'slot draw: the string is drawn for a slot without data', 'if (data) drawUKString(this.ctx, this, data, data.msg);', 'if (!data) drawUKString(this.ctx, this, data!, data!.msg);', ''),
+ (K, 'slot draw: the string is not drawn', '    const data = this.m_pStringData;\n    if (data) drawUKString(this.ctx, this, data, data.msg);\n', '', ''),
+ (K, 'slot draw: an empty message is not drawn', 'if (data) drawUKString(this.ctx, this, data, data.msg);', 'if (data && data.msg.length > 0) drawUKString(this.ctx, this, data, data.msg);', ''),
+ (K, 'slot draw: the message is empty', 'drawUKString(this.ctx, this, data, data.msg);', 'drawUKString(this.ctx, this, data, "");', ''),
+ (K, 'slot draw: the string is drawn before the pictures too', 'const render = this.ctx.render;\n    for (const picture of this.additionalPictures()) {', 'if (this.m_pStringData) drawUKString(this.ctx, this, this.m_pStringData, this.m_pStringData.msg);\n    const render = this.ctx.render;\n    for (const picture of this.additionalPictures()) {', ''),
+ (K, 'slot draw: a slot answers 1', 'drawUKString(this.ctx, this, data, data.msg);\n    return 0;', 'drawUKString(this.ctx, this, data, data.msg);\n    return 1;', ''),
+]
+M += [
+ # -- DrawEdge
+ (K, 'slot edge: a width of 0 draws bars', _GUARD, 'if (!this.m_pEdgeTexture || !point) return;', ''),
+ (K, 'slot edge: an edge needs its texture', _GUARD, 'if (edgeWidth === 0 || !point) return;', ''),
+ (K, 'slot edge: an edge needs a point', _GUARD, 'if (edgeWidth === 0 || !this.m_pEdgeTexture) return;', ''),
+ (K, 'slot edge: a negative width draws no bars', _GUARD, 'if (edgeWidth <= 0 || !this.m_pEdgeTexture || !point) return;', ''),
+ (K, 'slot edge: an edge needs a width or a texture', _GUARD, 'if (edgeWidth === 0 && !this.m_pEdgeTexture || !point) return;', ''),
+ (K, 'slot edge: the width is the right-bottom corner\'s', _NW, 'const nWidth = ftoi(f(point.rightBottomPoint.x - point.leftTopPoint.x));', ''),
+ (K, 'slot edge: the width is from the left-bottom corner', _NW, 'const nWidth = ftoi(f(point.rightTopPoint.x - point.leftBottomPoint.x));', ''),
+ (K, 'slot edge: the width is the height', _NW, 'const nWidth = ftoi(f(point.rightTopPoint.y - point.leftTopPoint.y));', ''),
+ (K, 'slot edge: the width is rounded, not cut', _NW, 'const nWidth = Math.round(f(point.rightTopPoint.x - point.leftTopPoint.x));', ''),
+ (K, 'slot edge: the width is cut downwards', _NW, 'const nWidth = Math.floor(f(point.rightTopPoint.x - point.leftTopPoint.x));', ''),
+ (K, 'slot edge: the width is the other way round', _NW, 'const nWidth = ftoi(f(point.leftTopPoint.x - point.rightTopPoint.x));', ''),
+ (K, 'slot edge: the height is the left-bottom corner\'s', _NH, 'const nHeight = ftoi(f(point.leftBottomPoint.y - point.leftTopPoint.y));', ''),
+ (K, 'slot edge: the height is from the right-top corner', _NH, 'const nHeight = ftoi(f(point.rightBottomPoint.y - point.rightTopPoint.y));', ''),
+ (K, 'slot edge: the height is the width', _NH, 'const nHeight = ftoi(f(point.rightBottomPoint.x - point.leftTopPoint.x));', ''),
+ (K, 'slot edge: the height is rounded, not cut', _NH, 'const nHeight = Math.round(f(point.rightBottomPoint.y - point.leftTopPoint.y));', ''),
+ (K, 'slot edge: the height is cut downwards', _NH, 'const nHeight = Math.floor(f(point.rightBottomPoint.y - point.leftTopPoint.y));', ''),
+ (K, 'slot edge: the height is the other way round', _NH, 'const nHeight = ftoi(f(point.leftTopPoint.y - point.rightBottomPoint.y));', ''),
+ (K, 'slot edge: the bars are drawn on the other side', _BARS, 'this.drawEdgeBars(this.m_pEdgeTexture, !drawOut, edgeWidth, edgeColor, point, nWidth, nHeight);', ''),
+ (K, 'slot edge: the bars are one wide', _BARS, 'this.drawEdgeBars(this.m_pEdgeTexture, drawOut, 1, edgeColor, point, nWidth, nHeight);', ''),
+ (K, 'slot edge: the bars have the colour of the slot', _BARS, 'this.drawEdgeBars(this.m_pEdgeTexture, drawOut, edgeWidth, this.m_Color, point, nWidth, nHeight);', ''),
+ (K, 'slot edge: the width and the height are swapped', _BARS, 'this.drawEdgeBars(this.m_pEdgeTexture, drawOut, edgeWidth, edgeColor, point, nHeight, nWidth);', ''),
+ (K, 'slot edge: the bars are of the current point', _BARS, 'this.drawEdgeBars(this.m_pEdgeTexture, drawOut, edgeWidth, edgeColor, this.m_NowPoint, nWidth, nHeight);', ''),
+ (K, 'slot edge: the bars are drawn outside always', _BARS, 'this.drawEdgeBars(this.m_pEdgeTexture, true, edgeWidth, edgeColor, point, nWidth, nHeight);', ''),
+ (K, 'slot edge: the bars are drawn inside always', _BARS, 'this.drawEdgeBars(this.m_pEdgeTexture, false, edgeWidth, edgeColor, point, nWidth, nHeight);', ''),
+ (K, 'slot edge: the bars are not drawn', '    this.drawEdgeBars(this.m_pEdgeTexture, drawOut, edgeWidth, edgeColor, point, nWidth, nHeight);\n', '', ''),
+ # -- UpdateDraggingVertex
+ (K, 'slot drag vertex: a slot in no dialog is updated', 'if (!this.m_pDialog) return;\n    const scale = this.ctx.render?.resolutionScale;\n    const sx', 'const scale = this.ctx.render?.resolutionScale;\n    const sx', ''),
+ (K, 'slot drag vertex: the scale of x is the y one', 'const sx = scale ? scale.x : 1, sy = scale ? scale.y : 1;', 'const sx = scale ? scale.y : 1, sy = scale ? scale.y : 1;', ''),
+ (K, 'slot drag vertex: the scale of y is the x one', 'const sx = scale ? scale.x : 1, sy = scale ? scale.y : 1;', 'const sx = scale ? scale.x : 1, sy = scale ? scale.x : 1;', ''),
+ (K, 'slot drag vertex: no scale is 2', 'const sx = scale ? scale.x : 1, sy = scale ? scale.y : 1;', 'const sx = scale ? scale.x : 2, sy = scale ? scale.y : 1;', ''),
+ (K, 'slot drag vertex: no scale is 2 (y)', 'const sx = scale ? scale.x : 1, sy = scale ? scale.y : 1;', 'const sx = scale ? scale.x : 1, sy = scale ? scale.y : 2;', ''),
+ (K, 'slot drag vertex: the colour is the slot\'s', 'const c = point.color;', 'const c = this.m_Color;', ''),
+ (K, 'slot drag vertex: the colour is the dialog\'s', 'const c = point.color;', 'const c = this.m_pDialog.m_Color;', ''),
+ (K, 'slot drag vertex: the alpha and the red are swapped', 'clampedByte(c.a) << 8) | clampedByte(c.r)) << 8 | clampedByte(c.g)) << 8 | clampedByte(c.b)) >>> 0', 'clampedByte(c.r) << 8) | clampedByte(c.a)) << 8 | clampedByte(c.g)) << 8 | clampedByte(c.b)) >>> 0', ''),
+ (K, 'slot drag vertex: the red and the green are swapped', 'clampedByte(c.a) << 8) | clampedByte(c.r)) << 8 | clampedByte(c.g)) << 8 | clampedByte(c.b)) >>> 0', 'clampedByte(c.a) << 8) | clampedByte(c.g)) << 8 | clampedByte(c.r)) << 8 | clampedByte(c.b)) >>> 0', ''),
+ (K, 'slot drag vertex: the green and the blue are swapped', 'clampedByte(c.a) << 8) | clampedByte(c.r)) << 8 | clampedByte(c.g)) << 8 | clampedByte(c.b)) >>> 0', 'clampedByte(c.a) << 8) | clampedByte(c.r)) << 8 | clampedByte(c.b)) << 8 | clampedByte(c.g)) >>> 0', ''),
+ (K, 'slot drag vertex: the alpha is not clamped', 'clampedByte(c.a) << 8) | clampedByte(c.r)) << 8 | clampedByte(c.g)) << 8 | clampedByte(c.b)) >>> 0', '(c.a * 255 | 0) << 8) | clampedByte(c.r)) << 8 | clampedByte(c.g)) << 8 | clampedByte(c.b)) >>> 0', ''),
+ (K, 'slot drag vertex: the colour is not made unsigned', 'clampedByte(c.a) << 8) | clampedByte(c.r)) << 8 | clampedByte(c.g)) << 8 | clampedByte(c.b)) >>> 0', 'clampedByte(c.a) << 8) | clampedByte(c.r)) << 8 | clampedByte(c.g)) << 8 | clampedByte(c.b))', 'VertexUI4.setColor stores value >>> 0 itself'),
+ (K, 'slot drag vertex: left-bottom and right-top are swapped', 'const corners = [point.leftTopPoint, point.rightTopPoint, point.leftBottomPoint, point.rightBottomPoint];', 'const corners = [point.leftTopPoint, point.leftBottomPoint, point.rightTopPoint, point.rightBottomPoint];', ''),
+ (K, 'slot drag vertex: left-top and right-top are swapped', 'const corners = [point.leftTopPoint, point.rightTopPoint, point.leftBottomPoint, point.rightBottomPoint];', 'const corners = [point.rightTopPoint, point.leftTopPoint, point.leftBottomPoint, point.rightBottomPoint];', ''),
+ (K, 'slot drag vertex: left-bottom and right-bottom are swapped', 'const corners = [point.leftTopPoint, point.rightTopPoint, point.leftBottomPoint, point.rightBottomPoint];', 'const corners = [point.leftTopPoint, point.rightTopPoint, point.rightBottomPoint, point.leftBottomPoint];', ''),
+ (K, 'slot drag vertex: x takes the y of the corner', 'vertex.setX(i, f(sx * corner.x));', 'vertex.setX(i, f(sx * corner.y));', ''),
+ (K, 'slot drag vertex: y takes the x of the corner', 'vertex.setY(i, f(sy * corner.y));', 'vertex.setY(i, f(sy * corner.x));', ''),
+ (K, 'slot drag vertex: x is scaled by the y scale', 'vertex.setX(i, f(sx * corner.x));', 'vertex.setX(i, f(sy * corner.x));', ''),
+ (K, 'slot drag vertex: y is scaled by the x scale', 'vertex.setY(i, f(sy * corner.y));', 'vertex.setY(i, f(sx * corner.y));', ''),
+ (K, 'slot drag vertex: x is not scaled', 'vertex.setX(i, f(sx * corner.x));', 'vertex.setX(i, f(corner.x));', ''),
+ (K, 'slot drag vertex: y is not scaled', 'vertex.setY(i, f(sy * corner.y));', 'vertex.setY(i, f(corner.y));', ''),
+ (K, 'slot drag vertex: z is 0', 'vertex.setZ(i, 1);', 'vertex.setZ(i, 0);', ''),
+ (K, 'slot drag vertex: rhw is 0', 'vertex.setRhw(i, 1);', 'vertex.setRhw(i, 0);', ''),
+ (K, 'slot drag vertex: the texture coordinates are not copied', 'if (texture) {\n      for (let i = 0; i < 4; i++) {\n        vertex.setU(i, texture.uvTexture[i]!.x);', 'if (!texture) {\n      for (let i = 0; i < 4; i++) {\n        vertex.setU(i, texture!.uvTexture[i]!.x);', ''),
+ (K, 'slot drag vertex: u takes the v', 'vertex.setU(i, texture.uvTexture[i]!.x);', 'vertex.setU(i, texture.uvTexture[i]!.y);', ''),
+ (K, 'slot drag vertex: v takes the u', 'vertex.setV(i, texture.uvTexture[i]!.y);', 'vertex.setV(i, texture.uvTexture[i]!.x);', ''),
+ (K, 'slot drag vertex: u is the one of the next corner', 'vertex.setU(i, texture.uvTexture[i]!.x);', 'vertex.setU(i, texture.uvTexture[(i + 1) % 4]!.x);', ''),
+ (K, 'slot drag vertex: v is the one of the next corner', 'vertex.setV(i, texture.uvTexture[i]!.y);', 'vertex.setV(i, texture.uvTexture[(i + 1) % 4]!.y);', ''),
+ (K, 'slot drag vertex: x is moved half a pixel right', 'vertex.setX(i, f(f(ftoi(vertex.x(i))) - 0.5));', 'vertex.setX(i, f(f(ftoi(vertex.x(i))) + 0.5));', ''),
+ (K, 'slot drag vertex: y is moved half a pixel down', 'vertex.setY(i, f(f(ftoi(vertex.y(i))) - 0.5));', 'vertex.setY(i, f(f(ftoi(vertex.y(i))) + 0.5));', ''),
+ (K, 'slot drag vertex: x is not cut', 'vertex.setX(i, f(f(ftoi(vertex.x(i))) - 0.5));', 'vertex.setX(i, f(vertex.x(i) - 0.5));', ''),
+ (K, 'slot drag vertex: y is not cut', 'vertex.setY(i, f(f(ftoi(vertex.y(i))) - 0.5));', 'vertex.setY(i, f(vertex.y(i) - 0.5));', ''),
+ (K, 'slot drag vertex: x is rounded', 'vertex.setX(i, f(f(ftoi(vertex.x(i))) - 0.5));', 'vertex.setX(i, f(f(Math.round(vertex.x(i))) - 0.5));', ''),
+ (K, 'slot drag vertex: y is rounded', 'vertex.setY(i, f(f(ftoi(vertex.y(i))) - 0.5));', 'vertex.setY(i, f(f(Math.round(vertex.y(i))) - 0.5));', ''),
+ (K, 'slot drag vertex: x is cut downwards', 'vertex.setX(i, f(f(ftoi(vertex.x(i))) - 0.5));', 'vertex.setX(i, f(f(Math.floor(vertex.x(i))) - 0.5));', ''),
+ (K, 'slot drag vertex: y is cut downwards', 'vertex.setY(i, f(f(ftoi(vertex.y(i))) - 0.5));', 'vertex.setY(i, f(f(Math.floor(vertex.y(i))) - 0.5));', ''),
+]
+_DRAG_IF = 'if (this.m_eControlState === SCS.ONDRAG && this.m_bHasFocus && normal && normal.pUITextureData) {'
+_DX = 'const x = f(f(this.ctx.mouse.GetXPos()) / (scale ? scale.x : 1));'
+_DY = 'const y = f(f(this.ctx.mouse.GetYPos()) / (scale ? scale.y : 1));'
+_HW = 'const halfWidth = f(f(drag.rightTopPoint.x - drag.leftTopPoint.x) * 0.5);'
+_HH = 'const halfHeight = f(f(drag.leftBottomPoint.y - drag.leftTopPoint.y) * 0.5);'
+_LR = 'const left = f(-halfWidth + x), right = f(halfWidth + x);'
+_UL = 'const upper = f(-halfHeight + y), lower = f(halfHeight + y);'
+_SET = 'drag.leftTopPoint.set(left, upper);\n      drag.rightTopPoint.set(right, upper);\n      drag.leftBottomPoint.set(left, lower);\n      drag.rightBottomPoint.set(right, lower);'
+M += [
+ # -- RenderDragSlot
+ (K, 'slot drag: the sampler states are not pushed', '      for (const s of DIALOG_SAMPLER_STATES) states.setSamplerState(s.stage, s.type, s.value);\n', '', ''),
+ (K, 'slot drag: only the first sampler state is pushed', 'for (const s of DIALOG_SAMPLER_STATES) states.setSamplerState(s.stage, s.type, s.value);', 'for (const s of DIALOG_SAMPLER_STATES.slice(0, 1)) states.setSamplerState(s.stage, s.type, s.value);', ''),
+ (K, 'slot drag: the last sampler state is not pushed', 'for (const s of DIALOG_SAMPLER_STATES) states.setSamplerState(s.stage, s.type, s.value);', 'for (const s of DIALOG_SAMPLER_STATES.slice(0, -1)) states.setSamplerState(s.stage, s.type, s.value);', ''),
+ (K, 'slot drag: the sampler states are pushed in the opposite order', 'for (const s of DIALOG_SAMPLER_STATES) states.setSamplerState(s.stage, s.type, s.value);', 'for (const s of [...DIALOG_SAMPLER_STATES].reverse()) states.setSamplerState(s.stage, s.type, s.value);', ''),
+ (K, 'slot drag: the states of a dialog are not applied', '      states.apply(RSI_UI_DIALOG);\n', '', ''),
+ (K, 'slot drag: the states are not popped', '    states?.popTo(top);\n    return 0;', '    return 0;', ''),
+ (K, 'slot drag: the states are popped to the bottom of the stack', 'states?.popTo(top);', 'states?.popTo(0);', ''),
+ (K, 'slot drag: the states are popped from a stack top of 0', 'const top = states?.stackPointer ?? 0;\n    if (states) {', 'const top = 0;\n    if (states) {', ''),
+ (K, 'slot drag: it answers 1', 'states?.popTo(top);\n    return 0;', 'states?.popTo(top);\n    return 1;', ''),
+ (K, 'slot drag: a slot that is not dragged is drawn', _DRAG_IF, 'if (this.m_bHasFocus && normal && normal.pUITextureData) {', ''),
+ (K, 'slot drag: a slot that is dragged only', _DRAG_IF, 'if (this.m_eControlState !== SCS.ONDRAG && this.m_bHasFocus && normal && normal.pUITextureData) {', ''),
+ (K, 'slot drag: a slot without the focus is drawn', _DRAG_IF, 'if (this.m_eControlState === SCS.ONDRAG && normal && normal.pUITextureData) {', ''),
+ (K, 'slot drag: a slot without the focus only', _DRAG_IF, 'if (this.m_eControlState === SCS.ONDRAG && !this.m_bHasFocus && normal && normal.pUITextureData) {', ''),
+ (K, 'slot drag: a slot without a normal point is drawn', _DRAG_IF, 'if (this.m_eControlState === SCS.ONDRAG && this.m_bHasFocus && normal?.pUITextureData !== undefined) {', ''),
+ (K, 'slot drag: a normal point without a texture is drawn', _DRAG_IF, 'if (this.m_eControlState === SCS.ONDRAG && this.m_bHasFocus && normal) {', ''),
+ (K, 'slot drag: a normal point needs no texture', _DRAG_IF, 'if (this.m_eControlState === SCS.ONDRAG && this.m_bHasFocus && normal && !normal.pUITextureData) {', ''),
+ (K, 'slot drag: the dragged state is another one (down)', _DRAG_IF, 'if (this.m_eControlState === SCS.DOWN && this.m_bHasFocus && normal && normal.pUITextureData) {', ''),
+ (K, 'slot drag: the dragged state is another one (mouse over)', _DRAG_IF, 'if (this.m_eControlState === SCS.MOUSEOVER && this.m_bHasFocus && normal && normal.pUITextureData) {', ''),
+ (K, 'slot drag: the dragged state is another one (normal)', _DRAG_IF, 'if (this.m_eControlState === SCS.NORMAL && this.m_bHasFocus && normal && normal.pUITextureData) {', ''),
+ (K, 'slot drag: the dragged state is another one (disabled)', _DRAG_IF, 'if (this.m_eControlState === SCS.DISABLE && this.m_bHasFocus && normal && normal.pUITextureData) {', ''),
+ (K, 'slot drag: one of the four things is enough', _DRAG_IF, 'if (this.m_eControlState === SCS.ONDRAG || this.m_bHasFocus && normal && normal.pUITextureData) {', ''),
+ (K, 'slot drag: the focus or the normal point is enough', _DRAG_IF, 'if (this.m_eControlState === SCS.ONDRAG && (this.m_bHasFocus || normal && normal.pUITextureData)) {', ''),
+ (K, 'slot drag: the normal point or its texture is enough', _DRAG_IF, 'if (this.m_eControlState === SCS.ONDRAG && this.m_bHasFocus && (normal || normal?.pUITextureData)) {', ''),
+ (K, 'slot drag: a dragged slot without a dragging point is not noticed', '      if (!drag) throw new Error("CKTDGUISlot::RenderDragSlot: the dragged slot has no dragging point (SetPoint makes it); the exe dereferences null");\n', '', ''),
+ (K, 'slot drag: the dragging point is the normal point', 'const drag = this.m_pDraggingPoint;', 'const drag = this.m_pNormalPoint;', ''),
+ (K, 'slot drag: the dragging point is the mouse over point', 'const drag = this.m_pDraggingPoint;', 'const drag = this.m_pMouseOverPoint;', ''),
+ (K, 'slot drag: the dragging point is the current point', 'const drag = this.m_pDraggingPoint;', 'const drag = this.m_NowPoint;', ''),
+ (K, 'slot drag: x is the mouse y', _DX, 'const x = f(f(this.ctx.mouse.GetYPos()) / (scale ? scale.x : 1));', ''),
+ (K, 'slot drag: y is the mouse x', _DY, 'const y = f(f(this.ctx.mouse.GetXPos()) / (scale ? scale.y : 1));', ''),
+ (K, 'slot drag: x is divided by the y scale', _DX, 'const x = f(f(this.ctx.mouse.GetXPos()) / (scale ? scale.y : 1));', ''),
+ (K, 'slot drag: y is divided by the x scale', _DY, 'const y = f(f(this.ctx.mouse.GetYPos()) / (scale ? scale.x : 1));', ''),
+ (K, 'slot drag: x is multiplied by the scale', _DX, 'const x = f(f(this.ctx.mouse.GetXPos()) * (scale ? scale.x : 1));', ''),
+ (K, 'slot drag: y is multiplied by the scale', _DY, 'const y = f(f(this.ctx.mouse.GetYPos()) * (scale ? scale.y : 1));', ''),
+ (K, 'slot drag: x is not scaled', _DX, 'const x = f(f(this.ctx.mouse.GetXPos()));', ''),
+ (K, 'slot drag: y is not scaled', _DY, 'const y = f(f(this.ctx.mouse.GetYPos()));', ''),
+ (K, 'slot drag: no scale is 2 for x', _DX, 'const x = f(f(this.ctx.mouse.GetXPos()) / (scale ? scale.x : 2));', ''),
+ (K, 'slot drag: no scale is 2 for y', _DY, 'const y = f(f(this.ctx.mouse.GetYPos()) / (scale ? scale.y : 2));', ''),
+ (K, 'slot drag: the width is of the bottom side', _HW, 'const halfWidth = f(f(drag.rightBottomPoint.x - drag.leftBottomPoint.x) * 0.5);', ''),
+ (K, 'slot drag: the width is from the left-top to the right-bottom', _HW, 'const halfWidth = f(f(drag.rightBottomPoint.x - drag.leftTopPoint.x) * 0.5);', ''),
+ (K, 'slot drag: the width is from the left-bottom to the right-top', _HW, 'const halfWidth = f(f(drag.rightTopPoint.x - drag.leftBottomPoint.x) * 0.5);', ''),
+ (K, 'slot drag: the width is the other way round', _HW, 'const halfWidth = f(f(drag.leftTopPoint.x - drag.rightTopPoint.x) * 0.5);', ''),
+ (K, 'slot drag: the width is the height', _HW, 'const halfWidth = f(f(drag.rightTopPoint.y - drag.leftTopPoint.y) * 0.5);', ''),
+ (K, 'slot drag: the half width is a quarter', _HW, 'const halfWidth = f(f(drag.rightTopPoint.x - drag.leftTopPoint.x) * 0.25);', ''),
+ (K, 'slot drag: the half width is the whole width', _HW, 'const halfWidth = f(f(drag.rightTopPoint.x - drag.leftTopPoint.x) * 1);', ''),
+ (K, 'slot drag: the height is of the right side', _HH, 'const halfHeight = f(f(drag.rightBottomPoint.y - drag.rightTopPoint.y) * 0.5);', ''),
+ (K, 'slot drag: the height is from the left-top to the right-bottom', _HH, 'const halfHeight = f(f(drag.rightBottomPoint.y - drag.leftTopPoint.y) * 0.5);', ''),
+ (K, 'slot drag: the height is from the right-top to the left-bottom', _HH, 'const halfHeight = f(f(drag.leftBottomPoint.y - drag.rightTopPoint.y) * 0.5);', ''),
+ (K, 'slot drag: the height is the other way round', _HH, 'const halfHeight = f(f(drag.leftTopPoint.y - drag.leftBottomPoint.y) * 0.5);', ''),
+ (K, 'slot drag: the height is the width', _HH, 'const halfHeight = f(f(drag.leftBottomPoint.x - drag.leftTopPoint.x) * 0.5);', ''),
+ (K, 'slot drag: the half height is a quarter', _HH, 'const halfHeight = f(f(drag.leftBottomPoint.y - drag.leftTopPoint.y) * 0.5);'.replace('* 0.5', '* 0.25'), ''),
+ (K, 'slot drag: the half height is the whole height', _HH, 'const halfHeight = f(f(drag.leftBottomPoint.y - drag.leftTopPoint.y) * 0.5);'.replace('* 0.5', '* 1'), ''),
+ (K, 'slot drag: the left side is right of the mouse', _LR, 'const left = f(halfWidth + x), right = f(halfWidth + x);', ''),
+ (K, 'slot drag: the right side is left of the mouse', _LR, 'const left = f(-halfWidth + x), right = f(-halfWidth + x);', ''),
+ (K, 'slot drag: the left side is the mouse', _LR, 'const left = f(x), right = f(halfWidth + x);', ''),
+ (K, 'slot drag: the right side is the mouse', _LR, 'const left = f(-halfWidth + x), right = f(x);', ''),
+ (K, 'slot drag: the sides are swapped', _LR, 'const left = f(halfWidth + x), right = f(-halfWidth + x);', ''),
+ (K, 'slot drag: the sides are a width apart', _LR, 'const left = f(-halfWidth + x), right = f(halfWidth * 2 + x);', ''),
+ (K, 'slot drag: the upper side is below the mouse', _UL, 'const upper = f(halfHeight + y), lower = f(halfHeight + y);', ''),
+ (K, 'slot drag: the lower side is above the mouse', _UL, 'const upper = f(-halfHeight + y), lower = f(-halfHeight + y);', ''),
+ (K, 'slot drag: the upper side is the mouse', _UL, 'const upper = f(y), lower = f(halfHeight + y);', ''),
+ (K, 'slot drag: the lower side is the mouse', _UL, 'const upper = f(-halfHeight + y), lower = f(y);', ''),
+ (K, 'slot drag: the sides are swapped (y)', _UL, 'const upper = f(halfHeight + y), lower = f(-halfHeight + y);', ''),
+ (K, 'slot drag: the width is added to the height', _UL, 'const upper = f(-halfHeight + y), lower = f(halfWidth + y);', ''),
+ (K, 'slot drag: the height is added to the width', _LR, 'const left = f(-halfWidth + x), right = f(halfHeight + x);', ''),
+ (K, 'slot drag: the left-top corner is the left-bottom one', _SET, _SET.replace('drag.leftTopPoint.set(left, upper);', 'drag.leftTopPoint.set(left, lower);'), ''),
+ (K, 'slot drag: the left-top corner is the right-top one', _SET, _SET.replace('drag.leftTopPoint.set(left, upper);', 'drag.leftTopPoint.set(right, upper);'), ''),
+ (K, 'slot drag: the left-top corner is not set', _SET, _SET.replace('drag.leftTopPoint.set(left, upper);\n      ', ''), ''),
+ (K, 'slot drag: the right-top corner is the left-top one', _SET, _SET.replace('drag.rightTopPoint.set(right, upper);', 'drag.rightTopPoint.set(left, upper);'), ''),
+ (K, 'slot drag: the right-top corner is the right-bottom one', _SET, _SET.replace('drag.rightTopPoint.set(right, upper);', 'drag.rightTopPoint.set(right, lower);'), ''),
+ (K, 'slot drag: the right-top corner is not set', _SET, _SET.replace('drag.rightTopPoint.set(right, upper);\n      ', ''), ''),
+ (K, 'slot drag: the left-bottom corner is the left-top one', _SET, _SET.replace('drag.leftBottomPoint.set(left, lower);', 'drag.leftBottomPoint.set(left, upper);'), ''),
+ (K, 'slot drag: the left-bottom corner is the right-bottom one', _SET, _SET.replace('drag.leftBottomPoint.set(left, lower);', 'drag.leftBottomPoint.set(right, lower);'), ''),
+ (K, 'slot drag: the left-bottom corner is not set', _SET, _SET.replace('drag.leftBottomPoint.set(left, lower);\n      ', ''), ''),
+ (K, 'slot drag: the right-bottom corner is the left-bottom one', _SET, _SET.replace('drag.rightBottomPoint.set(right, lower);', 'drag.rightBottomPoint.set(left, lower);'), ''),
+ (K, 'slot drag: the right-bottom corner is the right-top one', _SET, _SET.replace('drag.rightBottomPoint.set(right, lower);', 'drag.rightBottomPoint.set(right, upper);'), ''),
+ (K, 'slot drag: the right-bottom corner is not set', _SET, _SET.replace('\n      drag.rightBottomPoint.set(right, lower);', ''), ''),
+ (K, 'slot drag: the corners take x and y the wrong way round', 'drag.leftTopPoint.set(left, upper);', 'drag.leftTopPoint.set(upper, left);', ''),
+ (K, 'slot drag: the right-top corner takes x and y the wrong way round', 'drag.rightTopPoint.set(right, upper);', 'drag.rightTopPoint.set(upper, right);', ''),
+ (K, 'slot drag: the left-bottom corner takes x and y the wrong way round', 'drag.leftBottomPoint.set(left, lower);', 'drag.leftBottomPoint.set(lower, left);', ''),
+ (K, 'slot drag: the right-bottom corner takes x and y the wrong way round', 'drag.rightBottomPoint.set(right, lower);', 'drag.rightBottomPoint.set(lower, right);', ''),
+ (K, 'slot drag: the vertex is made with UpdateVertex', 'this.updateDraggingVertex(this.m_DragVertex, drag);', 'this.updateVertex(this.m_DragVertex, drag);', ''),
+ (K, 'slot drag: the vertex is made in the vertices of the slot', 'this.updateDraggingVertex(this.m_DragVertex, drag);', 'this.updateDraggingVertex(this.m_Vertex, drag);', ''),
+ (K, 'slot drag: the vertex is made of the normal point', 'this.updateDraggingVertex(this.m_DragVertex, drag);', 'this.updateDraggingVertex(this.m_DragVertex, normal);', ''),
+ (K, 'slot drag: the vertex is not made', '      this.updateDraggingVertex(this.m_DragVertex, drag);\n', '', ''),
+ (K, 'slot drag: the quad is drawn from the vertices of the slot', 'this.renderVertex(this.m_DragVertex, drag, 1);', 'this.renderVertex(this.m_Vertex, drag, 1);', ''),
+ (K, 'slot drag: the quad is drawn with the normal point', 'this.renderVertex(this.m_DragVertex, drag, 1);', 'this.renderVertex(this.m_DragVertex, normal, 1);', ''),
+ (K, 'slot drag: the quad is drawn as often as the point says', 'this.renderVertex(this.m_DragVertex, drag, 1);', 'this.renderVertex(this.m_DragVertex, drag, drag.m_iDrawCount);', ''),
+ (K, 'slot drag: the quad is drawn twice', 'this.renderVertex(this.m_DragVertex, drag, 1);', 'this.renderVertex(this.m_DragVertex, drag, 2);', ''),
+ (K, 'slot drag: the quad is not drawn', '      this.renderVertex(this.m_DragVertex, drag, 1);\n', '', ''),
+]
 
 
 def limits():
