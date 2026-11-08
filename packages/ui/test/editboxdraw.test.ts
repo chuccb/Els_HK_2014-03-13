@@ -334,6 +334,30 @@ describe("CKTDGUIEditBox::OnFrameRender (32934400): the blink and the caret", ()
     expect(readings).toEqual([]);
   });
 
+  test("the buffer is asked in this order: PlaceCaret (the first visible character, the caret, the caret's trailing edge), then the frame (the first visible character, the caret, the selection's start only with a selection), then the overwrite mode's trailing edge", () => {
+    const s = blinking();
+    s.e.m_bInsertMode = false;
+    const b = s.e.m_Buffer;
+    const asked: [number, boolean][] = [];
+    const real = b.CPtoX.bind(b);
+    b.CPtoX = ((cp: number, trail: boolean) => {
+      asked.push([cp, trail]);
+      return real(cp, trail);
+    }) as typeof b.CPtoX;
+    select(s.e, 1, 3);
+    s.e.onFrameRender();
+    expect(asked).toEqual([[0, false], [1, false], [1, true], [0, false], [1, false], [3, false], [1, true]]);
+    asked.length = 0;
+    select(s.e, 1, 1);
+    s.e.onFrameRender();
+    expect(asked).toEqual([[0, false], [1, false], [1, true], [0, false], [1, false], [1, true]]);
+    // the insert mode asks no more
+    asked.length = 0;
+    s.e.m_bInsertMode = true;
+    s.e.onFrameRender();
+    expect(asked).toEqual([[0, false], [1, false], [1, true], [0, false], [1, false]]);
+  });
+
   test("the blink and the caret are done after the text (the order of the calls: text, selected text, caret)", () => {
     const s = blinking();
     select(s.e, 1, 3);
@@ -418,6 +442,43 @@ describe("CKTDGUIEditBox::DrawRect (329335A0)", () => {
     s.w.render!.states.popTo(0);
   });
 
+  test("every step of a side is a float: 277 and the place 99.66664123535156 (x1.5 = 149.49996948242188 as a float) make 564.99996948 + .. = 565, 206 and 219.99998474121094 make 638.99996948 = 639 (half a float's spacing below, ties to even), 16777218 * 1.5 is 25165828 as a float (25165844 in all), 16777219 is 16777220 as a float (25165846)", () => {
+    // each case: the four sides all L (degenerate), the dialog at (P, P) in a scene of the scale (1.5, 1.5); the numbers are float32 arithmetic worked out in Python (an exact sum, or an exact product, is cut to another int)
+    const s = scene("", { width: 1536, height: 1152 });
+    const cases: [number, number, number][] = [
+      [277, 99.66664123535156, 565],
+      [206, 219.99998474121094, 639],
+      [16777218, 10.25, 25165844],
+      [16777219, 10.25, 25165846],
+    ];
+    for (const [side, place, moved] of cases) {
+      s.dialog.m_Pos.set(place, place);
+      const from = s.dev.log.length;
+      s.e.DrawRect({ left: side, top: side, right: side, bottom: side }, 0xff112233);
+      const v = drawnCalls(s.dev, from)[0]!.vertices;
+      const want = Math.fround(moved - 0.5);
+      expect([v[0]![0], v[0]![1], v[3]![0], v[3]![1]]).toEqual([want, want, want, want]);
+    }
+  });
+
+  test("the whole of the device's calls: the operations, the vertex declaration kept around the draw (GetVertexDeclaration before, SetVertexDeclaration after), the FVF of the quad, the draw, then the operations back", () => {
+    const s = scene("");
+    const from = s.dev.log.length;
+    s.e.DrawRect({ left: 10, top: 6, right: 22, bottom: 30 }, 0xff28325c);
+    // FVF 324 = XYZRHW (4) + DIFFUSE (0x40) + TEX1 (0x100); the stream's source line (its buffer id) is not looked at
+    expect(s.dev.log.slice(from).filter((l) => !l.startsWith("src"))).toEqual(["tss 0 1 3", "tss 0 4 3", "getdecl", "fvf 324", "draw 5 0 2", "setdecl", "tss 0 1 4", "tss 0 4 4", "tss 0 4 2"]);
+  });
+
+  test("without a device nothing is drawn: the failure is reported as the error 0x82 \"device null\" (once), the call answers 0 all the same", () => {
+    const s = fontWorld({}, { device: false });
+    const dialog = new CKTDGUIDialog(s.w);
+    const e = new CKTDGUIEditBox(s.w);
+    place(dialog, e);
+    const before = s.w.devices.massFiles.log.entries.length;
+    expect(e.DrawRect({ left: 10, top: 6, right: 22, bottom: 30 }, 0xff28325c)).toBe(0);
+    expect(s.w.devices.massFiles.log.entries.slice(before)).toEqual([{ id: 0x82, text: "device null" }]);
+  });
+
   test("a box in no dialog is the exe's null object: an Error here", () => {
     const s = scene("");
     s.e.m_pDialog = null;
@@ -442,6 +503,15 @@ describe("CKTDGUIEditBox::DrawTextW (329339F0)", () => {
     s.e.m_OffsetPos.set(-0.5, 2.5);
     s.e.DrawTextW("Hi", { left: 0, top: 0, right: 1, bottom: 2 }, -1, 0);
     expect(events[0]).toMatchObject({ rect: [-10, 16777218, -9, 16777220] });
+  });
+
+  test("the sum of x is a float too: 0.99999994 + 4e-8 = 0.99999998 is 1 as a float (cut to 0 as an exact sum)", () => {
+    const s = scene("");
+    const events = spy(s);
+    s.dialog.m_Pos.set(0.99999994, 0.99999994);
+    s.e.m_OffsetPos.set(4e-8, 4e-8);
+    s.e.DrawTextW("Hi", { left: 0, top: 0, right: 1, bottom: 2 }, -1, 0);
+    expect(events[0]).toMatchObject({ rect: [1, 1, 2, 3] });
   });
 
   test("the font colour and the outline colour go with the call; the outline flag is the box's m_bOutlineCheck", () => {
@@ -528,6 +598,48 @@ describe("CKTDGUIEditBox::PlaceCaret (32934A00)", () => {
     s.e.PlaceCaret(6);
     expect(asked.some(([, t]) => t)).toBe(false);
     expect(s.e.m_nFirstVisible).toBe(3);
+  });
+
+  test("a caret whose x is the first visible character's x is not left of it: nothing moves the first visible character (all x are equal here, XtoCP is never asked)", () => {
+    const s = boxed();
+    const b = s.e.m_Buffer;
+    b.m_pFontNode = s.uk;
+    b.CPtoX = (() => 0) as typeof b.CPtoX;
+    b.XtoCP = (() => {
+      throw new Error("XtoCP is not asked");
+    }) as typeof b.XtoCP;
+    s.e.m_nFirstVisible = 4;
+    s.e.PlaceCaret(1);
+    expect([s.e.m_nCaret, s.e.m_nFirstVisible]).toEqual([1, 4]);
+  });
+
+  test("the trailing edge scrolls only past the right side counted from the first visible character's x: first 2 (x 16), the edge at 40 = 16 + 24 stays, 41 scrolls (XtoCP of 41 + 4 - 28 = 17 is 2, whose x 16 is short: 3)", () => {
+    const s = boxed();
+    const b = s.e.m_Buffer;
+    b.m_pFontNode = s.uk;
+    const asked: number[] = [];
+    let trail = 0;
+    b.CPtoX = ((cp: number, tr: boolean) => cp * 8 + (tr ? trail : 0)) as typeof b.CPtoX;
+    b.XtoCP = ((x: number) => {
+      asked.push(x);
+      return { cp: Math.floor(x / 8), trail: 0 };
+    }) as typeof b.XtoCP;
+    s.e.m_nFirstVisible = 2;
+    s.e.PlaceCaret(5);
+    expect([s.e.m_nFirstVisible, asked]).toEqual([2, []]);
+    trail = 1;
+    s.e.PlaceCaret(5);
+    expect([s.e.m_nFirstVisible, asked]).toEqual([3, [17]]);
+  });
+
+  test("the trailing edge, not the caret's x, decides whether to scroll: caret 3 (x 24) with the edge at 27 > 24 scrolls: XtoCP of 27 + 4 - 28 = 3 is 0, whose x 0 is short: 1", () => {
+    const s = boxed();
+    const b = s.e.m_Buffer;
+    b.m_pFontNode = s.uk;
+    b.CPtoX = ((cp: number, tr: boolean) => cp * 8 + (tr ? 3 : 0)) as typeof b.CPtoX;
+    b.XtoCP = ((x: number) => ({ cp: Math.floor(x / 8), trail: 0 })) as typeof b.XtoCP;
+    s.e.PlaceCaret(3);
+    expect(s.e.m_nFirstVisible).toBe(1);
   });
 
   test("a box without a font: every x is 0, so the first visible character stays", () => {
