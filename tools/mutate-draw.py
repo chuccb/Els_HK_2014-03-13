@@ -11,7 +11,8 @@ test), which packages/ui/test/reference.test.ts must pin.
 
 A mutant that must be killed and survives makes the exit code 1; a mutant with a reason is expected to survive.  The source is restored
 after every mutant (also on Ctrl-C), but do not run this with uncommitted edits in the mutated files you cannot afford to lose.  Needs
-`bun` in ./node_modules/.bin; the run takes ~2-4 s per mutant (380 mutants: ~23 minutes).  Each run has a 90 s timeout and an 8 GB address-space limit.
+`bun` in ./node_modules/.bin; the run takes ~2-4 s per mutant, ~1 s for those of slot.ts (960 mutants: 24 minutes on 2 CPUs).  Each run has a
+90 s timeout and an 8 GB address-space limit.
 """
 import os, resource, subprocess, sys
 

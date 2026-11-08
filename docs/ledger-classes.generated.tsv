@@ -83,7 +83,7 @@ std::wstring	43	2036	32894240	n/a	-	C++ runtime library (STL, boost, ATL, debug 
 CX2Inventory	43	4386	32A99BC0	todo		
 CX2StateCreateUnit	43	9857	32EE3CB0	todo		
 boost::io::detail	42	6523	32895130	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDGUISlot	42	3451	328C2120	partial	packages/ui/src/slot.ts	constructor, the 18 distinct Lua names (the exe registers SetDraggingSlotColor twice); OnFrameMove (32952430: the state machine, the guide text, UpdateUI of the slot data, the additional pictures) and ReturnDraggingItem (329534A0); not ported: drag and drop (the input), drawing
+CKTDGUISlot	42	3451	328C2120	partial	packages/ui/src/slot.ts	constructor, the 18 distinct Lua names (the exe registers SetDraggingSlotColor twice); OnFrameMove (32952430: the state machine, the guide text, UpdateUI of the slot data, the additional pictures) and ReturnDraggingItem (329534A0); OnFrameRender (32952670: the current point, the mouse over point, the additional pictures with their edges and blend states, the string), DrawEdge (32951310), UpdateDraggingVertex (329545B0) and RenderDragSlot (32952DD0); not ported: the input (HandleMouse 329520A0, ContainsPoint 3292D460, OnFocusOut 329523D0, GetGuideDescPos 32951F20) and the dialog manager's call of RenderDragSlot
 CKTDXDeviceManager	42	2928	328ECB20	todo		
 CX2BattleFieldGame	42	3350	3318FB60	todo		
 CX2Item::KItemFormatTemplet	41	904	32AACC60	partial	packages/assets/src/kim.ts	every accessor of KItemFormatTemplet / KItemFormatSetItemData (32B85150..32B85FD0) ported; the constructor and the KProxy2 writer are not
