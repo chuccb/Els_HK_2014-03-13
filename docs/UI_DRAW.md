@@ -10,18 +10,18 @@ Every `DLG_*.lua` of the archives is opened in one UI world with a device (one L
 | the script did not run (a game state defines what it needs, FINDINGS 17.1) | 32 |
 | drawn without an exception | 1,024 |
 | ... whose frame ended in an exception first (what `OnFrameMove` does there is not ported) | 7 |
-| ... that draw at least one quad or string | 899 |
-| ... that draw nothing | 125 |
-| ... that draw text | 275 |
+| ... that draw at least one quad or string | 902 |
+| ... that draw nothing | 122 |
+| ... that draw text | 279 |
 | device and CPU agree (no pixel over 3) | 1,024 |
 | the CPU composition has no rule for a quad | 0 |
 | ... a pixel is over 3 | 0 |
 | draws that are none of the three shapes the UI makes | 0 (in 0 dialogs) |
 | the state stack is not back where it was | 0 |
-| quads in all | 16,330 (208 of them bars of edges, 293 without area) |
-| glyph quads in all | 25,076 (in 3,602 flushes of a glyph page) |
+| quads in all | 16,463 (208 of them bars of edges, 293 without area) |
+| glyph quads in all | 25,210 (in 3,628 flushes of a glyph page) |
 
-The largest difference of a channel between the device and the CPU, per dialog: 0: 696, 1: 328.
+The largest difference of a channel between the device and the CPU, per dialog: 0: 685, 1: 339.
 
 ## What the dialogs ask to draw that is not ported yet
 
@@ -31,7 +31,6 @@ The largest difference of a channel between the device and the CPU, per dialog: 
 |---|---:|---:|
 | `CKTDGUISlot` | 7 | 158 |
 | `CKTDGUIIMEEditBox` | 81 | 125 |
-| `CKTDGUIComboBox` | 37 | 70 |
 | `CKTDGUIListBox` | 21 | 36 |
 | `CKTDGUIEditBox` | 6 | 8 |
 | `CMovieData::OnFrameMove` | 3 | 3 |
@@ -69,8 +68,7 @@ None.
 | the script made no control | 50 |
 | no control is shown | 40 |
 | the shown controls have no picture and no text to draw | 21 |
-| the script did not run | 12 |
-| what the shown controls draw is not ported (movies, controls whose drawing is not ported) | 2 |
+| the script did not run | 11 |
 
 `controls` in the list, `shown` of them draw (shown and in the list); the classes of all the controls.
 
@@ -135,7 +133,6 @@ None.
 | `DLG_MAP_WORLD_ELIOS.LUA` | the script made no control | 0 | 0 | - |
 | `DLG_MAP_WORLD_LOCAL_BUTTON_TEMPLATE.LUA` | the script did not run | 1 | 1 | Button 1 |
 | `DLG_MOUSE_CLICK.LUA` | no control is shown | 4 | 0 | Static 4 |
-| `DLG_OPTION_WINDOW_RESOLUTION.LUA` | what the shown controls draw is not ported (movies, controls whose drawing is not ported) | 1 | 1 | ComboBox 1 |
 | `DLG_PVP_GAME_CHATBOX_POS.LUA` | the script made no control | 0 | 0 | - |
 | `DLG_PVP_GAME_LOADING_STATE.LUA` | no control is shown | 4 | 0 | Static 4 |
 | `DLG_PVP_GAME_LOADING_STATE_USER.LUA` | the shown controls have no picture and no text to draw | 4 | 3 | Static 4 |
@@ -149,7 +146,6 @@ None.
 | `DLG_PVP_ROOM_TEAM_SELECT.LUA` | the shown controls have no picture and no text to draw | 2 | 2 | RadioButton 2 |
 | `DLG_RENA_NATURALFORCE.LUA` | no control is shown | 2 | 0 | Static 2 |
 | `DLG_ROOM_CHATBOX_CHATLIST.LUA` | no control is shown | 1 | 0 | ListBox 1 |
-| `DLG_ROOM_CHATBOX_MODE.LUA` | what the shown controls draw is not ported (movies, controls whose drawing is not ported) | 2 | 2 | ComboBox 1, IMEEditBox 1 |
 | `DLG_ROOM_TALK_BOX.LUA` | the script made no control | 0 | 0 | - |
 | `DLG_SHOP_BUY_BUTTON.LUA` | the script did not run | 1 | 0 | RadioButton 1 |
 | `DLG_SHOP_BUY_SLOT.LUA` | the script did not run | 0 | 0 | - |
@@ -159,7 +155,6 @@ None.
 | `DLG_SKILL_TREE_MAIN.LUA` | the script made no control | 0 | 0 | - |
 | `DLG_SLOTMANAGER.LUA` | the script made no control | 0 | 0 | - |
 | `DLG_SQUARE_SLOT.LUA` | the script did not run | 1 | 1 | Button 1 |
-| `DLG_SQUARE_TYPE_COMBO.LUA` | the script did not run | 1 | 1 | ComboBox 1 |
 | `DLG_UI_BUFF_TITLE.LUA` | the shown controls have no picture and no text to draw | 2 | 2 | Static 2 |
 | `DLG_UI_CHANNEL_SELECTION_SLOT_NEW.LUA` | the shown controls have no picture and no text to draw | 8 | 1 | Button 7, Static 1 |
 | `DLG_UI_CHECK_POWER_EVENT.LUA` | no control is shown | 10 | 0 | Button 6, Static 4 |

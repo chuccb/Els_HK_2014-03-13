@@ -173,3 +173,28 @@ export function drawnCalls(dev: Recorder, from = 0): DrawnCall[] {
   }
   return out;
 }
+
+/** a quad (a strip of two triangles, `draw 5 start 2`) the UI drew: the texture on stage 0 at the time and the pixels it covers */
+export interface DrawnQuad {
+  texture: string;
+  /** [left, top, right, bottom] in back buffer pixels (the vertices of a quad sit half a pixel up and to the left) */
+  rect: [number, number, number, number];
+}
+
+/** the quads the recorder saw from `from` on (an index into `log`), in drawing order; other draws (lists of glyph quads) are left out */
+export function drawnQuads(dev: Recorder, from = 0): DrawnQuad[] {
+  const textures: string[] = [];
+  let current = "";
+  // the log has a line only when the texture changes: the one a quad is drawn with may be set before `from`
+  dev.log.forEach((line, i) => {
+    if (line.startsWith("tex 0 ")) current = line.slice(6);
+    else if (line.startsWith("draw ") && i >= from) textures.push(current);
+  });
+  const out: DrawnQuad[] = [];
+  drawnCalls(dev, from).forEach((c, i) => {
+    if (c.type !== 5) return;
+    const [v0, v1, v2] = c.vertices;
+    out.push({ texture: textures[i]!, rect: [v0![0]! + 0.5, v0![1]! + 0.5, v1![0]! + 0.5, v2![1]! + 0.5] });
+  });
+  return out;
+}

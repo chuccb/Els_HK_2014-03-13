@@ -41,16 +41,26 @@ export function stringColors(dialog: CKTDGUIDialog, control: CKTDGUIControl, dat
   };
 }
 
-/** `(float)(dialog.m_Pos + string.pos) + control.m_OffsetPos`: where the string starts, in layout pixels (a float) */
-export function stringPosition(dialog: CKTDGUIDialog, control: CKTDGUIControl, data: UIStringData): { x: number; y: number } {
+/** where a string is put in its dialog: a place in layout pixels, floats */
+export interface StringPlace {
+  readonly x: number;
+  readonly y: number;
+}
+
+/**
+ * `(float)(dialog.m_Pos + at) + control.m_OffsetPos`: where the string starts, in layout pixels (a float).  `at` is the string's own place
+ * (`UIStringData::pos`) unless the control puts it somewhere else: a combo box puts its rows at the corner of the row and its selected
+ * text at the corner of its text rectangle plus an offset.
+ */
+export function stringPosition(dialog: CKTDGUIDialog, control: CKTDGUIControl, data: UIStringData, at: StringPlace = data.pos): { x: number; y: number } {
   return {
-    x: f(f(dialog.m_Pos.x + data.pos.x) + control.m_OffsetPos.x),
-    y: f(f(dialog.m_Pos.y + data.pos.y) + control.m_OffsetPos.y),
+    x: f(f(dialog.m_Pos.x + at.x) + control.m_OffsetPos.x),
+    y: f(f(dialog.m_Pos.y + at.y) + control.m_OffsetPos.y),
   };
 }
 
 /** `CKTDGUIDialogHandle::operator->` of a control that is in a dialog */
-function dialogOf(control: CKTDGUIControl): CKTDGUIDialog {
+export function dialogOf(control: CKTDGUIControl): CKTDGUIDialog {
   const dialog = control.m_pDialog;
   if (!dialog) throw new Error("CKTDGUIDialogHandle::operator->: the control is in no dialog (the exe answers fs_uiDialogNullObject; not ported)");
   return dialog;
@@ -64,13 +74,14 @@ function needFont(font: UKFont | null, method: string, fontIndex: number): UKFon
 
 /**
  * The UK-font path (`OutTextMultiline`) of a string: what a button and a radio button do with the whole message of their string data
- * and a static with a string that uses a UK font does with the message or the part of it that has spread.
+ * and a static with a string that uses a UK font does with the message or the part of it that has spread.  A combo box (3293DB00,
+ * 3293E390) calls the font the same way for the text of a row: `at` is where it puts it.
  */
-export function drawUKString(ctx: UIContext, control: CKTDGUIControl, data: UIStringData, text: string): void {
+export function drawUKString(ctx: UIContext, control: CKTDGUIControl, data: UIStringData, text: string, at: StringPlace = data.pos): void {
   const font = ctx.fonts.getUKFont(data.fontIndex);
   const dialog = dialogOf(control);
   const { color, outline } = stringColors(dialog, control, data);
-  const { x, y } = stringPosition(dialog, control, data);
+  const { x, y } = stringPosition(dialog, control, data, at);
   needFont(font, "OutTextMultiline", data.fontIndex).OutTextMultiline(ftoi(x), ftoi(y), text, packColor(color), data.fontStyle, packColor(outline), 1, null, data.sortFlag, -1, 1, 1);
 }
 

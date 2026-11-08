@@ -81,6 +81,20 @@ export interface UIContext {
   clock(): number;
   /** `g_pKTDXApp->m_pDIManager->m_KTDIKeyboard`: the keys the controls ask for (a focused button answers the Enter key) */
   readonly keyboard: UIKeyboard;
+  /** the function-level statics of the `OnFrameRender`s: what the exe keeps for the life of its process, a world keeps here */
+  readonly statics: RenderStatics;
+}
+
+/**
+ * The `static bool`s the exe's combo box and list box `OnFrameRender`s keep in their .bss (`bSBInit` 388113, `bSBInit_0` 393019): each sets
+ * the page size of its scroll bar the FIRST time any box of its class is drawn and never again, so a second box keeps the page size it was
+ * given when it was made.
+ */
+export class RenderStatics {
+  /** `bSBInit`: `CKTDGUIComboBox::OnFrameRender` (3293DB00) has run once */
+  bSBInit = false;
+  /** `bSBInit_0`: `CKTDGUIListBox::OnFrameRender` (32943BA0) has run once */
+  bSBInit_0 = false;
 }
 
 const f = Math.fround;

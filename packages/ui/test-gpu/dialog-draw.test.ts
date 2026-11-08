@@ -13,7 +13,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { CKTDGUIButton, CKTDGUIRadioButton, CKTDGUIStatic, UKFont } from "../src/index.ts";
+import { CKTDGUIButton, CKTDGUIComboBox, CKTDGUIRadioButton, CKTDGUIStatic, UKFont } from "../src/index.ts";
 import type { CKTDGUIDialog } from "../src/index.ts";
 import { gpuAvailable } from "../../d3d9/test/gpu-helper.ts";
 import { compareImages, newTarget } from "./reference.ts";
@@ -46,7 +46,9 @@ interface Spoken {
 /**
  * The strings the dialog hands to the fonts, in the order of its control list, as its scripts say them: a shown static's strings that have
  * text (a spreading one shows `iSpreadCount` characters), and the string of each shown button and radio button (one with an empty message
- * is drawn too).  A static's string goes to `Draw2DText` unless it uses a UK font.
+ * is drawn too).  A static's string goes to `Draw2DText` unless it uses a UK font.  A closed combo box that is not static speaks the text
+ * of its selected row (cut to `m_iTextLimit` characters when that is above 0) if it shows it and has string data.  (None of these dialogs
+ * has an open box or a static one, whose rows are controls.)
  */
 function expectedStrings(dlg: CKTDGUIDialog): Spoken[] {
   const out: Spoken[] = [];
@@ -57,6 +59,13 @@ function expectedStrings(dlg: CKTDGUIDialog): Spoken[] {
         out.push({ method: t.bUseUkFont ? "OutTextMultiline" : "Draw2DText", text: t.bSpread ? t.msg.slice(0, Math.min(t.iSpreadCount, t.msg.length)) : t.msg });
       }
     } else if ((c instanceof CKTDGUIButton || c instanceof CKTDGUIRadioButton) && c.m_pStringData) out.push({ method: "OutTextMultiline", text: c.m_pStringData.msg });
+    else if (c instanceof CKTDGUIComboBox) {
+      expect([c.m_bOpened, c.m_bIsStaticComboBox]).toEqual([false, false]);
+      const row = c.m_Items[c.m_iSelected];
+      if (c.m_bSelectTextShow && c.m_pStringData && c.m_iSelected >= 0 && row) {
+        out.push({ method: "OutTextMultiline", text: c.m_iTextLimit > 0 ? row.strText.slice(0, c.m_iTextLimit) : row.strText });
+      }
+    }
   }
   return out;
 }
@@ -222,6 +231,10 @@ suite("dialogs drawn through @els/d3d9 by the ported UI", () => {
     { name: "DLG_UI_GUILD_SKILL_TREE", covers: 100_000, classes: { CKTDGUIContolList: 1, CKTDGUIRadioButton: 3 } },
     { name: "DLG_UI_NEW_QUEST_LIST", covers: 200_000, classes: { CKTDGUINavigation: 1, CKTDGUIRadioButton: 16, CKTDGUICheckBox: 1 } },
     { name: "DLG_UI_PARTYLIST", covers: 200_000, classes: { CKTDGUIRadioButton: 12 } },
+    // the combo boxes: a button and a text rectangle each, the selected row's text
+    { name: "DLG_UI_OPTION_GRAPHIC", covers: 20_000, classes: { CKTDGUIComboBox: 1, CKTDGUIRadioButton: 15, CKTDGUICheckBox: 4 } },
+    { name: "DLG_UI_OPTION_CAM_EX", covers: 20_000, classes: { CKTDGUIComboBox: 4, CKTDGUIRadioButton: 5 } },
+    { name: "DLG_UI_SYNTHESIS", covers: 20_000, classes: { CKTDGUIComboBox: 1, CKTDGUIButton: 3 } },
   ];
   for (const { name, covers, classes, edgeBars } of more) {
     test(name, async () => {

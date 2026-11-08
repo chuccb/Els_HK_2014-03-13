@@ -6,7 +6,7 @@ import { HostWorld, KGCMassFileManager } from "@els/host";
 import type { HostOptions, MassFileSource } from "@els/host";
 import type { StringTable } from "@els/assets";
 import type { Direct3DDevice9 } from "@els/d3d9";
-import { CKTDGUIControl, CPictureData } from "./control.ts";
+import { CKTDGUIControl, CPictureData, RenderStatics } from "./control.ts";
 import type { UIContext } from "./control.ts";
 import { CKTDGUIButton } from "./button.ts";
 import { CKTDGUICheckBox } from "./checkbox.ts";
@@ -100,6 +100,8 @@ export class UIWorld implements UIContext {
   readonly dialogManager = new CKTDGUIDialogManager();
   /** `g_pKTDXApp->m_pDIManager->m_KTDIKeyboard` */
   readonly keyboard = new UIKeyboard();
+  /** the statics of the `OnFrameRender`s (`bSBInit`, `bSBInit_0`) */
+  readonly statics = new RenderStatics();
 
   constructor(opts: UIWorldOptions) {
     const massFiles = new KGCMassFileManager();

@@ -12,17 +12,22 @@
  * SetUnSelected 32940DC0), SetString_LUA 328CE0E0, AddItem_LUA 3293D190 / AddItemStrID_LUA 3293CB60 (-> AddItem 3293C990), AddControl
  * 3293C800, InitScrollBar_LUA 3293D840 and SetSelectedByIndex 32940AA0.
  *
- * Not ported: what the box does while the game runs (`MsgProc`, `HandleMouse`, `OnFrameMove`, `OnFrameRender`, `OnFrameRenderEnd`,
- * `OnFocusOut`, `OnHotkey`).  The virtual functions the Lua methods of the base class reach are the base class's: the box overrides only those
+ * `OnFrameRender` (3293DB00) draws the closed box (the button, the text rectangle, the selected row's text or control) and
+ * `OnFrameRenderEnd` (3293E390) the dropdown, which the dialog draws in its second pass, over the other controls; see `onFrameRender`.
+ *
+ * Not ported: what the box does while the game runs (`MsgProc`, `HandleMouse`, `OnFocusOut`, `OnHotkey`).  The virtual functions the Lua methods of the base class reach are the base class's: the box overrides only those
  * and `UpdateRects` (vtable slot 42, which is where `SetDropHeight` and the setters go).
  */
 import type { CKTDGUIComboBox_Methods } from "@els/host";
+import { Vec2 } from "@els/host";
 import { CKTDGUIControl, UCT, UIM, UIPointData, readStringData, wcharText } from "./control.ts";
 import type { UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
-import { idiv, newRect, newVertices, offsetRect, setRect, copyRect } from "./rect.ts";
-import type { Rect, VertexUI } from "./rect.ts";
+import { idiv, newRect, offsetRect, setRect, copyRect } from "./rect.ts";
+import type { Rect } from "./rect.ts";
+import { VertexUI4 } from "./render.ts";
 import { CKTDGUIScrollBar } from "./scrollbar.ts";
+import { dialogOf, drawUKString } from "./stringdraw.ts";
 
 const f = Math.fround;
 
@@ -91,7 +96,8 @@ export class CKTDGUIComboBox extends CKTDGUIControl implements Partial<CKTDGUICo
   m_pScrollBar: CKTDGUIScrollBar | null = null;
   readonly m_rcBoundingBox: Rect = newRect();
   readonly m_rcBoundingBox2: Rect = newRect();
-  readonly m_Vertex: VertexUI[] = newVertices();
+  /** `m_Vertex[4]`: the quad being drawn */
+  readonly m_Vertex = new VertexUI4();
   /** `CGrowableArray<ComboBoxItem*> m_Items` */
   readonly m_Items: ComboBoxItem[] = [];
   m_CustomMsgSelectionChanged = -1;
@@ -133,6 +139,157 @@ export class CKTDGUIComboBox extends CKTDGUIControl implements Partial<CKTDGUICo
       }
     } else {
       this.m_bMouseOverCheck = false;
+    }
+    return 0;
+  }
+
+  // ---- drawing ------------------------------------------------------------------------------------------------------------------
+
+  /** the four corners of `m_TempPoint` from a rectangle (ints to floats) */
+  private cornersOf(rc: Rect): UIPointData {
+    const p = this.m_TempPoint;
+    p.leftTopPoint.set(rc.left, rc.top);
+    p.rightTopPoint.set(rc.right, rc.top);
+    p.leftBottomPoint.set(rc.left, rc.bottom);
+    p.rightBottomPoint.set(rc.right, rc.bottom);
+    return p;
+  }
+
+  /** `UpdateVertex` and `RenderVertex(m_Vertex, &m_TempPoint, 1)`: the quad of `m_TempPoint` */
+  private drawTempPoint(): void {
+    this.updateVertex(this.m_Vertex, this.m_TempPoint);
+    this.renderVertex(this.m_Vertex, this.m_TempPoint, 1);
+  }
+
+  /** a rectangle with a texture: nothing is drawn without the texture (the corners were set anyway) */
+  private drawRect(rc: Rect, texture: UITextureData | null): void {
+    const p = this.cornersOf(rc);
+    if (!texture) return;
+    p.pUITextureData = texture;
+    this.drawTempPoint();
+  }
+
+  /**
+   * `OnFrameRender` (3293DB00): a shown box draws, in this order,
+   *  1. once in the life of the process (the exe's `static bool bSBInit`, `ctx.statics`): the page size of its scroll bar, if it has one,
+   *     is the height of the dropdown text rectangle over the row height (the static height; the font's line height; 1 row of one pixel
+   *     without a font) and the bar's `Cap` and `UpdateThumbRect` run.  A box that is drawn later keeps the page size it was made with;
+   *  2. the button: the quad of `m_rcButton` with the button texture, but the mouse-down texture while it is enabled and pressed (when
+   *     it has one) and otherwise, with the mouse over it, the mouse-over texture (which may be none: then nothing is drawn, the point
+   *     still holds the texture of the last draw);
+   *  3. the text rectangle with `m_pTextTex`;
+   *  4. with `m_bSelectTextShow` and a selected row: the row's text (a box that is not static, with string data; cut to `m_iTextLimit`
+   *     characters when that is above 0) through `OutTextMultiline` at the corner of the text rectangle plus `m_TextStringOffsetPos`,
+   *     or, for a static box, the row's control, moved to the corner of the text rectangle (`SetOffsetPos`) and drawn.
+   * The font is the UK font of the string data's font index; a font that does not exist is the exe's crash at its first use.
+   */
+  override onFrameRender(): number {
+    if (!this.m_bShow) return 0;
+    const data = this.m_pStringData;
+    const font = data ? this.ctx.fonts.getUKFont(data.fontIndex) : null;
+    const statics = this.ctx.statics;
+    if (!statics.bSBInit) {
+      const bar = this.m_pScrollBar;
+      if (bar) {
+        const height = (this.m_rcDropdownText.bottom - this.m_rcDropdownText.top) | 0;
+        bar.m_nPageSize = this.m_bIsStaticComboBox ? idiv(height, this.m_nStaticHeight) : font ? idiv(height, font.lineHeight()) : height;
+        bar.cap();
+        bar.updateThumbRect();
+      }
+      statics.bSBInit = true;
+    }
+    const pressed = this.m_bEnable && this.m_bPressed;
+    const window = newRect();
+    copyRect(window, this.m_rcButton);
+    offsetRect(window, 0, 0);
+    const point = this.cornersOf(window);
+    if (this.m_pButtonTex) point.pUITextureData = this.m_pButtonTex;
+    if (pressed && this.m_pButtonMouseDownTex) point.pUITextureData = this.m_pButtonMouseDownTex;
+    else if (this.m_bMouseOver) point.pUITextureData = this.m_pButtonMouseOverTex;
+    if (point.pUITextureData) this.drawTempPoint();
+    this.drawRect(this.m_rcText, this.m_pTextTex);
+    if (this.m_bSelectTextShow) {
+      const selected = this.m_iSelected;
+      if (selected >= 0 && selected < this.m_Items.length) {
+        const item = this.m_Items[selected]!;
+        if (!this.m_bIsStaticComboBox) {
+          if (data) {
+            const at = { x: f(f(this.m_TextStringOffsetPosX) + f(this.m_rcText.left)), y: f(f(this.m_TextStringOffsetPosY) + f(this.m_rcText.top)) };
+            const limit = this.m_iTextLimit;
+            drawUKString(this.ctx, this, data, limit > 0 ? item.strText.slice(0, Math.min(limit, item.strText.length)) : item.strText, at);
+          }
+        } else {
+          const dialog = dialogOf(this);
+          const control = item.pControl;
+          const x = f(f(dialog.m_Pos.x + this.m_OffsetPos.x) + f(this.m_rcText.left));
+          const y = f(f(this.m_rcText.top) + f(dialog.m_Pos.y + this.m_OffsetPos.y));
+          if (control) {
+            control.setOffsetPos(new Vec2(x, y));
+            control.onFrameRender();
+          }
+        }
+      }
+    }
+    return 0;
+  }
+
+  /**
+   * `OnFrameRenderEnd` (3293E390): the dropdown, drawn by the dialog's second pass.  A shown box with a UK font (the string data's) lays
+   * its rows out whether it is open or not: from the scroll bar's position (the first row without a bar) each row that still fits in
+   * the dropdown text rectangle gets `rcActive` (the rectangle's left, the running top, its right plus the bar's width, the row's height:
+   * `m_nStaticHeight`, or the font's line height) and `bVisible`, the rows after it are not visible.  An open box also draws
+   *  - first, the dropdown (`m_rcDropdown` with `m_pDropdownTex`);
+   *  - then, per visible row, `rc` = the dropdown's left and right, the row's top - 2 and bottom + 2: for the focused row of a box that
+   *    is not static the highlight (`rc` with `m_pDropdownTextTex`); for a box that is not static the row's text through
+   *    `OutTextMultiline` at the corner of `rcActive` (needs string data); for a static box the row's control, moved to the corner of `rc`;
+   *  - last, with a scroll bar and rows that do not fit in `m_nDropHeight` (the row count times the row height), the scroll bar.
+   */
+  override onFrameRenderEnd(): number {
+    if (!this.m_bShow) return 0;
+    const data = this.m_pStringData;
+    const font = data ? this.ctx.fonts.getUKFont(data.fontIndex) : null;
+    const open = this.m_bOpened;
+    if (open) this.drawRect(this.m_rcDropdown, this.m_pDropdownTex);
+    const bar = this.m_pScrollBar;
+    if (font) {
+      const text = this.m_rcDropdownText;
+      const rowHeight = this.m_bIsStaticComboBox ? this.m_nStaticHeight : font.lineHeight();
+      let top = text.top;
+      let room = (text.bottom - top) | 0;
+      for (let i = bar ? bar.m_nPosition : 0; i < this.m_Items.length; i++) {
+        const row = this.m_Items[i]!;
+        room = (room - rowHeight) | 0;
+        if (room < 0) {
+          row.bVisible = false;
+          continue;
+        }
+        setRect(row.rcActive, text.left, top, (text.right + (bar ? bar.m_width : 0)) | 0, (top + rowHeight) | 0);
+        top = (top + rowHeight) | 0;
+        row.bVisible = true;
+        if (!open) continue;
+        const rc: Rect = { left: this.m_rcDropdown.left, top: (row.rcActive.top - 2) | 0, right: this.m_rcDropdown.right, bottom: (row.rcActive.bottom + 2) | 0 };
+        if (this.m_bIsStaticComboBox) {
+          const control = row.pControl;
+          if (control) {
+            control.setOffsetPos(new Vec2(rc.left, rc.top));
+            control.onFrameRender();
+          }
+          continue;
+        }
+        if (i === this.m_iFocused) this.drawRect(rc, this.m_pDropdownTextTex);
+        if (data) drawUKString(this.ctx, this, data, row.strText, { x: row.rcActive.left, y: row.rcActive.top });
+      }
+    }
+    if (open) {
+      let total: number;
+      if (this.m_bIsStaticComboBox) {
+        if (!bar) return 0;
+        total = Math.imul(this.m_nStaticHeight, this.m_Items.length);
+      } else {
+        if (!bar || !font) return 0;
+        total = Math.imul(this.m_Items.length, font.lineHeight());
+      }
+      if (this.m_nDropHeight < total) bar.onFrameRender();
     }
     return 0;
   }
