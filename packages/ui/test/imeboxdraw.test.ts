@@ -87,8 +87,8 @@ const text = (t: string, rect: number[], count: number, color: number[], flag = 
 const fill = (rect: number[], color: number): Ev => ({ k: "rect", rect, color });
 const rgba = (c: ColorF): number[] => [c.r, c.g, c.b, c.a];
 
-function scene(content: string, backBuffer?: { width: number; height: number }) {
-  const fw = fontWorld({}, backBuffer ? { backBuffer } : {});
+function scene(content: string, backBuffer?: { width: number; height: number }, device = true) {
+  const fw = fontWorld({}, { ...(backBuffer ? { backBuffer } : {}), device });
   const ft = fw.font(16, 0, 1, true);
   expect(ft.Load()).toBe(true);
   const uk = fw.w.fonts.addUKFont(1, ft);
@@ -392,13 +392,15 @@ describe("CKTDGUIIMEEditBox::OnFrameRender (32939580): the selection", () => {
     select(s.e, 1, 1);
     s.e.onFrameRender();
     expect(asked).toEqual([[0, false], [1, false], [1, true], [0, false], [1, false]]);
-    // a group's box asks for the y of the caret and then of the first visible character
+    // a box of its own asks for no y; a group's box asks for the y of the caret and then of the first visible character
     const ys: [number, boolean][] = [];
     const realY = b.CPtoY.bind(b);
     b.CPtoY = ((cp: number, trail: boolean) => {
       ys.push([cp, trail]);
       return realY(cp, trail);
     }) as typeof b.CPtoY;
+    s.e.onFrameRender();
+    expect(ys).toEqual([]);
     s.e.m_GroupID = 0;
     s.e.onFrameRender();
     expect(ys).toEqual([[1, false], [0, false]]);
@@ -613,9 +615,10 @@ describe("CKTDGUIIMEEditBox::OnFrameRender (32939580): the background", () => {
     expect(quads[1]!.rect).toEqual([30, 53, 42, 77]);
   });
 
-  test("a box without one draws no quad but the selection", () => {
+  test("a box without one (m_bBGCheck off) draws no quad but the selection, whatever its current point holds", () => {
     const s = scene("AB#");
     windows(s);
+    s.e.m_NowPoint.assign(quad(s.w, 10, 20, "BG.TGA"));
     select(s.e, 1, 3);
     const from = s.dev.log.length;
     s.e.onFrameRender();
@@ -898,8 +901,8 @@ describe("CKTDGUIIMEEditBox::CalcTextRect (32936140)", () => {
 
 describe("CKTDGUIIMEEditBox::RenderComposition (3293A2F0)", () => {
   /** a box with the caret at `caret` (default: the end of `content`), the composition string `comp` with its attributes and caret, and the colours of PACKED; only the calls are written down */
-  function composing(content: string, comp: string, attr: number[], compCaret: number, caret = content.length) {
-    const s = scene(content);
+  function composing(content: string, comp: string, attr: number[], compCaret: number, caret = content.length, backBuffer?: { width: number; height: number }) {
+    const s = scene(content, backBuffer);
     const events = spy(s);
     recolor(s.e);
     s.e.m_Buffer.m_pFontNode = s.uk;
@@ -1182,13 +1185,129 @@ describe("CKTDGUIIMEEditBox::RenderComposition (3293A2F0)", () => {
     const s = composing("AB#", "ABAB", [], 0, 0);
     s.e.m_rcText.right = 5;
     expect(() => s.e.RenderComposition(null, 0)).toThrow(/not one character/);
+    // at the end of the first turn: its empty window (the text rectangle's right 5 less the empty rectangle's right 0: 5 .. 5) and its empty text, once
+    expect(s.events).toEqual([fill([5, 0, 5, 0], PACKED.compWin), text("ABAB", [16, 20, 16, 20], 0, F.comp)]);
+  });
+
+  test("the format of the pieces is (m_GroupID >> 31) & 4, as in OnFrameRender: 4 for a box of its own, 0 for a box of a group, whichever bits the ID has (6 and -8 tell a shift by 31 from none: 6 & 4 is 4, -8 & 4 is 0)", () => {
+    const flags: number[] = [];
+    for (const group of [-1, 0, 5, 6, -8, -5, 2147483647, -2147483648]) {
+      const s = composing("AB#", "AB", [], 0);
+      s.e.m_GroupID = group;
+      s.e.RenderComposition(null, 0);
+      flags.push((s.events.find((e) => e.k === "text") as Ev & { k: "text" }).flag);
+    }
+    expect(flags).toEqual([4, 0, 0, 0, 4, 4, 0, 4]);
+  });
+
+  test("the string starts at the box's caret less the x of its first visible character, from the text rectangle's left: 4 - 13 + 32 = 23 for the caret at 5 and the first visible character at 2 (20 / 1.5 = 13, 49 / 1.5 = 32)", () => {
+    const s = composing("ABABAB", "AB", [1, 3], 1, 5);
+    s.e.m_nFirstVisible = 2;
+    s.e.RenderComposition(null, 0);
+    expect(s.events).toEqual([
+      fill([23, 6, 43, 23], PACKED.compWin),
+      text("AB", [34, 26, 54, 43], 2, F.comp),
+      fill([23, 6, 23, 23], PACKED.targetBk),
+      text("AB", [34, 26, 34, 43], 1, F.target),
+      fill([29, 6, 29, 23], PACKED.nonTargetBk),
+      text("B", [40, 26, 40, 43], 1, F.nonTarget),
+      fill([28, 6, 30, 23], PACKED.compCaret),
+    ]);
+    expect([s.ime.s_ptCompString.x, s.ime.s_ptCompString.y]).toEqual([23, 6]);
+  });
+
+  test("a box of a group puts the string at the line of the caret less the line of its first visible character: the caret on line 2 (y 17), the first visible character on line 1 (y 8): from 6 - 8 + 17 = 15 to 17 + 6 + 17 - 8 = 32", () => {
+    const s = composing("ABAB\nAB\nAB", "AB", [1, 3], 1, 8);
+    s.e.m_GroupID = 0;
+    s.e.m_nFirstVisible = 5;
+    s.e.RenderComposition(null, 0);
+    expect(s.events).toEqual([
+      fill([4, 15, 24, 32], PACKED.compWin),
+      text("AB", [15, 35, 35, 52], 2, F.comp, 0),
+      fill([4, 15, 4, 32], PACKED.targetBk),
+      text("AB", [15, 35, 15, 52], 1, F.target),
+      fill([10, 15, 10, 32], PACKED.nonTargetBk),
+      text("B", [21, 35, 21, 52], 1, F.nonTarget),
+      fill([9, 15, 11, 32], PACKED.compCaret),
+    ]);
+    expect([s.ime.s_ptCompString.x, s.ime.s_ptCompString.y]).toEqual([4, 15]);
+  });
+
+  test("a string that ends exactly at the right side of the text rectangle (4 + 20 = 24) is not moved down: one piece in the first line, its window 4 .. 24", () => {
+    const s = composing("AB#", "AB", [1, 3], 1, 0);
+    s.e.m_rcText.right = 24;
+    s.e.RenderComposition(null, 0);
+    expect(s.events).toEqual([
+      fill([4, 6, 24, 23], PACKED.compWin),
+      text("AB", [15, 26, 35, 43], 2, F.comp),
+      fill([4, 6, 4, 23], PACKED.targetBk),
+      text("AB", [15, 26, 15, 43], 1, F.target),
+      fill([10, 6, 10, 23], PACKED.nonTargetBk),
+      text("B", [21, 26, 21, 43], 1, F.nonTarget),
+      fill([9, 6, 11, 23], PACKED.compCaret),
+    ]);
+    expect([s.ime.s_ptCompString.x, s.ime.s_ptCompString.y]).toEqual([4, 6]);
+  });
+
+  test("a character of the clause whose x is exactly the room left in the line (19 on 23 - 4) stays in it: the clause goes on to the next line at the character after it (26), counted from there; the pieces are 2 characters (28 pixels of room) each", () => {
+    const s = composing("AB#", "ABABAB", [1, 1, 1, 1, 1, 1], 3, 0);
+    s.e.m_rcText.right = 23;
+    s.e.RenderComposition(null, 0);
+    expect(s.events).toEqual([
+      fill([3, 6, 23, 23], PACKED.compWin),
+      text("ABABAB", [14, 26, 34, 43], 2, F.comp),
+      fill([3, 23, 23, 40], PACKED.compWin),
+      text("ABAB", [14, 43, 34, 60], 2, F.comp),
+      fill([3, 40, 23, 57], PACKED.compWin),
+      text("AB", [14, 60, 34, 77], 2, F.comp),
+      fill([4, 23, 4, 40], PACKED.targetBk),
+      text("ABABAB", [15, 43, 15, 60], 1, F.target),
+      fill([10, 23, 10, 40], PACKED.targetBk),
+      text("BABAB", [21, 43, 21, 60], 1, F.target),
+      fill([17, 23, 17, 40], PACKED.targetBk),
+      text("ABAB", [28, 43, 28, 60], 1, F.target),
+      fill([23, 23, 23, 40], PACKED.targetBk),
+      text("BAB", [34, 43, 34, 60], 1, F.target),
+      fill([4, 40, 4, 57], PACKED.targetBk),
+      text("AB", [15, 60, 15, 77], 1, F.target),
+      fill([10, 40, 10, 57], PACKED.targetBk),
+      text("B", [21, 60, 21, 77], 1, F.target),
+      fill([22, 23, 24, 40], PACKED.compCaret),
+    ]);
+    expect(s.ime.s_nFirstTargetConv).toBe(0);
+  });
+
+  test("on a back buffer smaller than the layout (scale 0.5: a character is twice as wide in the layout as in the font) the string fits the line by the font's width (22 + 60 = 82 <= 104) but XtoCP finds room for 4 characters of 6 (82 * 0.5 = 41 pixels): it is drawn in two pieces all the same, the second window placed as for a string that has wrapped (84 .. 104, 6 .. 23); the clause goes on to the next line at the character at x 98 > 82, counted from there (4, 23 .. 40), and the caret of the string, on that character, is counted from the first line's window: 98 - 98 + 22 - 1 = 21 .. 23", () => {
+    const s = composing("AB#", "ABABAB", [1, 1, 1, 1, 1, 1], 5, 1, { width: 512, height: 384 });
+    s.e.RenderComposition(null, 0);
+    expect(s.events).toEqual([
+      fill([22, 6, 62, 23], PACKED.compWin),
+      text("ABABAB", [33, 26, 73, 43], 4, F.comp),
+      fill([84, 6, 104, 23], PACKED.compWin),
+      text("AB", [95, 26, 115, 43], 2, F.comp),
+      fill([22, 6, 22, 23], PACKED.targetBk),
+      text("ABABAB", [33, 26, 33, 43], 1, F.target),
+      fill([40, 6, 40, 23], PACKED.targetBk),
+      text("BABAB", [51, 26, 51, 43], 1, F.target),
+      fill([62, 6, 62, 23], PACKED.targetBk),
+      text("ABAB", [73, 26, 73, 43], 1, F.target),
+      fill([80, 6, 80, 23], PACKED.targetBk),
+      text("BAB", [91, 26, 91, 43], 1, F.target),
+      fill([102, 6, 102, 23], PACKED.targetBk),
+      text("AB", [113, 26, 113, 43], 1, F.target),
+      fill([4, 23, 4, 40], PACKED.targetBk),
+      text("B", [15, 43, 15, 60], 1, F.target),
+      fill([21, 6, 23, 23], PACKED.compCaret),
+    ]);
+    expect([s.ime.s_ptCompString.x, s.ime.s_ptCompString.y]).toEqual([22, 6]);
   });
 
 });
+
 describe("CKTDGUIIMEEditBox::RenderCandidateReadingWindow (32939C50)", () => {
   /** a box "AB#" whose composition string (default "AB", its caret at 1: x 6) is at (22, 6); the colours of PACKED, a view port of 1536 x 1536; only the calls are written down */
-  function windowed(over: { comp?: string; compCaret?: number; pt?: [number, number]; hkl?: number; firstTarget?: number; view?: [number, number] } = {}) {
-    const s = scene("AB#");
+  function windowed(over: { comp?: string; compCaret?: number; pt?: [number, number]; hkl?: number; firstTarget?: number; view?: [number, number]; device?: boolean } = {}) {
+    const s = scene("AB#", undefined, over.device ?? true);
     const events = spy(s);
     recolor(s.e);
     s.e.m_Buffer.m_pFontNode = s.uk;
@@ -1200,9 +1319,12 @@ describe("CKTDGUIIMEEditBox::RenderCandidateReadingWindow (32939C50)", () => {
     ime.s_ptCompString.x = over.pt?.[0] ?? 22;
     ime.s_ptCompString.y = over.pt?.[1] ?? 6;
     ime.s_hklCurrent = over.hkl ?? 0;
-    const view = over.view ?? [1536, 1536];
-    s.w.render!.viewport.width = view[0];
-    s.w.render!.viewport.height = view[1];
+    // a world without a device has no view port (the exe's 1024 x 768 stands in)
+    if (s.w.render) {
+      const view = over.view ?? [1536, 1536];
+      s.w.render.viewport.width = view[0];
+      s.w.render.viewport.height = view[1];
+    }
     const cand = ime.s_CandList;
     cand.HoriCand.m_pFontNode = s.uk;
     return { ...s, events, ime, cand };
@@ -1675,6 +1797,154 @@ describe("CKTDGUIIMEEditBox::RenderCandidateReadingWindow (32939C50)", () => {
     expect(() => s.e.RenderCandidateReadingWindow(null, 0, false)).toThrow(/no font/);
   });
 
+  test("the box's own buffer is asked for the x of its caret and then of its first visible character, and the window does not depend on the answers (the exe's calls)", () => {
+    const s = windowed();
+    s.cand.HoriCand.SetText("AB#B");
+    const b = s.e.m_Buffer;
+    const asked: [number, boolean][] = [];
+    const real = b.CPtoX.bind(b);
+    b.CPtoX = ((cp: number, trail: boolean) => {
+      asked.push([cp, trail]);
+      return real(cp, trail);
+    }) as typeof b.CPtoX;
+    s.e.m_nCaret = 2;
+    s.e.m_nFirstVisible = 1;
+    s.e.RenderCandidateReadingWindow(null, 0, false);
+    expect(asked).toEqual([[2, false], [1, false]]);
+    expect(s.events[0]).toEqual(fill([28, 30, 66, 47], PACKED.candWin));
+  });
+
+  test("a layout whose low word is 0x0405 is neither Taiwan's (0x0404: no x) nor Chinese (the primary language is 5, not 4: above the string): the window is below the string at the x of the composition caret, 28", () => {
+    const s = windowed({ hkl: 0x405 });
+    s.cand.HoriCand.SetText("AB#B");
+    s.cand.nFirstSelected = 1;
+    s.cand.nHoriSelectedLen = 2;
+    s.e.RenderCandidateReadingWindow(null, 0, false);
+    expect(s.events).toEqual([
+      fill([28, 30, 66, 47], PACKED.candWin),
+      text("AB#B", [39, 50, 77, 67], -1, F.cand),
+      fill([34, 30, 46, 47], PACKED.candSelBk),
+      text("B#B", [45, 50, 57, 67], 2, F.candSel),
+    ]);
+  });
+
+  test("a Taiwan layout (0x0404) whose IME has an id (GetImeId(0) is 5: the cache of the layout holds it) hangs the window from the composition caret like the others (22 + 6 = 28), above the string (the primary language is 4): -11 .. 6", () => {
+    const s = windowed({ hkl: 0x404 });
+    s.ime["hklPrev"] = 0x404;
+    s.ime["dwID"][0] = 5;
+    expect(s.ime.getImeId(0)).toBe(5);
+    s.cand.HoriCand.SetText("AB#B");
+    s.cand.nFirstSelected = 1;
+    s.cand.nHoriSelectedLen = 2;
+    s.e.RenderCandidateReadingWindow(null, 0, false);
+    expect(s.events).toEqual([
+      fill([28, -11, 66, 6], PACKED.candWin),
+      text("AB#B", [39, 9, 77, 26], -1, F.cand),
+      fill([34, -11, 46, 6], PACKED.candSelBk),
+      text("B#B", [45, 9, 57, 26], 2, F.candSel),
+    ]);
+  });
+
+  test("... a window whose top is 0 above the string is inside the view port also when the string's trailing edge is not where the window goes: a Japanese layout (the first target at 0: x 22; the composition caret's trailing edge is at 28) puts it at 22", () => {
+    const s = windowed({ pt: [22, 17], view: [1536, 40], hkl: 0x411 });
+    s.cand.HoriCand.SetText("AB#B");
+    s.cand.nFirstSelected = 1;
+    s.cand.nHoriSelectedLen = 2;
+    s.e.RenderCandidateReadingWindow(null, 0, false);
+    expect(s.events).toEqual([
+      fill([22, 0, 60, 17], PACKED.candWin),
+      text("AB#B", [33, 20, 71, 37], -1, F.cand),
+      fill([28, 0, 40, 17], PACKED.candSelBk),
+      text("B#B", [39, 20, 51, 37], 2, F.candSel),
+    ]);
+  });
+
+  test("... a window to the left of the string that ends at exactly 0 stays there (-38 .. 0): a Japanese layout, the string at x 0 in a view port 30 wide and 20 high (below: 47 > 20; above: -11 < 0; at the trailing edge, 6 .. 44: beyond 30)", () => {
+    const s = windowed({ pt: [0, 6], view: [30, 20], hkl: 0x411 });
+    s.cand.HoriCand.SetText("AB#B");
+    s.cand.nFirstSelected = 1;
+    s.cand.nHoriSelectedLen = 2;
+    s.e.RenderCandidateReadingWindow(null, 0, false);
+    expect(s.events).toEqual([
+      fill([-38, 0, 0, 17], PACKED.candWin),
+      text("AB#B", [-27, 20, 11, 37], -1, F.cand),
+      fill([-32, 0, -20, 17], PACKED.candSelBk),
+      text("B#B", [-21, 20, -9, 37], 2, F.candSel),
+    ]);
+  });
+
+  test("a column of candidates without a first one has no width and no height: the window is the empty rectangle at the string (28, 30), the ten rows of no height are drawn, the selected one (0) over a rectangle of the selection's colours", () => {
+    const s = windowed();
+    s.ime.s_bVerticalCand = true;
+    s.e.RenderCandidateReadingWindow(null, 0, false);
+    expect(s.events).toEqual([
+      fill([28, 30, 28, 30], PACKED.candWin),
+      fill([28, 30, 28, 30], PACKED.candSelBk),
+      text("", [39, 50, 39, 50], -1, F.candSel),
+      ...Array.from({ length: 9 }, () => text("", [39, 50, 39, 50], -1, F.cand)),
+    ]);
+  });
+
+  test("a column of ten candidates is measured to the tenth (the widest is the last, BBB: 33): ten rows of 17 under the string, the window 33 wide and 170 high, the row of the selection (3) over a rectangle of the selection's colours", () => {
+    const s = windowed();
+    s.ime.s_bVerticalCand = true;
+    s.cand.awszCandidate.splice(0, 10, "A", "B", "#", "AB", "BA", "A#", "B#", "AAA", "###", "BBB");
+    s.cand.dwSelection = 3;
+    s.e.RenderCandidateReadingWindow(null, 0, false);
+    expect(s.events).toEqual([
+      fill([28, 30, 61, 200], PACKED.candWin),
+      text("A", [39, 50, 72, 67], -1, F.cand),
+      text("B", [39, 67, 72, 84], -1, F.cand),
+      text("#", [39, 84, 72, 101], -1, F.cand),
+      fill([28, 81, 61, 98], PACKED.candSelBk),
+      text("AB", [39, 101, 72, 118], -1, F.candSel),
+      text("BA", [39, 118, 72, 135], -1, F.cand),
+      text("A#", [39, 135, 72, 152], -1, F.cand),
+      text("B#", [39, 152, 72, 169], -1, F.cand),
+      text("AAA", [39, 169, 72, 186], -1, F.cand),
+      text("###", [39, 186, 72, 203], -1, F.cand),
+      text("BBB", [39, 203, 72, 220], -1, F.cand),
+    ]);
+    expect([s.cand.rcCandidate.left, s.cand.rcCandidate.top, s.cand.rcCandidate.right, s.cand.rcCandidate.bottom]).toEqual([28, 30, 61, 200]);
+  });
+
+  test("a world without a device has the exe's view port, 1024 x 768 (and scale 1: the x of the composition caret is 9): a window ending at 1025 is pulled back to end at 1024 and one ending at 1024 is not; one whose bottom is 769 is put above the string and one whose bottom is 768 is not", () => {
+    const s = windowed({ device: false });
+    expect(s.w.render).toBe(null);
+    s.cand.HoriCand.SetText("AB#B");
+    s.cand.nFirstSelected = 1;
+    s.cand.nHoriSelectedLen = 2;
+    const at = (x: number, y: number): Ev[] => {
+      s.ime.s_ptCompString.x = x;
+      s.ime.s_ptCompString.y = y;
+      s.events.length = 0;
+      s.e.RenderCandidateReadingWindow(null, 0, false);
+      return s.events.slice();
+    };
+    // the right side: 978 + 9 + 38 = 1025, 977 + 9 + 38 = 1024
+    const right = [
+      fill([986, 30, 1024, 47], PACKED.candWin),
+      text("AB#B", [997, 50, 1035, 67], -1, F.cand),
+      fill([995, 30, 1013, 47], PACKED.candSelBk),
+      text("B#B", [1006, 50, 1024, 67], 2, F.candSel),
+    ];
+    expect(at(978, 6)).toEqual(right);
+    expect(at(977, 6)).toEqual(right);
+    // the bottom: 728 + 24 + 17 = 769 (above: 711 .. 728), 727 + 24 + 17 = 768 (stays: 751 .. 768)
+    expect(at(22, 728)).toEqual([
+      fill([31, 711, 69, 728], PACKED.candWin),
+      text("AB#B", [42, 731, 80, 748], -1, F.cand),
+      fill([40, 711, 58, 728], PACKED.candSelBk),
+      text("B#B", [51, 731, 69, 748], 2, F.candSel),
+    ]);
+    expect(at(22, 727)).toEqual([
+      fill([31, 751, 69, 768], PACKED.candWin),
+      text("AB#B", [42, 771, 80, 788], -1, F.cand),
+      fill([40, 751, 58, 768], PACKED.candSelBk),
+      text("B#B", [51, 771, 69, 788], 2, F.candSel),
+    ]);
+  });
+
 });
 
 describe("the statics of the IME", () => {
@@ -1684,6 +1954,28 @@ describe("the statics of the IME", () => {
       ime.s_hklCurrent = hkl;
       expect([ime.getImeId(0), ime.getImeId(1), ime.getImeId(2), ime.getImeId(3), ime.getImeId(1000), ime.getImeId(-1)]).toEqual([0, 0, 0, 0, 0, 0]);
     }
+  });
+
+  test("GetImeId keeps the two ids it has for the layout it was asked about last and clears both when the layout changes (whichever index is asked first), remembering the new layout: the same layout answers them (an index of 2 or more is 0)", () => {
+    const ime = scene("").w.ime;
+    ime.s_hklCurrent = 0x0404;
+    ime["hklPrev"] = 0x0404;
+    ime["dwID"][0] = 7;
+    ime["dwID"][1] = 9;
+    expect([ime.getImeId(0), ime.getImeId(1), ime.getImeId(2), ime.getImeId(3), ime.getImeId(-1)]).toEqual([7, 9, 0, 0, 0]);
+    expect([ime["hklPrev"], ime["dwID"][0], ime["dwID"][1]]).toEqual([0x0404, 7, 9]);
+    // another layout, index 1 asked first: both ids go and the layout is the one remembered ...
+    ime.s_hklCurrent = 0x0804;
+    expect(ime.getImeId(1)).toBe(0);
+    expect([ime["hklPrev"], ime["dwID"][0], ime["dwID"][1]]).toEqual([0x0804, 0, 0]);
+    // ... so what is found for it afterwards stays
+    ime["dwID"][0] = 5;
+    ime["dwID"][1] = 6;
+    expect([ime.getImeId(0), ime.getImeId(1)]).toEqual([5, 6]);
+    // a third layout, index 0 asked first
+    ime.s_hklCurrent = 0x0c04;
+    expect(ime.getImeId(0)).toBe(0);
+    expect([ime["hklPrev"], ime["dwID"][0], ime["dwID"][1]]).toEqual([0x0c04, 0, 0]);
   });
 
   test("the statics start as the exe's (no layout, nothing vertical, no reading, no candidates, the composition caret at 0), and each world has its own", () => {

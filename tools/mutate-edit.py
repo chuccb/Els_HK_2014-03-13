@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Mutation check of the text boxes of packages/ui: the measuring of CKTDGUIUniBuffer (unibuffer.ts: CPtoX, CPtoY, GetLineWidth, XtoCP),
-the drawing of CKTDGUIEditBox (editbox.ts: OnFrameRender, PlaceCaret, DrawTextW, DrawRect) and the user32 rectangle helpers it uses
-(rect.ts: IsRectEmpty, IntersectRect).  One small change at a time is applied to a source file of packages/ui/src, the tests of the
-text boxes are run and the script reports whether a test notices (killed) or not (SURVIVED).
+the drawing of CKTDGUIEditBox (editbox.ts: OnFrameRender, PlaceCaret, DrawTextW, DrawRect), the user32 rectangle helpers it uses
+(rect.ts: IsRectEmpty, IntersectRect) and the drawing of CKTDGUIIMEEditBox (imeeditbox.ts: OnFrameRender, DrawRect, DrawTextW, CalcTextRect,
+RenderComposition, RenderCandidateReadingWindow).  One small change at a time is applied to a source file of packages/ui/src, the tests of the
+text boxes are run and the script reports whether a test notices (killed) or not (SURVIVED).  The mutants of the first three files are written
+out; those of imeeditbox.ts are made from its source by operator (`operator_mutants`: every comparison, logical and arithmetic operator, number,
+`!`, condition, `?:`, `.left` / `.top` / `.x` / ..., colour field and statement of the drawing, one at a time), so their names are the text of the line.
 
     python3 tools/mutate-edit.py [--list] [--check] [--survivors=LOG] [substring of a mutant name ...]
 
@@ -24,7 +27,10 @@ TESTS = {
     'unibuffer.ts': [T + 'unibuffer.test.ts', T + 'editboxdraw.test.ts', T + 'imeeditbox.test.ts'],
     'editbox.ts': [T + 'editboxdraw.test.ts'],
     'rect.ts': [T + 'rect.test.ts', T + 'editboxdraw.test.ts'],
+    'imeeditbox.ts': [T + 'imeboxdraw.test.ts', T + 'imeeditbox.test.ts'],
 }
+# seconds a run of the tests may take before the mutant counts as killed (a mutant that loops for ever): the unmutated tests take 2
+TIMEOUT = {'imeeditbox.ts': 40}
 
 M = []
 
@@ -748,6 +754,290 @@ m(EB, 'onFrameRender: the box answers 0', r'''      this.DrawRect(rcCaret, this.
     return 1;''')
 
 
+# ---- imeeditbox.ts: the drawing, by operator
+IM = 'imeeditbox.ts'
+# the code the mutants are made of: the unsigned compare of GetImeId, then everything from the font colour to the end of
+# RenderCandidateReadingWindow (the helpers, CalcTextRect, DrawTextW, DrawRect, OnFrameRender, RenderComposition, the window of candidates)
+IM_REGIONS = [('  getImeId(uIndex: number): number {', '\n  }\n'), ('  /** the font colour the text is drawn in', '  override textureData(')]
+# what the mutants of a colour field swap it for (a colour of the tests that no other field has)
+IM_OTHER_COLOUR = {'m_TextColor': 'm_SelTextColor'}
+IM_COLOUR = 'm_TextColor'
+
+
+def mask(line):
+    """The line with the inside of its strings and its trailing comment blanked (same length), so a regular expression does not see them."""
+    out, quote, i = [], None, 0
+    while i < len(line):
+        c = line[i]
+        if quote:
+            if c == '\\' and i + 1 < len(line):
+                out.append('SS')
+                i += 2
+                continue
+            out.append(c if c == quote else 'S')
+            if c == quote:
+                quote = None
+        elif line.startswith('//', i):
+            out.append('C' * (len(line) - i))
+            break
+        else:
+            if c in '"\'`':
+                quote = c
+            out.append(c)
+        i += 1
+    return ''.join(out)
+
+
+def balanced_end(masked, start):
+    """The index after the `)` that closes the `(` at `start`."""
+    depth = 0
+    for i in range(start, len(masked)):
+        if masked[i] == '(':
+            depth += 1
+        elif masked[i] == ')':
+            depth -= 1
+            if depth == 0:
+                return i + 1
+    return -1
+
+
+def line_mutants(line):
+    """Every one-operator change of a line of code: [(what, new line)]."""
+    mk = mask(line)
+    out = []
+
+    def at(mo_start, mo_end, text, what):
+        out.append((what, line[:mo_start] + text + line[mo_end:]))
+
+    if re.search(r'\w<\w', mk):
+        return out  # a type argument: not an operator
+    for mo in re.finditer(r'(?<![<>=!&|?])(<=|>=|===|!==|<|>)(?![<>=])', mk):
+        op = mo.group(1)
+        for new in {'<=': ['<'], '>=': ['>'], '<': ['<='], '>': ['>='], '===': ['!=='], '!==': ['===']}[op]:
+            at(mo.start(), mo.end(), new, f'{op} -> {new}')
+    for mo in re.finditer(r'&&|\|\|', mk):
+        at(mo.start(), mo.end(), '||' if mo.group() == '&&' else '&&', f'{mo.group()} -> ' + ('||' if mo.group() == '&&' else '&&'))
+    for mo in re.finditer(r'(?<=[\w)\]]) ([-+*/]) (?=[\w(-])', mk):
+        new = {'+': '-', '-': '+', '*': '/', '/': '*'}[mo.group(1)]
+        at(mo.start(1), mo.end(1), new, f'{mo.group(1)} -> {new}')
+    for mo in re.finditer(r'(?<=\s)([-+])=', mk):
+        at(mo.start(1), mo.end(1), '-' if mo.group(1) == '+' else '+', f'{mo.group(1)}= -> ' + ('-' if mo.group(1) == '+' else '+') + '=')
+    for mo in re.finditer(r'(?<![\w.])(-?)(0x[0-9a-fA-F]+|\d+\.\d+|\d+)(?![\w.])', mk):
+        text = mo.group(2)
+        if re.search(r'(\|\s|>>>\s)$', mk[:mo.start()]):
+            continue  # `| 0`, `>>> 0`
+        if text.startswith('0x'):
+            v = int(text, 16)
+            news = {v + 1, v - 1} if not mo.group(1) else {v - 1}
+            if v == 0x404:
+                news |= {0x400, 0x4}
+            if v == 0x400:
+                news |= {0x0}
+            news = [hex(n) for n in sorted(news) if n >= 0]
+        elif '.' in text:
+            news = [str(float(text) / 2)]
+        else:
+            v = int(text)
+            news = [str(v + 1), str(v - 1)] if v >= 1 and not mo.group(1) else ([str(v + 1)] if not mo.group(1) else [str(v - 1) if v > 1 else '0'])
+        for new in news:
+            at(mo.start(), mo.end(), new if not mo.group(1) or new != '0' and not new.startswith('-') else new, f'{mo.group()} -> {new}')
+    for mo in re.finditer(r'(?<![\w\])!])!(?=[\w(])', mk):
+        at(mo.start(), mo.end(), '', '! dropped')
+    for mo in re.finditer(r'Math\.(min|max)', mk):
+        new = 'max' if mo.group(1) == 'min' else 'min'
+        at(mo.start(1), mo.end(1), new, f'Math.{mo.group(1)} -> Math.{new}')
+    for mo in re.finditer(r'\.(left|right|top|bottom|x|y|width|height)\b(?!\()', mk):
+        new = {'left': 'right', 'right': 'left', 'top': 'bottom', 'bottom': 'top', 'x': 'y', 'y': 'x', 'width': 'height', 'height': 'width'}[mo.group(1)]
+        at(mo.start(1), mo.end(1), new, f'.{mo.group(1)} -> .{new}')
+    for mo in re.finditer(r'this\.(m_\w*Color)\b', mk):
+        new = IM_OTHER_COLOUR.get(mo.group(1), IM_COLOUR)
+        if new != mo.group(1):
+            at(mo.start(1), mo.end(1), new, f'{mo.group(1)} -> {new}')
+    # a condition: always true, never true
+    mo = re.match(r'(\s*(?:\} else )?if )\(', mk)
+    if mo:
+        end = balanced_end(mk, mo.end() - 1)
+        if end > 0:
+            for new in ('true', 'false'):
+                at(mo.end() - 1, end, f'({new})', f'condition {new}')
+    # the arms of a `?:` swapped
+    if mk.count(' ? ') == 1:
+        q = mk.index(' ? ')
+        depth, i, colon, end = 0, q + 3, -1, -1
+        while i < len(mk):
+            c = mk[i]
+            if c in '([{':
+                depth += 1
+            elif c in ')]}':
+                if depth == 0:
+                    end = i
+                    break
+                depth -= 1
+            elif depth == 0 and c == ':' and colon < 0:
+                colon = i
+            elif depth == 0 and c in ';,' and colon >= 0:
+                end = i
+                break
+            i += 1
+        if colon > 0 and end > 0:
+            yes, no = line[q + 3:colon].strip(), line[colon + 1:end].strip()
+            out.append(('arms of ?: swapped', line[:q + 3] + no + ' : ' + yes + line[end:]))
+    # a statement that does nothing
+    st = mk.strip()
+    if (st.endswith(';') and not re.match(r'(const|let|for|if|return [^;]|throw|\} else)\b', st) and not st.startswith(('if ', '} ', 'for '))
+            and sum(mk.count(c) for c in '([{') == sum(mk.count(c) for c in ')]}') and re.match(r'[\w.?!\[\]]+(\(| = | \+= | -= |;)', st)):
+        out.append(('statement deleted', line[:len(line) - len(line.lstrip())]))
+    return out
+
+
+def operator_mutants(f, regions):
+    """[(name, anchor, replacement)] for the code of the file between each pair of markers (see `line_mutants`)."""
+    src = open(path_of(f)).read()
+    lines = src.split('\n')
+    starts = []  # the line numbers (0-based) of the regions
+    pos = [0]
+    for ln in lines:
+        pos.append(pos[-1] + len(ln) + 1)
+    spans = []
+    for first, last in regions:
+        a = src.index(first)
+        b = src.index(last, a + len(first)) + (len(last) if last.endswith('\n') else 0)
+        spans.append((a, b))
+    result, seen, func = [], {}, ''
+    for n, line in enumerate(lines):
+        mo = re.match(r'  (?:private |override |static )*(\w+)\(', line)
+        if mo:
+            func = mo.group(1)
+        if not any(a <= pos[n] < b for a, b in spans):
+            continue
+        st = line.strip()
+        if not st or st.startswith(('*', '/*', '//')):
+            continue
+        for what, new in line_mutants(line):
+            # the anchor: the line, with the line before it while the text is not unique
+            k = 0
+            anchor, repl = line, new
+            while src.count(anchor) != 1 and n - k > 0:
+                k += 1
+                anchor = '\n'.join(lines[n - k:n + 1])
+                repl = '\n'.join(lines[n - k:n] + [new])
+            if src.count(anchor) != 1:
+                raise SystemExit(f'no unique anchor for line {n + 1}: {st}')
+            if not anchor.startswith(' ') or k == 0:
+                # without the indentation of the first line (shorter, and the same place)
+                anchor, repl = anchor.lstrip(' '), repl.lstrip(' ')
+                if src.count(anchor) != 1:
+                    anchor, repl = ' ' * (len(line) - len(line.lstrip())) + anchor, ' ' * (len(line) - len(line.lstrip())) + repl
+            snippet = ' '.join(st.split())
+            snippet = snippet if len(snippet) <= 72 else snippet[:72] + '...'
+            name = f'{func}: {what} in `{snippet}`'
+            seen[name] = seen.get(name, 0) + 1
+            if seen[name] > 1:
+                name += f' (#{seen[name]})'
+            result.append((name, anchor, repl))
+    return result
+
+
+# the mutants of imeeditbox.ts that no input can tell from the original: name -> why
+IM_WHY = {
+    'textLength: 0 -> 1 in `return text === null ? 0 : wcslen(text);`':
+        'equivalent: the text is null only for a buffer that holds none, and CPtoX of such a buffer answers 0 without a font and throws with one, whatever index it is given',
+    'DrawRect: 1 -> 2 in `const sx = render ? render.resolutionScale.x : 1, sy = render ? render.r...`':
+        'equivalent: without a render the quad is never drawn (renderVertex only logs "device null"), so the scale it is made with is never seen',
+    'DrawRect: 1 -> 0 in `const sx = render ? render.resolutionScale.x : 1, sy = render ? render.r...`':
+        'equivalent: without a render the quad is never drawn (renderVertex only logs "device null"), so the scale it is made with is never seen',
+    'DrawRect: 1 -> 2 in `const sx = render ? render.resolutionScale.x : 1, sy = render ? render.r...` (#2)':
+        'equivalent: without a render the quad is never drawn (renderVertex only logs "device null"), so the scale it is made with is never seen',
+    'DrawRect: 1 -> 0 in `const sx = render ? render.resolutionScale.x : 1, sy = render ? render.r...` (#2)':
+        'equivalent: without a render the quad is never drawn (renderVertex only logs "device null"), so the scale it is made with is never seen',
+    'DrawRect: statement deleted in `quad.setU(i, 0);`':
+        'equivalent: the quad is new and its bytes are zero, so its U is 0 already',
+    'DrawRect: statement deleted in `quad.setV(i, 0);`':
+        'equivalent: the quad is new and its bytes are zero, so its V is 0 already',
+    'DrawRect: 0 -> 1 in `const top0 = states?.stackPointer ?? 0;`':
+        'equivalent: without a render there is no state stack, and the value is only used to pop one',
+    'onFrameRender: 0 -> 1 in `let nCaretY = 0, nYFirst = 0;`':
+        'equivalent: the value is read only for a box of a group, which assigns it first',
+    'onFrameRender: 0 -> 1 in `let nCaretY = 0, nYFirst = 0;` (#2)':
+        'equivalent: the value is read only for a box of a group, which assigns it first',
+    'onFrameRender: <= -> < in `const left = nCaretX <= nSelStartX ? nCaretX : nSelStartX;`':
+        'equivalent: when the two compared values are equal both arms of the ?: give the same value',
+    'onFrameRender: <= -> < in `const right = nCaretX <= nSelStartX ? nSelStartX : nCaretX;`':
+        'equivalent: when the two compared values are equal both arms of the ?: give the same value',
+    'onFrameRender: 31 -> 30 in `this.DrawTextW(typed.slice(this.m_nFirstVisible), rcText, -1, (this.m_Gr...`':
+        'equivalent: bit 2 of x >> 30 is the sign of x, as it is of x >> 31 (the values are -2, -1, 0, 1 and 0, -1), so (m_GroupID >> n) & 4 is the same',
+    'onFrameRender: <= -> < in `const start = this.m_nFirstVisible <= lower ? lower : this.m_nFirstVisib...`':
+        'equivalent: when the two compared values are equal both arms of the ?: give the same value',
+    'RenderComposition: 0 -> 1 in `let nY = 0, nYFirst = 0;`':
+        'equivalent: the value is read only for a box of a group, which assigns it first',
+    'RenderComposition: 0 -> 1 in `let nY = 0, nYFirst = 0;` (#2)':
+        'equivalent: the value is read only for a box of a group, which assigns it first',
+    'RenderComposition: .bottom -> .top in `const rc: Rect = { left: startX, top: text.top, right: startX, bottom: t...`':
+        'equivalent: the bottom of the starting rectangle is overwritten by CalcTextRect (all four sides for an empty text) before anything reads it',
+    'RenderComposition: + -> - in `rc.bottom = (nY + text.top + this.lineHeight() - nYFirst) | 0;`':
+        'equivalent: the bottom assigned here is overwritten by CalcTextRect (all four sides for an empty text) before anything reads it; only the top, the origin of the measure, matters',
+    'RenderComposition: + -> - in `rc.bottom = (nY + text.top + this.lineHeight() - nYFirst) | 0;` (#2)':
+        'equivalent: the bottom assigned here is overwritten by CalcTextRect (all four sides for an empty text) before anything reads it; only the top, the origin of the measure, matters',
+    'RenderComposition: - -> + in `rc.bottom = (nY + text.top + this.lineHeight() - nYFirst) | 0;`':
+        'equivalent: the bottom assigned here is overwritten by CalcTextRect (all four sides for an empty text) before anything reads it; only the top, the origin of the measure, matters',
+    'RenderComposition: .top -> .bottom in `rc.bottom = (nY + text.top + this.lineHeight() - nYFirst) | 0;`':
+        'equivalent: the bottom assigned here is overwritten by CalcTextRect (all four sides for an empty text) before anything reads it; only the top, the origin of the measure, matters',
+    'RenderComposition: statement deleted in `rc.bottom = (nY + text.top + this.lineHeight() - nYFirst) | 0;`':
+        'equivalent: the bottom assigned here is overwritten by CalcTextRect (all four sides for an empty text) before anything reads it; only the top, the origin of the measure, matters',
+    'RenderComposition: .right -> .left in `let right = rc.right;`':
+        'equivalent: right is read after the loop only for a string that wrapped before it, where it is assigned again; otherwise it only goes into rc.right, which nothing reads',
+    'RenderComposition: < -> <= in `const length = nCount < cp ? nCount : cp;`':
+        'equivalent: when the two compared values are equal both arms of the ?: give the same value',
+    'RenderComposition: 31 -> 30 in `this.DrawTextW(compText.slice(at), target, length, (this.m_GroupID >> 31...`':
+        'equivalent: bit 2 of x >> 30 is the sign of x, as it is of x >> 31 (the values are -2, -1, 0, 1 and 0, -1), so (m_GroupID >> n) & 4 is the same',
+    'RenderComposition: .right -> .left in `rcTemp = { left: rc.left, top: rc.top, right: rc.right, bottom: rc.botto...` (#2)':
+        'equivalent: the right of rcTemp is never read: rcCaret copies the rectangle and then sets its own left and right',
+    'RenderComposition: .right -> .left in `if (wrapped && !secondLine) setRect(rcTemp, (firstLeft + text.right - ri...` (#2)':
+        'equivalent: the right of rcTemp is never read: rcCaret copies the rectangle and then sets its own left and right',
+    'RenderComposition: .left -> .right in `rcCaret = { left: rcTemp.left, top: rcTemp.top, right: rcTemp.right, bot...`':
+        'equivalent: the caret rectangle is copied from rcTemp and given its own left and right right after, before it is drawn',
+    'RenderComposition: .right -> .left in `rcCaret = { left: rcTemp.left, top: rcTemp.top, right: rcTemp.right, bot...`':
+        'equivalent: the caret rectangle is copied from rcTemp and given its own left and right right after, before it is drawn',
+    'RenderComposition: .left -> .right in `const target: Rect = { left: (clause.left - ox) | 0, top: (rc.top - oy) ...`':
+        'equivalent: CPtoX does not look at the trail (the exe never reads bTrail), so the clause has no width and its left and right are the same number',
+    'RenderComposition: .right -> .left in `const target: Rect = { left: (clause.left - ox) | 0, top: (rc.top - oy) ...`':
+        'equivalent: CPtoX does not look at the trail (the exe never reads bTrail), so the clause has no width and its left and right are the same number',
+    'RenderComposition: .left -> .right in `rcCaret = { left: rcTemp.left, top: rcTemp.top, right: rcTemp.right, bot...` (#2)':
+        'equivalent: the caret rectangle is copied from rcTemp and given its own left and right right after, before it is drawn',
+    'RenderComposition: .right -> .left in `rcCaret = { left: rcTemp.left, top: rcTemp.top, right: rcTemp.right, bot...` (#2)':
+        'equivalent: the caret rectangle is copied from rcTemp and given its own left and right right after, before it is drawn',
+    'RenderCandidateReadingWindow: - -> + in `width = (rc.right - rc.left) | 0;`':
+        'equivalent: the rectangle starts at (0, 0) and CalcTextRect only adds the width and the height to it, so its left and top are 0 here',
+    'RenderCandidateReadingWindow: - -> + in `rowHeight = total = (rc.bottom - rc.top) | 0;`':
+        'equivalent: the rectangle starts at (0, 0) and CalcTextRect only adds the width and the height to it, so its left and top are 0 here',
+    'RenderCandidateReadingWindow: 0 -> 1 in `setRect(rc, 0, 0, 0, 0);`':
+        'equivalent: CalcTextRect adds the origin to the width and the height it measures, so right - left and bottom - top do not depend on the origin set here',
+    'RenderCandidateReadingWindow: 0 -> 1 in `setRect(rc, 0, 0, 0, 0);` (#2)':
+        'equivalent: CalcTextRect adds the origin to the width and the height it measures, so right - left and bottom - top do not depend on the origin set here',
+    'RenderCandidateReadingWindow: 0 -> 1 in `setRect(rc, 0, 0, 0, 0);` (#3)':
+        'equivalent: the right and the bottom set here are overwritten by CalcTextRect before they are read',
+    'RenderCandidateReadingWindow: 0 -> 1 in `setRect(rc, 0, 0, 0, 0);` (#4)':
+        'equivalent: the right and the bottom set here are overwritten by CalcTextRect before they are read',
+    'RenderCandidateReadingWindow: statement deleted in `setRect(rc, 0, 0, 0, 0);`':
+        'equivalent: the rectangle left from the row before is (0, 0, w, h): its left and top are 0 and CalcTextRect overwrites the rest',
+    'RenderCandidateReadingWindow: - -> + in `const w = (rc.right - rc.left) | 0, h = (rc.bottom - rc.top) | 0;`':
+        'equivalent: the rectangle starts at (0, 0) and CalcTextRect only adds the width and the height to it, so its left and top are 0 here',
+    'RenderCandidateReadingWindow: - -> + in `const w = (rc.right - rc.left) | 0, h = (rc.bottom - rc.top) | 0;` (#2)':
+        'equivalent: the rectangle starts at (0, 0) and CalcTextRect only adds the width and the height to it, so its left and top are 0 here',
+    'RenderCandidateReadingWindow: > -> >= in `width = width > w ? width : w;`':
+        'equivalent: when the two compared values are equal both arms of the ?: give the same value',
+    'RenderCandidateReadingWindow: > -> >= in `rowHeight = rowHeight > h ? rowHeight : h;`':
+        'equivalent: when the two compared values are equal both arms of the ?: give the same value',
+    'RenderCandidateReadingWindow: > -> >= in `if (rc.right > viewport.width) {`':
+        'equivalent: a window that ends exactly at the right side of the view port is pulled back by 0',
+}
+for _name, _a, _b in operator_mutants(IM, IM_REGIONS):
+    m(IM, _name, _a, _b, IM_WHY.get(_name, ''))
+for _name in IM_WHY:
+    if not any(mu[1] == _name for mu in M):
+        raise SystemExit(f'a reason for a mutant that is not made any more: {_name}')
+
+
 def limits():
     resource.setrlimit(resource.RLIMIT_AS, (8 * 2**30, 8 * 2**30))
 
@@ -794,7 +1084,7 @@ def main():
             orig = sources[path]
             open(path, 'w').write(orig.replace(a, b, 1))
             try:
-                r = subprocess.run([BUN, 'test', '--bail', *TESTS[f]], cwd=ROOT, capture_output=True, text=True, timeout=90, preexec_fn=limits)
+                r = subprocess.run([BUN, 'test', '--bail', *TESTS[f]], cwd=ROOT, capture_output=True, text=True, timeout=TIMEOUT.get(f, 90), preexec_fn=limits)
                 killed = r.returncode != 0
             except subprocess.TimeoutExpired:
                 killed = True
