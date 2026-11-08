@@ -73,6 +73,25 @@ describe("VertexUI4 and the tables", () => {
     r.setBackBufferSize(1280, 720);
     expect([r.viewport.width, r.viewport.height]).toEqual([1280, 720]);
   });
+
+  test("m_ViewPort is a D3DVIEWPORT9: the corner (0, 0) and the depth range 0 .. 1 (X, Y, MinZ, MaxZ of OnResetDevice 328C4FC0), put back by every back buffer", () => {
+    const r = new UIRender(new Recorder() as never);
+    expect({ ...r.viewport }).toEqual({ x: 0, y: 0, width: 1024, height: 768, minZ: 0, maxZ: 1 });
+    r.viewport.x = 5;
+    r.viewport.y = 6;
+    r.viewport.minZ = 0.25;
+    r.viewport.maxZ = 0.5;
+    r.setBackBufferSize(800, 600);
+    expect({ ...r.viewport }).toEqual({ x: 0, y: 0, width: 800, height: 600, minZ: 0, maxZ: 1 });
+  });
+
+  test("the application's world, view and projection matrices start as the identity (the exe's are what the game's camera sets) and are three matrices of their own", () => {
+    const r = new UIRender(new Recorder() as never);
+    const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+    for (const m of [r.worldMatrix, r.viewMatrix, r.projectionMatrix]) expect(Array.from(m)).toEqual(identity);
+    r.viewMatrix[12] = 5;
+    expect([r.worldMatrix[12], r.viewMatrix[12], r.projectionMatrix[12]]).toEqual([0, 5, 0]);
+  });
 });
 
 describe("CKTDGUIControl.updateVertex (32927FB0)", () => {

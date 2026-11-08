@@ -4,8 +4,8 @@
  *
  * Without one (`UIContext.render` is null) a control builds its data but draws nothing: the census and most tests run that way.
  */
-import { D3DBLEND, D3DCMP, D3DCULL, D3DRS, D3DSAMP, D3DTA, D3DTADDRESS, D3DTEXF, D3DTOP, D3DTSS } from "@els/d3d9";
-import type { Direct3DTexture9, Direct3DVertexDeclaration9 } from "@els/d3d9";
+import { D3DBLEND, D3DCMP, D3DCULL, D3DRS, D3DSAMP, D3DTA, D3DTADDRESS, D3DTEXF, D3DTOP, D3DTSS, matIdentity } from "@els/d3d9";
+import type { Direct3DTexture9, Direct3DVertexDeclaration9, Mat4, Viewport } from "@els/d3d9";
 import { CKTDGDynamicVBManager, CKTDGStateManager, DYNAMIC_VB_MODE, STATE_TYPE, akStates } from "@els/engine";
 import type { DynamicVBDevice, KStateID, StateDevice } from "@els/engine";
 import { Vec2 } from "@els/host";
@@ -15,6 +15,8 @@ export interface UIDevice extends StateDevice, DynamicVBDevice {
   SetTexture(stage: number, texture: Direct3DTexture9 | null): number;
   GetVertexDeclaration(): Direct3DVertexDeclaration9 | null;
   SetVertexDeclaration(declaration: Direct3DVertexDeclaration9 | null): number;
+  /** `CUKFont::OutProjectionText` sets the world transform (`D3DTS_WORLD`, 256) */
+  SetTransform(state: number, matrix: ArrayLike<number>): number;
 }
 
 /**
@@ -105,8 +107,19 @@ export class UIRender {
   readonly dvb: CKTDGDynamicVBManager;
   /** `g_pKTDXApp->m_ResolutionScale`: the factor from the 1024 x 768 the UI is laid out in to the pixels of the back buffer */
   readonly resolutionScale = new Vec2(1, 1);
-  /** `g_pKTDXApp->m_ViewPort` (`Width`, `Height`): the size of the back buffer, which `CKTDXApp::OnResetDevice` takes over; 1024 x 768 until one is given */
-  readonly viewport = { width: 1024, height: 768 };
+  /**
+   * `g_pKTDXApp->m_ViewPort`, a `D3DVIEWPORT9` (`X`, `Y`, `Width`, `Height`, `MinZ`, `MaxZ`): `CKTDXApp::OnResetDevice` makes it the size of
+   * the back buffer from the corner (0, 0) with the depth range 0 .. 1; 1024 x 768 until a back buffer is given
+   */
+  readonly viewport: Viewport = { x: 0, y: 0, width: 1024, height: 768, minZ: 0, maxZ: 1 };
+  /**
+   * `g_pKTDXApp->m_WorldMatrix`, `m_ViewMatrix` and `m_ProjectionMatrix` (row vectors, `D3DXMATRIX`): the camera the game sets and the UI
+   * only reads (`CUKFont::OutProjectionText` projects a point with the last two, and makes the world matrix the identity).  The exe's
+   * constructor leaves them as they are; the port starts them as the identity.
+   */
+  readonly worldMatrix: Mat4 = matIdentity();
+  readonly viewMatrix: Mat4 = matIdentity();
+  readonly projectionMatrix: Mat4 = matIdentity();
 
   /**
    * Not in the exe: what the UI was asked to draw whose drawing is not ported yet (a control class, or a part of one such as its strings),
@@ -128,12 +141,17 @@ export class UIRender {
 
   /**
    * `CKTDXApp::OnResetDevice` (328C4FC0) derives the scale from the back buffer: `x = (float)width * 0.0009765625` (1 / 1024) and
-   * `y = (float)height / 768`, so the 1024 x 768 layout of the dialogs fills the window.
+   * `y = (float)height / 768`, so the 1024 x 768 layout of the dialogs fills the window, and takes the view port over from it (the whole
+   * buffer: from (0, 0), the depth range 0 .. 1).
    */
   setBackBufferSize(width: number, height: number): void {
     this.resolutionScale.set(Math.fround(Math.fround(width) * 0.0009765625), Math.fround(Math.fround(height) / 768));
+    this.viewport.x = 0;
+    this.viewport.y = 0;
     this.viewport.width = width;
     this.viewport.height = height;
+    this.viewport.minZ = 0;
+    this.viewport.maxZ = 1;
   }
 
   /** a drawing step that is not ported: counted, not drawn */

@@ -91,6 +91,7 @@ export class Recorder {
   SetTexture(stage: number, texture: FakeTexture | null): number { this.log.push(`tex ${stage} ${texture ? texture.name : "null"}`); return 0; }
   GetVertexDeclaration(): unknown { this.log.push("getdecl"); return this.declaration; }
   SetVertexDeclaration(declaration: unknown): number { this.log.push(declaration ? "setdecl" : "setdecl null"); return 0; }
+  SetTransform(state: number, matrix: ArrayLike<number>): number { this.log.push(`transform ${state} ${Array.from(matrix).join(",")}`); return 0; }
 }
 
 /** a world that draws on the recorder, with textures of 64 x 32 texels that each hold a fake Direct3D texture named after the file */

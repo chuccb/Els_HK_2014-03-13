@@ -31,8 +31,8 @@ const BLACK = 0xff000000;
 type Call = { x: number; y: number; text: string | null; color: number; outline: number; lineSpace: number; rect: number[] | null; flag: number; count: number; sx: number; sy: number };
 
 /** a UK font whose glyph font writes its `OutTextMultiline` calls down (and draws nothing) */
-function scene(size = 16, enlarge = 1, backBuffer?: { width: number; height: number }) {
-  const w = fontWorld({}, backBuffer ? { backBuffer } : {});
+function scene(size = 16, enlarge = 1, backBuffer?: { width: number; height: number }, device = true) {
+  const w = fontWorld({}, { ...(backBuffer ? { backBuffer } : {}), device });
   const ft = w.font(size, 0, enlarge, true);
   expect(ft.Load()).toBe(true);
   const uk = w.w.fonts.addUKFont(1, ft);
@@ -583,5 +583,188 @@ describe("CKTDGFontManager::OnFrameMove (328B7940)", () => {
     w.fontManager.OnFrameMove(0, 0.25);
     expect(state(uk)).toEqual([]);
     expect(state(other.uk)).toEqual([[0, 0]]);
+  });
+});
+
+describe("OutProjectionText (328B7A60)", () => {
+  /**
+   * The camera of these tests: the projection of `D3DXMatrixPerspectiveFovLH` with the scales (2, 3), the near plane 1 and the far plane 5
+   * (rows (2, 0, 0, 0), (0, 3, 0, 0), (0, 0, 5/4, 1), (0, 0, -5/4, 0)) and a view that moves the world by (0.25, -0.5, 1) (row vectors:
+   * the translation is the fourth row).  world * view * projection then gives the clip coordinates
+   *   x' = 2x + 0.5   y' = 3y - 1.5   z' = 1.25z   w' = z + 1
+   * and on the 1536 x 1536 view port `(1 + x'/w') * 768`, `(1 - y'/w') * 768` and `z'/w'`.  For (1/512, 1/512, 3) w' = 4: x = 864.75,
+   * y = 1054.875, depth 0.9375; every number here is a binary fraction, so the float arithmetic is exact (and was checked in Python with
+   * a model of `D3DXVec3Project` that rounds to float after every step).
+   */
+  const PROJECTION = [2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1.25, 1, 0, 0, -1.25, 0];
+  const VIEW = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.25, -0.5, 1, 1];
+  const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  const TRANSFORM_WORLD_IDENTITY = `transform 256 ${IDENTITY.join(",")}`;
+  const INT_MIN = -2147483648;
+  const P = { x: 0.001953125, y: 0.001953125, z: 3 };
+
+  type XY = { x: number; y: number; text: string | null; color: number; outline: number; rect: number[] | null; flag: number; count: number; sx: number; sy: number };
+
+  /** a UK font whose glyph font writes its `OutTextXY` calls down, on the camera above */
+  function projScene(device = true) {
+    const s = scene(16, 1, undefined, device);
+    const xy: XY[] = [];
+    s.ft.OutTextXY = ((x: number, y: number, text: string | null, color: number, outline: number, rect: Rect | null, flag: number, count: number, sx: number, sy: number) => {
+      xy.push({ x, y, text, color, outline, rect: rect ? [rect.left, rect.top, rect.right, rect.bottom] : null, flag, count, sx, sy });
+    }) as typeof s.ft.OutTextXY;
+    const app = s.w.render;
+    if (app) {
+      app.projectionMatrix.set(PROJECTION);
+      app.viewMatrix.set(VIEW);
+    }
+    s.dev?.log.splice(0);
+    return { ...s, xy, app };
+  }
+  const draw = (uk: UKFont, pos: { x: number; y: number; z: number }, style: number = FONT_STYLE.FS_SHELL) =>
+    uk.OutProjectionText(pos, "AB", TEXT_ARGB, style, OUTLINE_ARGB, rc(1, 2, 3, 4), 0x21);
+
+  test("the text is drawn at the projected point, its position cut towards 0 ((864.75, 1054.875) is (864, 1054)), with everything else as it was given and nCount -1, scale 1", () => {
+    const { uk, xy, calls } = projScene();
+    draw(uk, P);
+    expect(xy).toEqual([{ x: 864, y: 1054, text: "AB", color: TEXT_ARGB, outline: OUTLINE_ARGB, rect: [1, 2, 3, 4], flag: 0x21, count: -1, sx: 1, sy: 1 }]);
+    expect(calls).toEqual([]); // OutTextXY, not OutTextMultiline
+  });
+
+  test("nothing is scaled to the back buffer (the scale is (1.5, 2) here): the position is the projected one and the rectangle goes on as it is", () => {
+    const { uk, xy, app } = projScene();
+    expect([app!.resolutionScale.x, app!.resolutionScale.y]).toEqual([1.5, 2]);
+    uk.OutProjectionText(P, "AB", TEXT_ARGB, FONT_STYLE.FS_SHELL, OUTLINE_ARGB, rc(11, 7, 111, 25), 0);
+    expect([xy[0]!.x, xy[0]!.y, xy[0]!.rect]).toEqual([864, 1054, [11, 7, 111, 25]]);
+  });
+
+  test("a null text and a null rectangle go on as they are", () => {
+    const { uk, xy } = projScene();
+    uk.OutProjectionText(P, null, TEXT_ARGB, FONT_STYLE.FS_NONE, OUTLINE_ARGB, null, 5);
+    expect(xy).toEqual([{ x: 864, y: 1054, text: null, color: TEXT_ARGB, outline: 0, rect: null, flag: 5, count: -1, sx: 1, sy: 1 }]);
+  });
+
+  test("a position left of and above the view port is cut towards 0, not down: (-4.5, -1.5) is (-4, -1)", () => {
+    const { uk, xy } = projScene();
+    draw(uk, { x: -2.26171875, y: 1.8359375, z: 3 });
+    expect(xy.map((c) => [c.x, c.y])).toEqual([[-4, -1]]);
+  });
+
+  test("the view port: its corner is added and its width and height scale (x = 100 + (1 + x'/w') * 400, y = 50 + (1 - y'/w') * 300: 550.39, 462.06)", () => {
+    const { uk, xy, app } = projScene();
+    Object.assign(app!.viewport, { x: 100, y: 50, width: 800, height: 600, minZ: 0.25, maxZ: 0.75 });
+    draw(uk, P);
+    expect(xy.map((c) => [c.x, c.y])).toEqual([[550, 462]]);
+    // the depth is 0.25 + 0.9375 * 0.5 = 0.71875, inside 0 .. 1; the view port itself is left as it is
+    expect({ ...app!.viewport }).toEqual({ x: 100, y: 50, width: 800, height: 600, minZ: 0.25, maxZ: 0.75 });
+  });
+
+  test("the depth 0 (a point on the near plane) is drawn: the test is `0 > z`, not `0 >= z`", () => {
+    const { uk, xy } = projScene();
+    draw(uk, { x: 0, y: 0, z: 0 }); // z' = 0, w' = 1: (1152, 1920), depth 0
+    expect(xy.map((c) => [c.x, c.y])).toEqual([[1152, 1920]]);
+  });
+
+  test("the depth 1 (a point on the far plane) is drawn: the test is `z > 1`, not `z >= 1`", () => {
+    const { uk, xy } = projScene();
+    draw(uk, { x: 0, y: 0, z: 4 }); // z' = 5, w' = 5: (844.8, 998.4), depth 1
+    expect(xy.map((c) => [c.x, c.y])).toEqual([[844, 998]]);
+  });
+
+  test("a point beyond the far plane (depth 1.0227) and one before the near plane (-1.25) are not drawn", () => {
+    const { uk, xy } = projScene();
+    draw(uk, { x: 0, y: 0, z: 4.5 });
+    draw(uk, { x: 0, y: 0, z: -0.5 });
+    expect(xy).toEqual([]);
+  });
+
+  test("the depth range of the view port counts: MinZ 0.5 / MaxZ 2 puts the depth 0.9375 at 1.906 (not drawn), -1 / 0.5 at 0.406 (drawn), -2 / -1 at -1.0625 (not drawn)", () => {
+    const { uk, xy, app } = projScene();
+    app!.viewport.minZ = 0.5;
+    app!.viewport.maxZ = 2;
+    draw(uk, P);
+    expect(xy).toEqual([]);
+    app!.viewport.minZ = -1;
+    app!.viewport.maxZ = 0.5;
+    draw(uk, P);
+    expect(xy.map((c) => [c.x, c.y])).toEqual([[864, 1054]]);
+    app!.viewport.minZ = -2;
+    app!.viewport.maxZ = -1;
+    draw(uk, P);
+    expect(xy.length).toBe(1);
+  });
+
+  test("a NaN depth passes both tests (`comiss` + `ja` does not jump on an unordered compare): the text is drawn at the integer indefinite, (INT_MIN, INT_MIN)", () => {
+    const { uk, xy } = projScene();
+    draw(uk, { x: 0, y: 0, z: NaN });
+    expect(xy.map((c) => [c.x, c.y])).toEqual([[INT_MIN, INT_MIN]]);
+  });
+
+  test("a style below FS_SHELL has no outline colour (0), FS_SHELL and anything above keeps it (also a negative style: the exe tests == 0 and == 1)", () => {
+    const { uk, xy } = projScene();
+    for (const style of [FONT_STYLE.FS_NONE, FONT_STYLE.FS_SHADOW, FONT_STYLE.FS_SHELL, 3, -1]) draw(uk, P, style);
+    expect(xy.map((c) => c.outline)).toEqual([0, 0, OUTLINE_ARGB, OUTLINE_ARGB, OUTLINE_ARGB]);
+  });
+
+  test("the world matrix is the identity: the application's is replaced (and ignored by the projection: a world that moves by 100 would put x at 39264)", () => {
+    const { uk, xy, app } = projScene();
+    app!.worldMatrix.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 100, 0, 0, 1]);
+    uk.m_matIdentity.fill(7);
+    draw(uk, P);
+    expect(Array.from(app!.worldMatrix)).toEqual(IDENTITY);
+    expect(Array.from(uk.m_matIdentity)).toEqual(IDENTITY);
+    expect(xy.map((c) => [c.x, c.y])).toEqual([[864, 1054]]);
+  });
+
+  test("every call makes the identity again: a matrix written over in between does not carry into the next projection", () => {
+    const { uk, xy } = projScene();
+    draw(uk, P);
+    uk.m_matIdentity.fill(7);
+    draw(uk, P);
+    expect(Array.from(uk.m_matIdentity)).toEqual(IDENTITY);
+    expect(xy.map((c) => [c.x, c.y])).toEqual([[864, 1054], [864, 1054]]);
+  });
+
+  test("the device gets SetTransform(D3DTS_WORLD = 256, the identity) and nothing else, once per call: also when the point is not drawn", () => {
+    const { uk, dev } = projScene();
+    draw(uk, P);
+    expect(dev!.log).toEqual([TRANSFORM_WORLD_IDENTITY]);
+    draw(uk, { x: 0, y: 0, z: 4.5 }); // beyond the far plane
+    expect(dev!.log).toEqual([TRANSFORM_WORLD_IDENTITY, TRANSFORM_WORLD_IDENTITY]);
+  });
+
+  test("the projection and the view matrix are copied into the font (m_matProj, m_matView: the constructor leaves them 0): copies, not the application's own", () => {
+    const { uk, app } = projScene();
+    expect(Array.from(uk.m_matProj)).toEqual(new Array(16).fill(0));
+    expect(Array.from(uk.m_matView)).toEqual(new Array(16).fill(0));
+    expect(Array.from(uk.m_matIdentity)).toEqual(IDENTITY); // the constructor made the identity
+    draw(uk, P);
+    expect(Array.from(uk.m_matProj)).toEqual(PROJECTION);
+    expect(Array.from(uk.m_matView)).toEqual(VIEW);
+    app!.projectionMatrix[0] = 9;
+    app!.viewMatrix[12] = 9;
+    expect([uk.m_matProj[0], uk.m_matView[12]]).toEqual([2, 0.25]);
+  });
+
+  test("the matrices are taken at every call: a changed camera moves the text (the view's x offset 0.25 -> 0.75: x' = 2 / 512 + 1.5, x = 768 * (1 + 1.50390625 / 4) = 1056.75 -> 1056)", () => {
+    const { uk, xy, app } = projScene();
+    draw(uk, P);
+    app!.viewMatrix[12] = 0.75;
+    draw(uk, P);
+    expect(xy.map((c) => c.x)).toEqual([864, 1056]);
+  });
+
+  test("a world without a device has no application to take the device, matrices and view port from: nothing happens", () => {
+    const { uk, xy, w } = projScene(false);
+    expect(w.render).toBeNull();
+    uk.m_matIdentity.fill(7);
+    draw(uk, P);
+    expect(xy).toEqual([]);
+    expect(Array.from(uk.m_matIdentity)).toEqual(new Array(16).fill(7));
+  });
+
+  test("a font without its glyph font is the exe's null dereference", () => {
+    const { uk } = projScene();
+    uk.Destroy();
+    expect(() => draw(uk, P)).toThrow(/m_pUKFont is null/);
   });
 });

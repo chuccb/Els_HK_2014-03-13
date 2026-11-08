@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Mutation check of the text classes of packages/ui: CKTDGFreeTypeFont (freetypefont.ts: the faces, the glyph cache, measuring, Buffering,
-Flush, OutTextXY, OutTextMultiline), CKTDGDynamicTexture (dynamictexture.ts), CUKFont (font.ts), the font manager's InstallFont /
-GetFontMemory / CreateNewUIUKFont (fontmanager.ts) and CX2Main.InstallFont (main.ts).  One small change at a time is applied to a source file
+Flush, OutTextXY, OutTextMultiline), CKTDGDynamicTexture (dynamictexture.ts), CUKFont (font.ts, OutProjectionText included, and the
+application's view port and matrices it reads, render.ts), the font manager's InstallFont / GetFontMemory / CreateNewUIUKFont
+(fontmanager.ts) and CX2Main.InstallFont (main.ts).  One small change at a time is applied to a source file
 of packages/ui/src, the tests of the text path are run and the script reports whether a test notices (killed) or not (SURVIVED).
 
     python3 tools/mutate-font.py [--list] [--check] [--survivors=LOG] [substring of a mutant name ...]
@@ -26,6 +27,7 @@ TESTS = {
     'font.ts': [T + 'fontdraw.test.ts', T + 'fontmanager.test.ts', T + 'freetypefont.test.ts', T + 'combobox.test.ts'],
     'fontmanager.ts': [T + 'fontdraw.test.ts', T + 'fontmanager.test.ts', T + 'freetypefont.test.ts', T + 'combobox.test.ts'],
     'main.ts': [T + 'fontmanager.test.ts', T + 'combobox.test.ts'],
+    'render.ts': [T + 'render.test.ts', T + 'fontdraw.test.ts'],
 }
 
 M = []
@@ -1006,6 +1008,74 @@ m(FM, 'OnFrameMove: one character shows, not two', 'article.iSpreadCount++;', 'a
 m(FM, 'OnFrameMove: the characters stop at the length of the text', 'if (article.iSpreadCount < article.strMsg.length)', 'if (article.iSpreadCount <= article.strMsg.length)')
 m(FM, 'OnFrameMove: the characters stop before the length', 'if (article.iSpreadCount < article.strMsg.length)', 'if (article.iSpreadCount < article.strMsg.length - 1)')
 m(FM, 'OnFrameMove: the characters do not stop', 'if (article.iSpreadCount < article.strMsg.length)', 'if (true)')
+
+# ---- font.ts: OutProjectionText 328B7A60 (test/fontdraw.test.ts), freetypefont.ts: app, render.ts: the view port and the matrices of the application
+m(FO, 'OutProjectionText: without an application it goes on (and fails)', '    if (!app) return;\n', '')
+m(FO, 'OutProjectionText: the identity is not made', '    this.m_matIdentity.set(matIdentity());\n', '')
+m(FO, 'OutProjectionText: the identity is made once only (the constructor did)', '    this.m_matIdentity.set(matIdentity());\n', '    if (this.m_matProj[0] === 0) this.m_matIdentity.set(matIdentity());\n')
+m(FO, "OutProjectionText: the application's world matrix is not replaced", '    app.worldMatrix.set(this.m_matIdentity);\n', '')
+m(FO, "OutProjectionText: the application's world matrix becomes the projection", '    app.worldMatrix.set(this.m_matIdentity);\n', '    app.worldMatrix.set(app.projectionMatrix);\n')
+m(FO, 'OutProjectionText: the device keeps its world transform', '    app.device.SetTransform(D3DTS_WORLD, this.m_matIdentity);\n', '')
+m(FO, 'OutProjectionText: the device gets the transform of another state', 'app.device.SetTransform(D3DTS_WORLD, this.m_matIdentity);', 'app.device.SetTransform(D3DTS_WORLD + 1, this.m_matIdentity);')
+m(FO, 'OutProjectionText: the device gets the view as its world transform', 'app.device.SetTransform(D3DTS_WORLD, this.m_matIdentity);', 'app.device.SetTransform(D3DTS_WORLD, app.viewMatrix);')
+m(FO, 'OutProjectionText: the projection is not copied', '    this.m_matProj.set(app.projectionMatrix);\n', '')
+m(FO, 'OutProjectionText: the projection copy is the view', 'this.m_matProj.set(app.projectionMatrix);', 'this.m_matProj.set(app.viewMatrix);')
+m(FO, 'OutProjectionText: the view is not copied', '    this.m_matView.set(app.viewMatrix);\n', '')
+m(FO, 'OutProjectionText: the view copy is the projection', 'this.m_matView.set(app.viewMatrix);', 'this.m_matView.set(app.projectionMatrix);')
+m(FO, 'OutProjectionText: the view port is not the application\'s', 'const kViewPort = { ...app.viewport };', 'const kViewPort = { ...app.viewport, x: 0, y: 0 };')
+m(FO, 'OutProjectionText: the view port has no depth range of its own', 'const kViewPort = { ...app.viewport };', 'const kViewPort = { ...app.viewport, minZ: 0, maxZ: 1 };')
+m(FO, 'OutProjectionText: projection and view are swapped', 'vec3Project(pos, kViewPort, this.m_matProj, this.m_matView, this.m_matIdentity)', 'vec3Project(pos, kViewPort, this.m_matView, this.m_matProj, this.m_matIdentity)')
+m(FO, 'OutProjectionText: the view is the world', 'vec3Project(pos, kViewPort, this.m_matProj, this.m_matView, this.m_matIdentity)', 'vec3Project(pos, kViewPort, this.m_matProj, this.m_matIdentity, this.m_matView)')
+m(FO, 'OutProjectionText: the projection is the world', 'vec3Project(pos, kViewPort, this.m_matProj, this.m_matView, this.m_matIdentity)', 'vec3Project(pos, kViewPort, this.m_matIdentity, this.m_matView, this.m_matProj)')
+m(FO, 'OutProjectionText: no projection', 'vec3Project(pos, kViewPort, this.m_matProj, this.m_matView, this.m_matIdentity)', 'vec3Project(pos, kViewPort, null, this.m_matView, this.m_matIdentity)')
+m(FO, 'OutProjectionText: no view', 'vec3Project(pos, kViewPort, this.m_matProj, this.m_matView, this.m_matIdentity)', 'vec3Project(pos, kViewPort, this.m_matProj, null, this.m_matIdentity)')
+m(FO, 'OutProjectionText: a depth below 0 is drawn', 'if (!(0 > screenPos.z) && !(screenPos.z > 1)) {', 'if (!(screenPos.z > 1)) {')
+m(FO, 'OutProjectionText: the depth 0 is not drawn', 'if (!(0 > screenPos.z) && !(screenPos.z > 1)) {', 'if (!(0 >= screenPos.z) && !(screenPos.z > 1)) {')
+m(FO, 'OutProjectionText: a depth above 1 is drawn', 'if (!(0 > screenPos.z) && !(screenPos.z > 1)) {', 'if (!(0 > screenPos.z)) {')
+m(FO, 'OutProjectionText: the depth 1 is not drawn', 'if (!(0 > screenPos.z) && !(screenPos.z > 1)) {', 'if (!(0 > screenPos.z) && !(screenPos.z >= 1)) {')
+m(FO, 'OutProjectionText: a NaN depth is not drawn', 'if (!(0 > screenPos.z) && !(screenPos.z > 1)) {', 'if (screenPos.z >= 0 && screenPos.z <= 1) {')
+m(FO, 'OutProjectionText: a depth outside is drawn if either end passes', 'if (!(0 > screenPos.z) && !(screenPos.z > 1)) {', 'if (!(0 > screenPos.z) || !(screenPos.z > 1)) {')
+m(FO, 'OutProjectionText: the text is always drawn', 'if (!(0 > screenPos.z) && !(screenPos.z > 1)) {', 'if (true) {')
+m(FO, 'OutProjectionText: the text is never drawn', 'if (!(0 > screenPos.z) && !(screenPos.z > 1)) {', 'if (false) {')
+m(FO, 'OutProjectionText: FS_NONE keeps its outline colour', 'if (fontStyle === FONT_STYLE.FS_NONE || fontStyle === FONT_STYLE.FS_SHADOW) colorOutLine = 0;', 'if (fontStyle === FONT_STYLE.FS_SHADOW) colorOutLine = 0;')
+m(FO, 'OutProjectionText: FS_SHADOW keeps its outline colour', 'if (fontStyle === FONT_STYLE.FS_NONE || fontStyle === FONT_STYLE.FS_SHADOW) colorOutLine = 0;', 'if (fontStyle === FONT_STYLE.FS_NONE) colorOutLine = 0;')
+m(FO, 'OutProjectionText: FS_SHELL has no outline colour either', 'if (fontStyle === FONT_STYLE.FS_NONE || fontStyle === FONT_STYLE.FS_SHADOW) colorOutLine = 0;', 'if (fontStyle <= FONT_STYLE.FS_SHELL) colorOutLine = 0;')
+m(FO, 'OutProjectionText: a style below 2 as a signed number (-1 has no outline colour)', 'if (fontStyle === FONT_STYLE.FS_NONE || fontStyle === FONT_STYLE.FS_SHADOW) colorOutLine = 0;', 'if (fontStyle <= FONT_STYLE.FS_SHADOW) colorOutLine = 0;')
+m(FO, 'OutProjectionText: every style has no outline colour', 'if (fontStyle === FONT_STYLE.FS_NONE || fontStyle === FONT_STYLE.FS_SHADOW) colorOutLine = 0;', 'colorOutLine = 0;')
+m(FO, 'OutProjectionText: every style keeps its outline colour', '      if (fontStyle === FONT_STYLE.FS_NONE || fontStyle === FONT_STYLE.FS_SHADOW) colorOutLine = 0;\n', '')
+m(FO, 'OutProjectionText: the position is rounded, not cut', 'ft.OutTextXY(ftoi(screenPos.x), ftoi(screenPos.y), wszText,', 'ft.OutTextXY(Math.round(screenPos.x), Math.round(screenPos.y), wszText,')
+m(FO, 'OutProjectionText: the position is cut downwards', 'ft.OutTextXY(ftoi(screenPos.x), ftoi(screenPos.y), wszText,', 'ft.OutTextXY(Math.floor(screenPos.x), Math.floor(screenPos.y), wszText,')
+m(FO, 'OutProjectionText: x and y are swapped', 'ft.OutTextXY(ftoi(screenPos.x), ftoi(screenPos.y), wszText,', 'ft.OutTextXY(ftoi(screenPos.y), ftoi(screenPos.x), wszText,')
+m(FO, 'OutProjectionText: the position is scaled to the back buffer', 'ft.OutTextXY(ftoi(screenPos.x), ftoi(screenPos.y), wszText,', 'ft.OutTextXY(ftoi(f(screenPos.x * this.scale.x)), ftoi(f(screenPos.y * this.scale.y)), wszText,')
+m(FO, 'OutProjectionText: the rectangle is scaled to the back buffer', 'color, colorOutLine, pRt, dwFlag, -1, 1, 1);', 'color, colorOutLine, this.scaledRect(pRt), dwFlag, -1, 1, 1);')
+m(FO, 'OutProjectionText: the rectangle is dropped', 'color, colorOutLine, pRt, dwFlag, -1, 1, 1);', 'color, colorOutLine, null, dwFlag, -1, 1, 1);')
+m(FO, 'OutProjectionText: the flag is dropped', 'color, colorOutLine, pRt, dwFlag, -1, 1, 1);', 'color, colorOutLine, pRt, 0, -1, 1, 1);')
+m(FO, 'OutProjectionText: the count is 0', 'color, colorOutLine, pRt, dwFlag, -1, 1, 1);', 'color, colorOutLine, pRt, dwFlag, 0, 1, 1);')
+m(FO, 'OutProjectionText: the x scale is 2', 'color, colorOutLine, pRt, dwFlag, -1, 1, 1);', 'color, colorOutLine, pRt, dwFlag, -1, 2, 1);')
+m(FO, 'OutProjectionText: the y scale is 2', 'color, colorOutLine, pRt, dwFlag, -1, 1, 1);', 'color, colorOutLine, pRt, dwFlag, -1, 1, 2);')
+m(FO, 'OutProjectionText: the colours are swapped', 'wszText, color, colorOutLine, pRt, dwFlag, -1, 1, 1);', 'wszText, colorOutLine, color, pRt, dwFlag, -1, 1, 1);')
+m(FO, 'OutProjectionText: the text is not the one given', 'ft.OutTextXY(ftoi(screenPos.x), ftoi(screenPos.y), wszText,', 'ft.OutTextXY(ftoi(screenPos.x), ftoi(screenPos.y), wszText === null ? null : wszText.slice(1),')
+m(FO, 'OutProjectionText: the text is drawn by OutTextMultiline', 'ft.OutTextXY(ftoi(screenPos.x), ftoi(screenPos.y), wszText, color, colorOutLine, pRt, dwFlag, -1, 1, 1);', 'ft.OutTextMultiline(ftoi(screenPos.x), ftoi(screenPos.y), wszText, color, colorOutLine, 1, pRt, dwFlag, -1, 1, 1);')
+m(FT, 'app: a world without a render has none', 'get app(): UIRender | null {\n    return this.host.render;', 'get app(): UIRender | null {\n    return null;')
+m(FT, 'app: the render of the host', 'get app(): UIRender | null {\n    return this.host.render;', 'get app(): UIRender | null {\n    return this.host.render ?? null;',
+  'equivalent: the host\'s render is already null or a render')
+RN = 'render.ts'
+m(RN, 'UIRender: the view port starts at X 5', 'readonly viewport: Viewport = { x: 0, y: 0,', 'readonly viewport: Viewport = { x: 5, y: 0,')
+m(RN, 'UIRender: the view port starts at Y 5', 'readonly viewport: Viewport = { x: 0, y: 0,', 'readonly viewport: Viewport = { x: 0, y: 5,')
+m(RN, 'UIRender: the view port starts at 1024 x 768', 'width: 1024, height: 768, minZ: 0, maxZ: 1 };', 'width: 1024, height: 767, minZ: 0, maxZ: 1 };')
+m(RN, 'UIRender: the view port starts with MinZ 0.25', 'minZ: 0, maxZ: 1 };\n  /**\n   * `g_pKTDXApp->m_WorldMatrix`', 'minZ: 0.25, maxZ: 1 };\n  /**\n   * `g_pKTDXApp->m_WorldMatrix`')
+m(RN, 'UIRender: the view port starts with MaxZ 2', 'minZ: 0, maxZ: 1 };\n  /**\n   * `g_pKTDXApp->m_WorldMatrix`', 'minZ: 0, maxZ: 2 };\n  /**\n   * `g_pKTDXApp->m_WorldMatrix`')
+m(RN, 'UIRender: a back buffer keeps the corner X', '    this.viewport.x = 0;\n', '')
+m(RN, 'UIRender: a back buffer keeps the corner Y', '    this.viewport.y = 0;\n', '')
+m(RN, 'UIRender: a back buffer keeps the MinZ', '    this.viewport.minZ = 0;\n', '')
+m(RN, 'UIRender: a back buffer keeps the MaxZ', '    this.viewport.maxZ = 1;\n', '')
+m(RN, 'UIRender: a back buffer sets MaxZ 2', '    this.viewport.maxZ = 1;\n', '    this.viewport.maxZ = 2;\n')
+m(RN, 'UIRender: a back buffer sets the corner (1, 0)', '    this.viewport.x = 0;\n', '    this.viewport.x = 1;\n')
+m(RN, 'UIRender: the world matrix starts as zeros', 'readonly worldMatrix: Mat4 = matIdentity();', 'readonly worldMatrix: Mat4 = new Float32Array(16);')
+m(RN, 'UIRender: the view matrix starts as zeros', 'readonly viewMatrix: Mat4 = matIdentity();', 'readonly viewMatrix: Mat4 = new Float32Array(16);')
+m(RN, 'UIRender: the projection matrix starts as zeros', 'readonly projectionMatrix: Mat4 = matIdentity();', 'readonly projectionMatrix: Mat4 = new Float32Array(16);')
+m(RN, 'UIRender: the three matrices are one', 'readonly viewMatrix: Mat4 = matIdentity();', 'readonly viewMatrix: Mat4 = this.worldMatrix;')
+
 
 # ---- main.ts
 MA = 'main.ts'

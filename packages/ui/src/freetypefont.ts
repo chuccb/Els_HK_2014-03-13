@@ -229,6 +229,14 @@ export class CKTDGFreeTypeFont {
     return this.owner.host;
   }
 
+  /**
+   * `g_pKTDXApp`, as far as the UI has it (`CUKFont::OutProjectionText` takes the device, the matrices and the view port from it): the
+   * render the font draws with, null without a device
+   */
+  get app(): UIRender | null {
+    return this.host.render;
+  }
+
   /** `g_pKTDXApp->m_ResolutionScale` (1, 1 without a render: no back buffer to scale to) */
   get resolutionScale(): { readonly x: number; readonly y: number } {
     return this.host.render?.resolutionScale ?? { x: 1, y: 1 };

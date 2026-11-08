@@ -6,7 +6,8 @@
  * coordinates from the 1024 x 768 layout to the back buffer (`m_ResolutionScale`), takes the outline colour away from a style that has
  * no outline (`FONT_STYLE` below `FS_SHELL`), turns `D3DXCOLOR`s into `D3DCOLOR`s, measures the height of a text, draws the text boxes' text
  * with its outline or shadow (`DrawTextFont`, `DrawFontStyle`) and keeps a queue of 2D texts (`Push2DText`: `FontArticle`s that
- * `CKTDGFontManager::OnFrameMove` spreads over time; nothing in the exe draws them).  Not ported: `OutProjectionText`.  The lookups `CKTDGUIDialogManager`
+ * `CKTDGFontManager::OnFrameMove` spreads over time; nothing in the exe draws them) and puts the text of a point of the 3D world on the
+ * screen (`OutProjectionText`).  The lookups `CKTDGUIDialogManager`
  * keeps are `m_mapUKFontList` (UK font id -> font) and `m_mapFontToUKFont` (the font index a script uses -> the id of a UK font;
  * `CKTDGFontManager::MapUIFontToUKFont`, 328B7800).
  *
@@ -22,6 +23,7 @@
  * | `Get2DArticle` | 328B6D20 |
  * | `GetHeight` / `GetPaddedHeight` | 328B6EF0 / 328B7020 |
  * | `GetWidth(wchar_t *)` / `GetWidth(wchar_t)` | 328B7150 / 328B7170 |
+ * | `OutProjectionText` | 328B7A60 |
  * | `OutTextMultiline` | 328B7C50 |
  * | `OutTextXY` | 328B7D80 |
  * | `Push2DText` | 328B7EA0 |
@@ -30,6 +32,8 @@ import { idiv, ftoi } from "./rect.ts";
 import type { Rect } from "./rect.ts";
 import { CKTDGFreeTypeFont, wcslen } from "./freetypefont.ts";
 import { clampedByte } from "./control.ts";
+import { D3DTS_WORLD, matIdentity, vec3Project } from "@els/d3d9";
+import type { Mat4, Vec3 } from "@els/d3d9";
 
 export { CKTDGFreeTypeFont } from "./freetypefont.ts";
 
@@ -71,6 +75,12 @@ export class FontArticle {
 
 /** `CKTDGFontManager::CUKFont`: a font of the UI */
 export class UKFont {
+  /** `m_matIdentity` (+0x08): the identity, made by the constructor and again by every `OutProjectionText` */
+  readonly m_matIdentity: Mat4 = matIdentity();
+  /** `m_matProj` (+0x48): what `OutProjectionText` took over from `g_pKTDXApp->m_ProjectionMatrix` last (the constructor does not touch it: zeros here) */
+  readonly m_matProj: Mat4 = new Float32Array(16);
+  /** `m_matView` (+0x88): the same for `g_pKTDXApp->m_ViewMatrix` */
+  readonly m_matView: Mat4 = new Float32Array(16);
   /** `m_TextID` (0x1A0): the id of the text pushed last (the constructor makes it 0) */
   m_TextID = 0;
   /** `m_vecFont2D` (0x1A4): the queued texts in the order they were pushed */
@@ -137,6 +147,33 @@ export class UKFont {
     const x = ftoi(f(f(iLeft) * s.x));
     const y = ftoi(f(f(iTop) * s.y));
     this.ft.OutTextXY(x, y, wszText, color, colorOutLine, rect, dwFlag, nCount, fScaleX, fScaleY);
+  }
+
+  /**
+   * `OutProjectionText(pos, wszText, color, fontStyle, colorOutLine, pRt, dwFlag)` (328B7A60): the text of a point of the 3D world, at
+   * the place the point has on the screen.  The identity becomes the world matrix of the application and of the device
+   * (`SetTransform(D3DTS_WORLD)`), the application's projection and view matrices and its view port are copied, and `D3DXVec3Project`
+   * (world, view, projection, then the view port) gives the screen position; a point whose depth is below 0 or above 1 is not drawn
+   * (the compare is `comiss` + `ja` twice, so a NaN depth passes both).  Otherwise the glyph font's `OutTextXY` draws the text at the
+   * position cut towards 0, in back-buffer pixels as they are: nothing is scaled (unlike `OutTextXY` of this class), `nCount` is -1
+   * and the scale 1; a style below `FS_SHELL` has no outline colour.  A world without a device has no application to take the device,
+   * the matrices and the view port from: nothing happens.
+   */
+  OutProjectionText(pos: Vec3, wszText: string | null, color: number, fontStyle: number, colorOutLine: number, pRt: Rect | null, dwFlag: number): void {
+    const ft = this.ft;
+    const app = ft.app;
+    if (!app) return;
+    this.m_matIdentity.set(matIdentity());
+    app.worldMatrix.set(this.m_matIdentity);
+    app.device.SetTransform(D3DTS_WORLD, this.m_matIdentity);
+    this.m_matProj.set(app.projectionMatrix);
+    this.m_matView.set(app.viewMatrix);
+    const kViewPort = { ...app.viewport };
+    const screenPos = vec3Project(pos, kViewPort, this.m_matProj, this.m_matView, this.m_matIdentity);
+    if (!(0 > screenPos.z) && !(screenPos.z > 1)) {
+      if (fontStyle === FONT_STYLE.FS_NONE || fontStyle === FONT_STYLE.FS_SHADOW) colorOutLine = 0;
+      ft.OutTextXY(ftoi(screenPos.x), ftoi(screenPos.y), wszText, color, colorOutLine, pRt, dwFlag, -1, 1, 1);
+    }
   }
 
   /** `OutTextMultiline(iLeft, iTop, wszText, color, fontStyle, colorOutLine, fLineSpace, pRt, dwFlag, nCount, fScaleX, fScaleY)` (328B7C50): as `OutTextXY`, over several lines */
