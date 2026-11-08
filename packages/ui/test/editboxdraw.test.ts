@@ -142,6 +142,10 @@ describe("CKTDGUIEditBox::OnFrameRender (32934400): the text", () => {
     s.e.m_TextColor = 0x01020304;
     s.e.onFrameRender();
     expect(rgba(s.e.m_NowFontColor)).toEqual([f32(2 * ONE), f32(3 * ONE), f32(4 * ONE), f32(1 * ONE)]);
+    // bytes (alpha 3, red 6, green 7, blue 12) whose float product with the float 1/255 is not the float of the quotient (nor of the double 1/255): checked in Python
+    s.e.m_TextColor = 0x0306070c;
+    s.e.onFrameRender();
+    expect(rgba(s.e.m_NowFontColor)).toEqual([0.02352941408753395, 0.027450982481241226, 0.0470588281750679, 0.011764707043766975]);
   });
 });
 
@@ -262,11 +266,15 @@ describe("CKTDGUIEditBox::OnFrameRender (32934400): the blink and the caret", ()
     expect(s.events).toEqual([text("AB#", [15, 26, 115, 50], -1, TEXT_COLOR), fill([21, 6, 23, 30], 0xff123456)]);
   });
 
-  test("the caret is moved by the text rectangle's left minus the x of the first visible character: 4 - 6 = -2: 15 .. 17", () => {
+  test("the caret is moved by the text rectangle's left minus the x of the first visible character: 4 - 6 = -2: 15 .. 17 (in the overwrite mode the trailing edge is moved the same way: 18 + 4 - 6 = 16)", () => {
     const s = blinking();
     s.e.m_nFirstVisible = 1;
     s.e.onFrameRender();
     expect(s.events[1]).toEqual(fill([15, 6, 17, 30], 0xff000000));
+    s.events.length = 0;
+    s.e.m_bInsertMode = false;
+    s.e.onFrameRender();
+    expect(s.events[1]).toEqual(fill([15, 6, 16, 30], 0xff000000));
   });
 
   test("no caret without focus, with the caret off, or when the class hides carets", () => {
@@ -415,11 +423,16 @@ describe("CKTDGUIEditBox::DrawRect (329335A0)", () => {
     s.e.DrawRect({ left: -20, top: -9, right: 5, bottom: 3 }, 0xff112233);
     const v = drawnCalls(s.dev, from)[0]!.vertices;
     expect([v[0]![0], v[0]![1], v[3]![0], v[3]![1]]).toEqual([-14.5, 16.5, 21.5, 34.5]);
-    // a rectangle of y 2 .. 3 at the scale 1.5: 2 * 1.5 + 30.75 = 33.75 -> 33 (not 34), 3 * 1.5 + 30.75 = 35.25 -> 35; x 1 .. 3: 1 * 1.5 + 15.375 = 16.875 -> 16, 3 * 1.5 + 15.375 = 19.875 -> 19
+    // a rectangle of y 2 .. 4 at the scale 1.5: 2 * 1.5 + 30.75 = 33.75 -> 33 (not 34), 4 * 1.5 + 30.75 = 36.75 -> 36 (not 37); x 1 .. 3: 1 * 1.5 + 15.375 = 16.875 -> 16, 3 * 1.5 + 15.375 = 19.875 -> 19
     const from2 = s.dev.log.length;
-    s.e.DrawRect({ left: 1, top: 2, right: 3, bottom: 3 }, 0xff112233);
+    s.e.DrawRect({ left: 1, top: 2, right: 3, bottom: 4 }, 0xff112233);
     const w = drawnCalls(s.dev, from2)[0]!.vertices;
-    expect([w[0]![0], w[0]![1], w[3]![0], w[3]![1]]).toEqual([15.5, 32.5, 18.5, 34.5]);
+    expect([w[0]![0], w[0]![1], w[3]![0], w[3]![1]]).toEqual([15.5, 32.5, 18.5, 35.5]);
+    // below 0 on all four sides (not floored, not rounded): x -20 and -12: -14.625 -> -14, -2.625 -> -2 (not -15, -3); y -30 and -25: -45 + 30.75 = -14.25 -> -14 (not -15), -37.5 + 30.75 = -6.75 -> -6 (not -7)
+    const from3 = s.dev.log.length;
+    s.e.DrawRect({ left: -20, top: -30, right: -12, bottom: -25 }, 0xff112233);
+    const n = drawnCalls(s.dev, from3)[0]!.vertices;
+    expect([n[0]![0], n[0]![1], n[3]![0], n[3]![1]]).toEqual([-14.5, -14.5, -2.5, -6.5]);
   });
 
   test("the stage's colour and alpha operations are SELECTARG2 (3) for the draw, then MODULATE (4) through the mirror, then the old values come back: from the baseline (colour MODULATE, alpha SELECTARG1) 3, 3, draw, 4, 4, and the alpha operation back to 2 (the colour operation is 4 again already)", () => {
@@ -503,6 +516,11 @@ describe("CKTDGUIEditBox::DrawTextW (329339F0)", () => {
     s.e.m_OffsetPos.set(-0.5, 2.5);
     s.e.DrawTextW("Hi", { left: 0, top: 0, right: 1, bottom: 2 }, -1, 0);
     expect(events[0]).toMatchObject({ rect: [-10, 16777218, -9, 16777220] });
+    // y below 0 is cut towards 0 as well: -20.5 + -0.25 = -20.75 is -20 (not -21)
+    s.dialog.m_Pos.set(-10.25, -20.5);
+    s.e.m_OffsetPos.set(-0.5, -0.25);
+    s.e.DrawTextW("Hi", { left: 0, top: 0, right: 1, bottom: 2 }, -1, 0);
+    expect(events[1]).toMatchObject({ rect: [-10, -20, -9, -18] });
   });
 
   test("the sum of x is a float too: 0.99999994 + 4e-8 = 0.99999998 is 1 as a float (cut to 0 as an exact sum)", () => {

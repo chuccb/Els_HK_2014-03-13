@@ -83,6 +83,8 @@ describe("CKTDGUIUniBuffer::CPtoY (32963E60)", () => {
     expect(upTo(8, (n) => b.CPtoY(n, false))).toEqual([0, 0, 8, 8, 17, 17, 25, 25]);
     expect(b.CPtoY(100, false)).toBe(25);
     expect(b.CPtoY(-1, false)).toBe(25);
+    // the count is unsigned: -1 is all of the text, also when its last character is the break that counts (two breaks: 17, not one: 8)
+    expect(scene("A\nB\n").b.CPtoY(-1, false)).toBe(17);
   });
 
   test("a line break that is the last character is counted, and the text it ends is what is measured: A\\n\\n is two breaks (17), an empty line is 17 high as well", () => {
@@ -177,6 +179,8 @@ describe("CKTDGUIUniBuffer::XtoCP (32965CC0)", () => {
     expect(b.XtoCP(5).cp).toBe(0);
     expect(b.XtoCP(6).cp).toBe(0);
     expect(b.XtoCP(7).cp).toBe(1);
+    // 27 * 1.5 = 40.5 is cut to 40, not rounded to 41: ABABAB ends at 9, 20, 29, 40, 49, 60: the fourth character reaches 40
+    expect(scene("ABABAB").b.XtoCP(27).cp).toBe(3);
   });
 
   test("the text itself is measured, not the hidden one: x 6 (9) is the first character, where ### (7, 14, 21) would reach it at the second", () => {

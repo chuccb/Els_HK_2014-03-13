@@ -162,8 +162,7 @@ m(UB, 'CPtoY: the count goes on until there is no break', r'''      lf = text.in
     }''')
 m(UB, 'CPtoY: the break that ends the text is dropped', r'''if (text.length !== 0 && text.charCodeAt(text.length - 1) === 10) text = text.slice(0, -1);''', '')
 m(UB, 'CPtoY: it is a line break that is dropped', r'''text.charCodeAt(text.length - 1) === 10) text = text.slice(0, -1);''', r'''text.charCodeAt(text.length - 1) === 13) text = text.slice(0, -1);''')
-m(UB, 'CPtoY: only the break is dropped', r'''text.charCodeAt(text.length - 1) === 10) text = text.slice(0, -1);''', r'''text.charCodeAt(text.length - 1) === 10) text = text.slice(1);''',
-  'equivalent: what is left is one line of the same height (a line of text, or an empty one, is one line high)')
+m(UB, 'CPtoY: only the break is dropped', r'''text.charCodeAt(text.length - 1) === 10) text = text.slice(0, -1);''', r'''text.charCodeAt(text.length - 1) === 10) text = text.slice(1);''')
 m(UB, 'CPtoY: the drop does not need a text (the exe reads a character before an empty one)', r'''if (text.length !== 0 && text.charCodeAt(text.length - 1) === 10)''', r'''if (text.charCodeAt(text.length - 1) === 10)''',
   'equivalent: the character before the start of an empty text is NaN here, and what the exe reads there is cut to nothing: an empty text stays empty')
 m(UB, 'CPtoY: the height is measured', r'''return ftoi(f(f(f(font.GetHeight(text)) / font.scale.y) * f(lines)));''', r'''return ftoi(f(f(f(font.GetHeight("A\nB")) / font.scale.y) * f(lines)));''')
@@ -206,7 +205,8 @@ m(UB, 'GetLineWidth: a line from the start to the break after takes no more', r'
 m(UB, 'GetLineWidth: a line with no break after goes to the end', r'''if (last < 0) line = first >= 0 ? text.slice(0, n + first) : text;''', r'''if (last < 0) line = first >= 0 ? text.slice(0, n + first) : text.slice(0, n);''')
 m(UB, 'GetLineWidth: a line with no break at all is all of the text', r'''if (last < 0) line = first >= 0 ? text.slice(0, n + first) : text;''', r'''if (last < 0) line = first >= 0 ? text.slice(0, n + first) : text.slice(1);''')
 m(UB, 'GetLineWidth: a line that starts at the start with a break after', r'''if (last < 0) line = first >= 0 ? text.slice(0, n + first) : text;''', r'''if (last < 0) line = first >= 0 ? text.slice(1, n + first) : text;''')
-m(UB, 'GetLineWidth: the break before decides', r'''if (last < 0) line = first >= 0 ?''', r'''if (last <= 0) line = first >= 0 ?''')
+m(UB, 'GetLineWidth: the break before decides', r'''if (last < 0) line = first >= 0 ?''', r'''if (last <= 0) line = first >= 0 ?''',
+  'equivalent: a break at the very start is 0 wide and starts a line of its own, so the line from the start and the line after the break are as wide')
 m(UB, 'GetLineWidth: a line after a break starts after it', r'''else line = first >= 0 ? text.slice(last + 1, n + first + 1) : text.slice(last + 1);''', r'''else line = first >= 0 ? text.slice(last, n + first + 1) : text.slice(last + 1);''',
   'equivalent: the line break is 0 wide and starts a line of its own, so the widest line is the same with or without it')
 m(UB, 'GetLineWidth: a line after a break starts after it (not one late)', r'''else line = first >= 0 ? text.slice(last + 1, n + first + 1) : text.slice(last + 1);''', r'''else line = first >= 0 ? text.slice(last + 2, n + first + 1) : text.slice(last + 1);''')
@@ -227,7 +227,8 @@ m(UB, 'XtoCP: a buffer nobody allocated is an Error', r'''if (text === null) thr
 m(UB, 'XtoCP: x is scaled by the x scale', r'''const x = ftoi(f(f(nX) * font.scale.x));''', r'''const x = ftoi(f(f(nX) * font.scale.y));''')
 m(UB, 'XtoCP: x is scaled by a product', r'''const x = ftoi(f(f(nX) * font.scale.x));''', r'''const x = ftoi(f(f(nX) / font.scale.x));''')
 m(UB, 'XtoCP: x is cut, not rounded', r'''const x = ftoi(f(f(nX) * font.scale.x));''', r'''const x = Math.round(f(f(nX) * font.scale.x));''')
-m(UB, 'XtoCP: x is cut towards 0, not down', r'''const x = ftoi(f(f(nX) * font.scale.x));''', r'''const x = Math.floor(f(f(nX) * font.scale.x));''')
+m(UB, 'XtoCP: x is cut towards 0, not down', r'''const x = ftoi(f(f(nX) * font.scale.x));''', r'''const x = Math.floor(f(f(nX) * font.scale.x));''',
+  'equivalent: below 0 the first character reaches x either way (cp 0), and from 0 on cutting towards 0 and down agree')
 m(UB, 'XtoCP: the product is a float', r'''const x = ftoi(f(f(nX) * font.scale.x));''', r'''const x = ftoi(f(nX) * font.scale.x);''',
   'equivalent: for every back buffer up to 5624 pixels wide and every x up to 2999 (searched in Python) a product of an int and the scale is cut to the same int as the float of it: it is never within a float\'s rounding of a whole number without being one')
 m(UB, 'XtoCP: x is a float', r'''const x = ftoi(f(f(nX) * font.scale.x));''', r'''const x = ftoi(f(nX * font.scale.x));''',
@@ -523,7 +524,8 @@ m(EB, 'setFontColor: the red is a byte', r'''c.r = f(f((packed >>> 16) & 0xff) *
 m(EB, 'setFontColor: the red is a byte, of the colour', r'''c.r = f(f((packed >>> 16) & 0xff) * ONE_OVER_255);''', r'''c.r = f(f(packed >>> 16) * ONE_OVER_255);''')
 m(EB, 'setFontColor: the red is times 1/255', r'''c.r = f(f((packed >>> 16) & 0xff) * ONE_OVER_255);''', r'''c.r = f(f((packed >>> 16) & 0xff) / 255);''')
 m(EB, 'setFontColor: the red is times the float 1/255', r'''c.r = f(f((packed >>> 16) & 0xff) * ONE_OVER_255);''', r'''c.r = f(f((packed >>> 16) & 0xff) * (1 / 255));''')
-m(EB, 'setFontColor: the red is a float', r'''c.r = f(f((packed >>> 16) & 0xff) * ONE_OVER_255);''', r'''c.r = f((packed >>> 16) & 0xff) * ONE_OVER_255;''')
+m(EB, 'setFontColor: the red is a float', r'''c.r = f(f((packed >>> 16) & 0xff) * ONE_OVER_255);''', r'''c.r = f((packed >>> 16) & 0xff) * ONE_OVER_255;''',
+  'equivalent: the colour keeps its channels in a Float32Array, which rounds the product to a float all the same')
 m(EB, 'setFontColor: the red byte is a float', r'''c.r = f(f((packed >>> 16) & 0xff) * ONE_OVER_255);''', r'''c.r = f(((packed >>> 16) & 0xff) * ONE_OVER_255);''',
   'equivalent: a byte is an int a float holds exactly')
 m(EB, 'setFontColor: the green is the second byte', r'''c.g = f(f((packed >>> 8) & 0xff) * ONE_OVER_255);''', r'''c.g = f(f(packed & 0xff) * ONE_OVER_255);''')
@@ -531,13 +533,15 @@ m(EB, 'setFontColor: the green is a byte', r'''c.g = f(f((packed >>> 8) & 0xff) 
 m(EB, 'setFontColor: the green is a byte, of the colour', r'''c.g = f(f((packed >>> 8) & 0xff) * ONE_OVER_255);''', r'''c.g = f(f(packed >>> 8) * ONE_OVER_255);''')
 m(EB, 'setFontColor: the green is times 1/255', r'''c.g = f(f((packed >>> 8) & 0xff) * ONE_OVER_255);''', r'''c.g = f(f((packed >>> 8) & 0xff) / 255);''')
 m(EB, 'setFontColor: the green is times the float 1/255', r'''c.g = f(f((packed >>> 8) & 0xff) * ONE_OVER_255);''', r'''c.g = f(f((packed >>> 8) & 0xff) * (1 / 255));''')
-m(EB, 'setFontColor: the green is a float', r'''c.g = f(f((packed >>> 8) & 0xff) * ONE_OVER_255);''', r'''c.g = f((packed >>> 8) & 0xff) * ONE_OVER_255;''')
+m(EB, 'setFontColor: the green is a float', r'''c.g = f(f((packed >>> 8) & 0xff) * ONE_OVER_255);''', r'''c.g = f((packed >>> 8) & 0xff) * ONE_OVER_255;''',
+  'equivalent: the colour keeps its channels in a Float32Array, which rounds the product to a float all the same')
 m(EB, 'setFontColor: the blue is the first byte', r'''c.b = f(f(packed & 0xff) * ONE_OVER_255);''', r'''c.b = f(f((packed >>> 16) & 0xff) * ONE_OVER_255);''')
 m(EB, 'setFontColor: the blue is a byte', r'''c.b = f(f(packed & 0xff) * ONE_OVER_255);''', r'''c.b = f(f(packed & 0x7f) * ONE_OVER_255);''')
 m(EB, 'setFontColor: the blue is a byte, of the colour', r'''c.b = f(f(packed & 0xff) * ONE_OVER_255);''', r'''c.b = f(f(packed) * ONE_OVER_255);''')
 m(EB, 'setFontColor: the blue is times 1/255', r'''c.b = f(f(packed & 0xff) * ONE_OVER_255);''', r'''c.b = f(f(packed & 0xff) / 255);''')
 m(EB, 'setFontColor: the blue is times the float 1/255', r'''c.b = f(f(packed & 0xff) * ONE_OVER_255);''', r'''c.b = f(f(packed & 0xff) * (1 / 255));''')
-m(EB, 'setFontColor: the blue is a float', r'''c.b = f(f(packed & 0xff) * ONE_OVER_255);''', r'''c.b = f(packed & 0xff) * ONE_OVER_255;''')
+m(EB, 'setFontColor: the blue is a float', r'''c.b = f(f(packed & 0xff) * ONE_OVER_255);''', r'''c.b = f(packed & 0xff) * ONE_OVER_255;''',
+  'equivalent: the colour keeps its channels in a Float32Array, which rounds the product to a float all the same')
 m(EB, 'setFontColor: the alpha is the last byte', r'''c.a = f(f((packed >>> 24) & 0xff) * ONE_OVER_255);''', r'''c.a = f(f((packed >>> 16) & 0xff) * ONE_OVER_255);''')
 m(EB, 'setFontColor: the alpha is a byte', r'''c.a = f(f((packed >>> 24) & 0xff) * ONE_OVER_255);''', r'''c.a = f(f((packed >>> 24) & 0x7f) * ONE_OVER_255);''')
 m(EB, 'setFontColor: the alpha is a byte, of the unsigned colour', r'''c.a = f(f((packed >>> 24) & 0xff) * ONE_OVER_255);''', r'''c.a = f(f(packed >>> 24) * ONE_OVER_255);''',
@@ -546,7 +550,8 @@ m(EB, 'setFontColor: the alpha is of the unsigned colour', r'''c.a = f(f((packed
   'equivalent: the mask makes the byte the same whether the shift keeps the sign or not')
 m(EB, 'setFontColor: the alpha is times 1/255', r'''c.a = f(f((packed >>> 24) & 0xff) * ONE_OVER_255);''', r'''c.a = f(f((packed >>> 24) & 0xff) / 255);''')
 m(EB, 'setFontColor: the alpha is times the float 1/255', r'''c.a = f(f((packed >>> 24) & 0xff) * ONE_OVER_255);''', r'''c.a = f(f((packed >>> 24) & 0xff) * (1 / 255));''')
-m(EB, 'setFontColor: the alpha is a float', r'''c.a = f(f((packed >>> 24) & 0xff) * ONE_OVER_255);''', r'''c.a = f((packed >>> 24) & 0xff) * ONE_OVER_255;''')
+m(EB, 'setFontColor: the alpha is a float', r'''c.a = f(f((packed >>> 24) & 0xff) * ONE_OVER_255);''', r'''c.a = f((packed >>> 24) & 0xff) * ONE_OVER_255;''',
+  'equivalent: the colour keeps its channels in a Float32Array, which rounds the product to a float all the same')
 m(EB, 'setFontColor: the font colour is the box\'s', r'''const c = this.m_NowFontColor;
     c.r =''', r'''const c = this.m_OutlineColor;
     c.r =''')
