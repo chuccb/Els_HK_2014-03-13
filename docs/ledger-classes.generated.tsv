@@ -76,7 +76,7 @@ CKTDGUIComboBox	50	4330	328CD110	partial	packages/ui/src/combobox.ts	constructor
 CX2Camera	50	5039	32A28A60	todo		
 CX2BuffFactor	50	4516	32AE3730	todo		
 CX2StateBattleField	50	3506	32D75F80	todo		
-CKTDGUIListBox	49	4721	328CD130	partial	packages/ui/src/listbox.ts	constructor (329410D0), UpdateRects (32948240), all 31 Lua methods; OnFrameMove (32943980: the spreading of the rows and the group mark); not ported: input handling and drawing
+CKTDGUIListBox	49	4721	328CD130	partial	packages/ui/src/listbox.ts	constructor (329410D0), UpdateRects (32948240), all 31 Lua methods; OnFrameMove (32943980: the spreading of the rows and the group mark); OnFrameRender (32943BA0: the bounding box, the first-box rule, the mouse pass, the rows, their strings, the group marks, the bar); not ported: input handling
 CX2UIPetInfo	45	11150	3319A110	todo		
 CX2TitleManager	44	6628	32D50FF0	todo		
 std::wstring	43	2036	32894240	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -167,7 +167,7 @@ CX2WorldMissionManager	23	1226	32D19E40	todo
 CX2UnitManager	23	5111	32DBBDC0	todo		
 CX2TFieldNpcShop	23	4946	3323D8E0	todo		
 CKTDGXMeshPlayer	22	4502	328C13C0	partial	packages/assets/src/xmeshplayer.ts (parseXMeshPlayerScript, XMeshLibrary), effectscript.ts (EFFECT_SYSTEMS)	OpenScriptFile, Compile, ProcessXMeshPlayerBlock, ProcessTempletBlock and the replace-by-name registration ported; instance creation, OnFrameMove / OnFrameRender, collision hooks and the Lua thunks are not
-CKTDIDevice	22	562	329625E0	partial	packages/ui/src/input.ts (UIKeyboard)	GetKeyState (32962CF0) and the lock loop of Read (32962ED0) for a keyboard, over the 256 key bytes DirectInput would fill in; not ported: the DirectInput poll, the mouse and joystick halves, the rest of the class
+CKTDIDevice	22	562	329625E0	partial	packages/ui/src/input.ts (UIKeyboard, UIMouse)	GetKeyState (32962CF0) and the lock loop of Read (32962ED0) for a keyboard, over the 256 key bytes DirectInput would fill in; GetXPos (32962E60) and GetYPos (32962EB0) of the mouse, over the position a test or the host puts in; not ported: the DirectInput poll, the joystick half, the rest of the class
 CKTDGUIUniBuffer	22	2056	329639A0	partial	packages/ui/src/unibuffer.ts	the buffer state and limits the edit boxes set (capacity, hide char, modes); not ported: the text layout (CPtoX, XtoCP) and the font paths
 CX2Dungeon	21	2492	32984B70	todo		
 CX2WorldObjectMesh	21	1201	32A2AB60	todo		
