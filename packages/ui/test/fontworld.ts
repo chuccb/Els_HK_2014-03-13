@@ -68,6 +68,20 @@ export const HUGE = boxFont({
   glyphs: Array.from({ length: 700 }, (_, i) => g(String.fromCharCode(0x100 + i), 640, [64, 0, 576, 640])),
 });
 
+/**
+ * glyphs that are not one solid box (at 16 px, ascender 13 px as MAIN, so a glyph that rises 10 px has yOff 3):
+ * H: two bars 2 px wide (x 0..2 and 6..8) and 10 px high, advance 10: a bitmap 8 x 10 whose columns 2 to 5 are empty;
+ * N: a box 8 x 10 px that starts 2 px LEFT of the origin (bearing -2), advance 10.
+ */
+export const SHAPES = boxFont({
+  ascender: 800,
+  descender: -200,
+  glyphs: [
+    { char: "H", advance: 640, boxes: [[0, 0, 128, 640], [384, 0, 512, 640]] },
+    { char: "N", advance: 640, box: [-128, 0, 384, 640] },
+  ],
+});
+
 export const NOT_A_FONT = new Uint8Array(64).fill(7);
 
 export interface FontFiles {

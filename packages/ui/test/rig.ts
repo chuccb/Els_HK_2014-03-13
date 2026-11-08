@@ -34,7 +34,7 @@ export class FakePageTexture {
   lockFlags = -1;
   lockCount = 0;
   readonly bits: Uint8Array;
-  constructor(readonly id: number, readonly pool: number, readonly width: number, readonly height: number) {
+  constructor(readonly id: number, readonly pool: number, readonly width: number, readonly height: number, readonly levels = 1) {
     this.bits = new Uint8Array(width * height * 4);
   }
   get name(): string { return `page${this.id}`; }
@@ -60,15 +60,18 @@ export class Recorder {
   GetDeviceCaps(): { MaxPrimitiveCount: number; MaxTextureWidth: number; MaxTextureHeight: number } {
     return { MaxPrimitiveCount: 0xfffff, MaxTextureWidth: 4096, MaxTextureHeight: 4096 };
   }
-  CreateTexture(width: number, height: number, _levels: number, _usage: number, _format: number, pool: number): { hr: number; tex: FakePageTexture | null } {
+  CreateTexture(width: number, height: number, levels: number, _usage: number, _format: number, pool: number): { hr: number; tex: FakePageTexture | null } {
     const hr = this.textureResults.shift() ?? 0;
     if (hr < 0) return { hr, tex: null };
-    const tex = new FakePageTexture(this.textures.length, pool, width, height);
+    const tex = new FakePageTexture(this.textures.length, pool, width, height, levels);
     this.textures.push(tex);
     this.log.push(`create ${tex.id} pool ${pool} ${width}x${height}`);
     return { hr: 0, tex };
   }
+  /** the ids of the source textures `UpdateTexture` was given while they were still locked (Direct3D wants them unlocked) */
+  readonly lockedUpdates: number[] = [];
   UpdateTexture(src: FakePageTexture, dst: FakePageTexture): number {
+    if (src.locked) this.lockedUpdates.push(src.id);
     this.log.push(`update ${src.id} ${dst.id}`);
     dst.bits.set(src.bits);
     return 0;

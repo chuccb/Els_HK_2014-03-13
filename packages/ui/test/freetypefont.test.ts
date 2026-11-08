@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { packColor, UKFont } from "../src/font.ts";
 import { drawnCalls, E_FAIL } from "./rig.ts";
 import type { DrawnCall } from "./rig.ts";
-import { fontWorld, HUGE, LETTERS, NOT_A_FONT, pageQuads, rhwQuad, xyzQuad } from "./fontworld.ts";
+import { fontWorld, HUGE, LETTERS, NOT_A_FONT, pageQuads, rhwQuad, SHAPES, xyzQuad } from "./fontworld.ts";
 
 /**
  * CKTDGFreeTypeFont (freetypefont.ts): every expectation below is worked out by hand from the decompile (the addresses are in the header
@@ -390,7 +390,7 @@ describe("the exe's cache of more than 4 pages of cells (cell 19: 689 against 67
     const { ft } = loaded(17, 0, 1, true, { main: HUGE });
     expect([ft.m_iFontCacheSize, ft.m_iTotalCache]).toEqual([19, 689]);
     for (let i = 0; i < 676; i++) expect(ft.GetFontCache(0x100 + i).iPage).toBe(Math.floor(i / 169));
-    expect(() => ft.GetFontCache(0x100 + 676)).toThrow(/page 4/);
+    expect(() => ft.GetFontCache(0x100 + 676)).toThrow(/glyph cell on page 4: m_pTexture\[4\] is not a texture/);
   });
 
   test("with an outline too: the main pass would draw into outline page 0 (m_pTexture[4] is m_pTextureOutLine[0]), then the outline pass reads m_pTextureOutLine[4], which is m_iCandidate[0] and no texture: the exe crashes there as well", () => {
@@ -398,7 +398,7 @@ describe("the exe's cache of more than 4 pages of cells (cell 19: 689 against 67
     expect([ft.m_iFontCacheSize, ft.m_iTotalCache]).toEqual([19, 689]);
     for (let i = 0; i < 676; i++) ft.GetFontCache(0x100 + i);
     const rects = ft.m_pTextureOutLine[0]!.dirtyRects.length;
-    expect(() => ft.GetFontCache(0x100 + 676)).toThrow(/page 4/);
+    expect(() => ft.GetFontCache(0x100 + 676)).toThrow(/glyph cell on page 4: m_pTexture\[4\] is not a texture/);
     // nothing was drawn before the throw
     expect(ft.m_pTextureOutLine[0]!.dirtyRects.length).toBe(rects);
   });
@@ -506,8 +506,8 @@ describe("measuring (_EstimateFontSize 328DCFA0, _EstimateStringWidth 328DD090, 
 
 
 /** a font loaded on the recorder (the world is 1536 x 1536: scale (1.5, 2)); `noRes` keeps the size at what the test says */
-function onDevice(size = 16, outline = 0, enlarge = 1, rhw = true, files = {}, noRes = true) {
-  const w = fontWorld(files, { device: true });
+function onDevice(size = 16, outline = 0, enlarge = 1, rhw = true, files = {}, noRes = true, backBuffer?: { width: number; height: number }) {
+  const w = fontWorld(files, { device: true, ...(backBuffer ? { backBuffer } : {}) });
   const ft = w.font(size, outline, enlarge, noRes, rhw);
   expect(ft.Load()).toBe(true);
   w.dev!.log.length = 0;
@@ -1124,6 +1124,21 @@ describe("OutTextMultiline (328DB3F0)", () => {
     const { ft } = multi("A\nB");
     expect(ft.m_dwCurrentStamp).toBe(3);
   });
+
+  test("a negative line space moves the next line up, and the step is cut towards 0: 17 * -0.5 = -8.5 -> -8 (B at 50 - 8)", () => {
+    expect(multi("A\nB", { space: -0.5 }).rs).toEqual([[100, 50, 110, 64], [100, 42, 112, 57]]);
+  });
+
+  test("bNoColor is any bit of the high nibble, the top one (0x80000000) too", () => {
+    expect(colorsOf(multi("#cFF0000A\nB", { flag: 0x80000000 }).calls)).toEqual([col, col]);
+  });
+
+  test("a line is measured without the CR that ends it and without the one that starts it: with an outline each character of the line adds 1 (A CR B at scale 2, centred: A starts 10 left of 100, B 12)", () => {
+    const a = [90, 50, 114, 66]; // A of the outline font is 12 x 16: 24 wide at scale 2
+    const b = [88, 50, 116, 67]; // B is 14 x 17
+    // the outline pass and the text are the same
+    expect(multi("A\rB", { ft: onDevice(16, 1), flag: 1, sx: 2 }).rs).toEqual([a, b, a, b]);
+  });
 });
 
 describe("CUKFont: what the UI calls (font.ts)", () => {
@@ -1311,5 +1326,292 @@ describe("CUKFont: what the UI calls (font.ts)", () => {
     expect(calc("A\nB", -1, 0, e2)).toEqual([5, 7, 10, 24]);
     // no rectangle: nothing happens
     expect(() => f.CalcTextRect("AB", null, -1, 0)).not.toThrow();
+  });
+
+  /** a UK font on a back buffer 1000 x 1000: the scale is (0.9765625, 1.3020833), so a negative coordinate is cut from a fraction */
+  function odd() {
+    const w = onDevice(16, 0, 1, true, {}, true, { width: 1000, height: 1000 });
+    return { ...w, uk: w.w.fonts.addUKFont(1, w.ft) };
+  }
+
+  test("a negative position is cut towards 0 after the scaling: (-3, -3) * (0.9765625, 1.3020833) = (-2.93, -3.9) -> (-2, -3)", () => {
+    const a = odd();
+    a.uk.OutTextXY(-3, -3, "A", col, 0, outc, null, 0, -1, 1, 1);
+    expect(rects(drawnCalls(a.dev))).toEqual([[-2, -3, 8, 11]]);
+    const b = odd();
+    b.uk.OutTextMultiline(-3, -3, "A", col, 0, outc, 1, null, 0, -1, 1, 1);
+    expect(rects(drawnCalls(b.dev))).toEqual([[-2, -3, 8, 11]]);
+  });
+
+  test("the scales reach the glyph font in order: x 2 and y 3 make the quad of A 20 x 42", () => {
+    const a = uk();
+    a.uk.OutTextXY(100, 50, "A", col, 0, outc, null, 0, -1, 2, 3);
+    expect(rects(drawnCalls(a.dev))).toEqual([[150, 100, 170, 142]]);
+    const b = uk();
+    b.uk.OutTextMultiline(100, 50, "A", col, 0, outc, 1, null, 0, -1, 2, 3);
+    expect(rects(drawnCalls(b.dev))).toEqual([[150, 100, 170, 142]]);
+  });
+
+  test("OutTextMultiline: a style below FS_SHELL has no outline colour, compared as unsigned like OutTextXY (-1 is above it)", () => {
+    for (const [style, want] of [[0, 0], [1, 0], [2, 0x80102030], [3, 0x80102030], [-1, 0x80102030]] as const) {
+      const { uk: f, dev } = uk(16, 1);
+      f.OutTextMultiline(0, 0, "A", 0xffff8040, style, 0x80102030, 1, null, 0, -1, 1, 1);
+      expect(colorsOf(drawnCalls(dev))).toEqual([want, 0xffff8040]);
+    }
+  });
+
+  test("a rectangle's left and right are cut towards 0 after the scaling (-3 * 1.5 = -4.5 -> -4): centred in (-3 .. 100) -> (-4 .. 150) the text starts at -4 + 67, right-aligned at -3 -> -4 it starts at -24", () => {
+    const { uk: f, dev } = uk();
+    f.OutTextXY(0, 0, "AB", col, 0, outc, { left: -3, top: 0, right: 100, bottom: 20 }, 1, -1, 1, 1);
+    expect(rects(drawnCalls(dev))[0]![0]).toBe(63); // -4 - (int)((154 - 20) * -0.5)
+    dev.log.length = 0;
+    f.OutTextXY(0, 0, "AB", col, 0, outc, { left: -20, top: 0, right: -3, bottom: 20 }, 2, -1, 1, 1);
+    expect(rects(drawnCalls(dev))[0]![0]).toBe(-24);
+  });
+
+  test("no rectangle is no rectangle (not an empty one at 0): flag 1 centres on the scaled x, 150 - (int)(20 * 0.5)", () => {
+    const { uk: f, dev } = uk();
+    f.OutTextXY(100, 50, "AB", col, 0, outc, null, 1, -1, 1, 1);
+    expect(rects(drawnCalls(dev))[0]![0]).toBe(140);
+  });
+
+  test("Draw2DText in lines gives the glyph font the style it was given: a style below FS_SHELL has no outline colour", () => {
+    const text = { r: 1, g: 0.5, b: 0.25, a: 0.75 };
+    const half = { r: 0.5, g: 0.5, b: 0.5, a: 0.5 };
+    const plain = uk(16, 1);
+    plain.uk.Draw2DText("A\nA", 0, 0, text, half, 0, 1, -1);
+    expect(colorsOf(drawnCalls(plain.dev))).toEqual([0, 0, 0xbfff8040, 0xbfff8040]);
+  });
+});
+
+// ---- the edges tools/mutate-font.py found untested: every number below is worked out by hand, like the ones above ------------------------
+
+describe("construction and resolution", () => {
+  test("an enlargement below 1 is 1 for the divisions (the sizes keep the number given: 0 * 16, -3 * 16)", () => {
+    const { font } = fontWorld();
+    const zero = font(16, 0, 0);
+    const negative = font(16, 0, -3);
+    expect([zero.m_EnlargeNum, zero.m_iOrgFontSize, negative.m_EnlargeNum, negative.m_iOrgFontSize]).toEqual([1, 0, 1, -48]);
+  });
+
+  test("without a render the resolution scale is (1, 1); with one it is the back buffer over 1024 x 768", () => {
+    const none = fontWorld({}, { device: false }).font(16).resolutionScale;
+    expect([none.x, none.y]).toEqual([1, 1]);
+    const scale = fontWorld().font(16).resolutionScale;
+    expect([scale.x, scale.y]).toEqual([1.5, 2]);
+  });
+
+  test("the size the resolution gives is CUT, not rounded: 13 px on a back buffer 1000 high is (int)(13 * 1000 / 768 = 16.93) = 16, a cell of 18", () => {
+    const { font } = fontWorld({}, { backBuffer: { width: 1024, height: 1000 } });
+    const ft = font(13, 0, 1, false);
+    expect(ft.Load()).toBe(true);
+    expect([ft.m_iFontSize, ft.m_iFontCacheSize]).toEqual([16, 18]);
+  });
+});
+
+describe("what the glyphs look like in the cache (shapes the solid boxes of MAIN cannot show: SHAPES, fontworld.ts)", () => {
+  const bars = [255, 255, 0, 0, 0, 0, 255, 255];
+
+  test("H, two bars 2 px wide (x 0..2 and 6..8) and 10 high, advance 10: a cell 10 x 14; the bars are white with their coverage, the gap between them is white with 0 coverage, outside the bitmap is 0", () => {
+    const { ft } = loaded(16, 0, 1, true, { main: SHAPES });
+    const h = ft.GetFontCache(code("H"));
+    expect([h.iWidth, h.iHeight]).toEqual([10, 14]);
+    const bits = ft.m_pTexture[0]!.pBits!;
+    for (let r = 0; r < 14; r++) {
+      for (let c = 0; c < 10; c++) {
+        const inside = c < 8 && r >= 3 && r < 13; // the bitmap is 8 x 10 at (0, 3)
+        expect(bits[(r << 8) + c]).toBe(inside ? WHITE(bars[c]!) : 0);
+      }
+    }
+  });
+
+  test("with an outline of 1 each pixel of the outline's bitmap adds the 2 before it and the rows the 2 below: the bars grow to 4 px, the bitmap to 10 x 12, rows 10 wide; the main bitmap stays 8 wide, 1 px in", () => {
+    const { ft } = loaded(16, 1, 1, true, { main: SHAPES });
+    const h = ft.GetFontCache(code("H"));
+    expect([h.iWidth, h.iHeight]).toEqual([12, 16]); // 10 + 2 against 10; 3 + 12 + 1
+    const main = ft.m_pTexture[0]!.pBits!;
+    const outline = ft.m_pTextureOutLine[0]!.pBits!;
+    const grown = [255, 255, 255, 255, 0, 0, 255, 255, 255, 255];
+    for (let r = 0; r < 16; r++) {
+      for (let c = 0; c < 12; c++) {
+        // main: x = c - 1 in [0, 8), y = r - 1 - 3 in [0, 10); outline: x = c in [0, 10), y = r - 3 in [0, 12)
+        const mainInside = c >= 1 && c < 9 && r >= 4 && r < 14;
+        const outlineInside = c < 10 && r >= 3 && r < 15;
+        expect(main[(r << 8) + c]).toBe(mainInside ? WHITE(bars[c - 1]!) : 0);
+        expect(outline[(r << 8) + c]).toBe(outlineInside ? WHITE(grown[c]!) : 0);
+      }
+    }
+  });
+
+  test("N starts 2 px left of its origin (bearing -2): the bearing is cut at 0, so its bitmap (8 x 10) is drawn from column 0 of the cell", () => {
+    const { ft } = loaded(16, 0, 1, true, { main: SHAPES });
+    const n = ft.GetFontCache(code("N"));
+    expect([n.iWidth, n.iHeight]).toEqual([10, 14]);
+    const bits = ft.m_pTexture[0]!.pBits!;
+    for (let r = 0; r < 14; r++) for (let c = 0; c < 10; c++) expect(bits[(r << 8) + c]).toBe(c < 8 && r >= 3 && r < 13 ? WHITE(255) : 0);
+  });
+
+  test("with an outline a bitmap wider than the advance takes the OUTLINE's width: W (16 wide, advance 8) grows to 18 against 8 + 2; 8 + 7 + 1 high", () => {
+    const { ft } = loaded(16, 1);
+    const w = ft.GetFontCache(code("W"));
+    expect([w.iWidth, w.iHeight, w._texRight, w._texBottom]).toEqual([18, 16, 18.5 / 256, 16.5 / 256]);
+  });
+
+  test("a cell in the second row of the page (the 15th: 14 fit across): its texels go 18 rows down and the bottom of its rectangle counts from the top of the page", () => {
+    const { ft } = loaded(16, 0, 1, true, { main: LETTERS });
+    const cells = [..."abcdefghijklmno"].map((c) => ft.GetFontCache(code(c)));
+    const o = cells[14]!;
+    expect([o.iPage, o.iLeft, o.iTop]).toEqual([0, 0, 18]);
+    // a letter is a box like A: 10 x 14
+    expect([o._texTop, o._texBottom, o._texRight]).toEqual([18.5 / 256, 32.5 / 256, 10.5 / 256]);
+    const bits = ft.m_pTexture[0]!.pBits!;
+    for (let r = 0; r < 14; r++) for (let c = 0; c < 10; c++) expect(bits[((18 + r) << 8) + c]).toBe(c >= 1 && c < 9 && r >= 3 && r < 13 ? WHITE(255) : 0);
+  });
+
+  test("a cell on page 1 of a font with an outline tells ITS outline page about the change, not the first one", () => {
+    const { ft } = loaded(120, 1, 1, true, { main: LETTERS });
+    expect(ft.m_iFontCacheSize).toBe(124); // 120 + 2 + 2: two across, four to a page
+    for (const c of "abcd") ft.GetFontCache(code(c));
+    const e = ft.GetFontCache(code("e"));
+    expect([e.iPage, e.iLeft, e.iTop]).toEqual([1, 0, 0]);
+    const changed = { left: 0, top: 0, right: e.iWidth, bottom: e.iHeight };
+    expect(ft.m_pTextureOutLine[1]!.dirtyRects).toEqual([changed]);
+    expect(ft.m_pTexture[1]!.dirtyRects).toEqual([changed]);
+    expect(ft.m_pTextureOutLine[0]!.dirtyRects.length).toBe(4);
+    expect(ft.m_pTextureOutLine[2]!.dirtyRects).toEqual([]);
+  });
+
+  test("the character is a 16-bit wchar_t: U+10041 is the cell of U+0041, and measures as A", () => {
+    const { ft } = loaded();
+    const a = ft.GetFontCache(0x41);
+    expect(ft.GetFontCache(0x10041)).toBe(a);
+    expect(ft.m_iSizeArray).toBe(1);
+    expect(ft._EstimateFontSize(0x10041)).toEqual({ cx: 9, cy: 13 });
+    expect(loaded().ft._EstimateFontSize(0x10041)).toEqual({ cx: 9, cy: 13 }); // asked first: no cell of its own either
+  });
+
+  test("the last cell of the cache can be the one given up, and a cell given up gets the stamp as a DWORD", () => {
+    const full = () => {
+      const { ft } = loaded(120, 0, 1, true, { main: LETTERS });
+      const cells = [..."abcdefghijklmnop"].map((c) => ft.GetFontCache(code(c)));
+      return { ft, cells };
+    };
+    const a = full();
+    for (const c of a.cells) c.dwLastUse = 50;
+    a.cells[15]!.dwLastUse = 7;
+    expect(a.ft.GetFontCache(code("q"))).toBe(a.cells[15]!);
+    const b = full();
+    b.ft.m_dwCurrentStamp = 0xffffffff;
+    const q = b.ft.GetFontCache(code("q"));
+    expect([q.dwLastUse, b.ft.m_dwCurrentStamp]).toEqual([0xffffffff, 0]);
+  });
+});
+
+describe("measuring: the edges", () => {
+  test("a count past the end measures the terminating NUL, a glyph nobody has: -1 - 2 * outline wide (AB, 3: 9 + 11 - 1; with an outline of 1: 9 + 11 - 3)", () => {
+    expect(loaded().ft._EstimateStringWidth("AB", 3)).toBe(19);
+    expect(loaded(16, 1).ft._EstimateStringWidth("AB", 3)).toBe(17);
+  });
+
+  test("GetWidth: the widest line counts wherever it is (AB, A, B: 20)", () => {
+    expect(loaded().ft.GetWidth("AB\nA\nB", -1)).toBe(20);
+  });
+
+  test("GetWidth: a # that is the last of the count is a character, not the start of a code (A#c cut to 2: 9 + 7)", () => {
+    expect(loaded().ft.GetWidth("A#c", 2)).toBe(16);
+  });
+
+  test("GetWidth: a NUL inside the text measures nothing, nor does a position past its end; a text that starts with a NUL is empty whatever the count", () => {
+    const { ft } = loaded();
+    expect(ft.GetWidth("A\0B", 3)).toBe(20);
+    expect(ft.GetWidth("AB", 5)).toBe(20);
+    expect(ft.GetWidth("\0AB", 3)).toBe(0);
+  });
+});
+
+describe("colour codes, pages and the clock: the edges", () => {
+  /** the colour of each quad of `text` drawn over 0xFF000000 */
+  const colours = (text: string): number[] => {
+    const { ft } = loaded();
+    ft.Buffering(false, 0, 0, text, 0xff000000, 0, false, -1, 1, 1, 0);
+    return pageQuads(ft, 0).map((v) => v[0]![4]!);
+  };
+
+  test("the six characters after #c are read like scanf %x: 0X as well as 0x, a tab as white space, lower case digits", () => {
+    expect(colours("#c0XFF00A")).toEqual([0xff00ff00]); // 0XFF00
+    expect(colours("#c\tAB12CB")).toEqual([0xff0ab12c]); // <tab>AB12C
+    expect(colours("#cff00aaA")).toEqual([0xffff00aa]);
+  });
+
+  test("a # that is the last character of the count is a character even when a code follows it in the text: A#cFF0000B cut to 2 makes two quads", () => {
+    const { ft } = loaded();
+    ft.Buffering(false, 0, 0, "A#cFF0000B", 0xffffffff, 0, false, 2, 1, 1, 0);
+    expect(ft.m_iCandidate[0]).toBe(2);
+  });
+
+  test("a page that fills during the OUTLINE pass is drawn with the outline's texture (cell 104: 14 to a page; the 15th quad starts the page again)", () => {
+    const { ft, dev } = onDevice(100, 1);
+    expect(ft.m_iNumCandidatesInAPage).toBe(14);
+    ft.Buffering(true, 0, 0, "A".repeat(15), 0xffffffff, 0xffffffff, true, -1, 1, 1, 0);
+    expect(nonSrc(dev.log)).toEqual([...PUSH, "update 2 3", "tex 0 page3", "fvf 324", "draw 4 0 28", ...POP]);
+    expect(ft.m_iCandidate).toEqual([1, 0, 0, 0]);
+  });
+
+  test("a page that fills is drawn alone: the quads waiting on another page stay where they are", () => {
+    const { ft, dev } = onDevice(120, 0, 1, true, { main: LETTERS });
+    for (const c of "abcdefghijklmnop") ft.GetFontCache(code(c)); // a-d on page 0, e-h on page 1
+    expect(ft.m_iNumCandidatesInAPage).toBe(12);
+    dev.log.length = 0;
+    // e is on page 1; the 12 a's fill page 0; the 13th makes page 0 go out
+    ft.Buffering(false, 0, 0, "e" + "a".repeat(13), 0xffffffff, 0, false, -1, 1, 1, 0);
+    expect(drawnCalls(dev).map((c) => c.prims)).toEqual([24]);
+    expect(ft.m_iCandidate).toEqual([1, 1, 0, 0]);
+  });
+
+  test("a Flush that frees nothing: the exe's second check empties the page and the text stops", () => {
+    const { ft } = loaded(100);
+    expect(ft.m_iNumCandidatesInAPage).toBe(14);
+    ft.Flush = () => {};
+    ft.Buffering(false, 0, 0, "A".repeat(20), 0xffffffff, 0, false, -1, 1, 1, 0);
+    expect(ft.m_iCandidate[0]).toBe(0);
+  });
+
+  test("Flush of page 0 draws page 0 only (0 is a page, a negative number is all of them)", () => {
+    const { ft, dev } = onDevice(120, 0, 1, true, { main: LETTERS });
+    for (const c of "abcdefghijklmnop") ft.GetFontCache(code(c));
+    ft.Buffering(false, 0, 0, "aeb", 0xffffffff, 0, false, -1, 1, 1, 0);
+    expect(ft.m_iCandidate).toEqual([2, 1, 0, 0]);
+    dev.log.length = 0;
+    ft.Flush(false, 0);
+    expect(nonSrc(dev.log)).toEqual([...PUSH, "update 0 1", "tex 0 page1", "fvf 324", "draw 4 0 4", ...POP]);
+    expect(ft.m_iCandidate).toEqual([0, 1, 0, 0]);
+  });
+
+  test("a page with no vertex memory is not drawn, not even its texture is set, and its count is cleared", () => {
+    const { ft, dev } = onDevice();
+    ft.m_apPageVertex[0] = null;
+    ft.m_iCandidate[0] = 3;
+    ft.Flush(false, 0);
+    expect(nonSrc(dev.log)).toEqual([...PUSH, ...POP]);
+    expect(ft.m_iCandidate).toEqual([0, 0, 0, 0]);
+  });
+
+  test("OutTextXY clips at the rectangle's right edge itself: with right 108 the starts 10 + 9k reach 109 at k = 11, which is one past it and is not drawn", () => {
+    const { ft, dev } = onDevice();
+    ft.OutTextXY(10, 0, "A".repeat(13), 0xff102030, 0xff405060, { left: 10, top: 0, right: 108, bottom: 20 }, 0, -1, 1, 1);
+    expect(rects(drawnCalls(dev)).map((r) => r[0])).toEqual(Array.from({ length: 11 }, (_, k) => 10 + 9 * k));
+  });
+
+  test("OutTextXY: the stamp is the clock as a DWORD (2^32 + 5 is 5), and it is set after the alignment has been measured (the measuring's own uses do not count)", () => {
+    const { ft, clock } = onDevice();
+    clock.now = 2 ** 32 + 5;
+    ft.OutTextXY(0, 0, "A", 0xff102030, 0xff405060, null, 0, -1, 1, 1);
+    const cell = (c: string) => ft.m_FontCacheArray![ft.hashCell[c.charCodeAt(0)]!]!;
+    expect([cell("A").dwLastUse, ft.m_dwCurrentStamp]).toEqual([5, 6]);
+    // flag 1 measures AB first (which makes the two cells, stamps 1 and 2 of the font): the clock goes in after that
+    const centred = onDevice();
+    centred.ft.OutTextXY(100, 50, "AB", 0xff102030, 0xff405060, null, 1, -1, 1, 1);
+    const cell2 = (c: string) => centred.ft.m_FontCacheArray![centred.ft.hashCell[c.charCodeAt(0)]!]!;
+    expect([cell2("A").dwLastUse, cell2("B").dwLastUse, centred.ft.m_dwCurrentStamp]).toEqual([5000, 5001, 5002]);
   });
 });

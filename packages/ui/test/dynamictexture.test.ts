@@ -53,6 +53,16 @@ describe("CKTDGDynamicTexture without a device (the pixels stay on the CPU)", ()
     t.SetTexture(0);
     expect([t.m_bUpdateTexture, t.dirtyRects.length]).toEqual([false, 0]);
   });
+
+  test("SetChange keeps a copy of the rectangle: what the caller does to it afterwards does not reach the list", () => {
+    const t = new CKTDGDynamicTexture(host(null).h);
+    t.CreateTexture(256, 256, 21);
+    const r = rect(1, 2, 3, 4);
+    t.SetChange(r);
+    r.left = 99;
+    r.bottom = 77;
+    expect(t.dirtyRects).toEqual([rect(1, 2, 3, 4)]);
+  });
 });
 
 describe("CKTDGDynamicTexture with a device", () => {
@@ -157,6 +167,28 @@ describe("CKTDGDynamicTexture with a device", () => {
     t.SetTexture(16);
     expect(calls).toEqual([dev.textures[1]!]);
     expect(log).toEqual([{ id: 0xd, text: undefined }]);
+  });
+
+  test("CreateTexture: both textures are of the size asked for, width first (128 x 64), with ONE level", () => {
+    const dev = new Recorder();
+    const t = new CKTDGDynamicTexture(host(dev).h);
+    expect(t.CreateTexture(128, 64, 21)).toBe(true);
+    expect(dev.log).toEqual(["create 0 pool 2 128x64", "create 1 pool 0 128x64"]);
+    expect(dev.textures.map((x) => x.levels)).toEqual([1, 1]);
+    expect([t.m_dwWidth, t.m_dwHeight, t.pBits!.length, t.pitch]).toEqual([128, 64, 128 * 64, 512]);
+  });
+
+  test("SetTexture unlocks the system texture before it is the source of UpdateTexture (Direct3D wants it unlocked), and a SetTexture that works logs nothing, from stage 0 or from 16", () => {
+    const dev = new Recorder();
+    const { h, log } = host(dev);
+    const t = new CKTDGDynamicTexture(h);
+    t.CreateTexture(256, 256, 21);
+    t.SetChange(rect(0, 0, 8, 1));
+    t.SetTexture(0);
+    t.SetTexture(16);
+    expect(dev.lockedUpdates).toEqual([]);
+    expect(dev.log.filter((l) => l.startsWith("update"))).toEqual(["update 0 1"]);
+    expect(log).toEqual([]);
   });
 
   test("SetTexture of a texture that was never made (no video texture): nothing happens", () => {

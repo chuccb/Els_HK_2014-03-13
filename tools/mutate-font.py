@@ -1,0 +1,794 @@
+#!/usr/bin/env python3
+"""Mutation check of the text classes of packages/ui: CKTDGFreeTypeFont (freetypefont.ts: the faces, the glyph cache, measuring, Buffering,
+Flush, OutTextXY, OutTextMultiline), CKTDGDynamicTexture (dynamictexture.ts), CUKFont (font.ts), the font manager's InstallFont /
+GetFontMemory / CreateNewUIUKFont (fontmanager.ts) and CX2Main.InstallFont (main.ts).  One small change at a time is applied to a source file
+of packages/ui/src, the tests of the text path are run and the script reports whether a test notices (killed) or not (SURVIVED).
+
+    python3 tools/mutate-font.py [--list] [--check] [--survivors=LOG] [substring of a mutant name ...]
+
+A mutant that must be killed and survives makes the exit code 1; so does a mutant with a reason that is killed (the reason is out of
+date).  The reason (the last argument of `m(...)`) says why no input can tell the mutant from the original.  `--check` only verifies that
+every anchor text occurs exactly once; `--survivors=LOG` runs only the mutants that survived in an earlier run's output.  The source is
+restored after every mutant (also on Ctrl-C), but do not run this with edits you cannot afford to lose in the mutated files and edit
+nothing meanwhile.  Needs `bun` in ./node_modules/.bin.  Each run has a 90 s timeout and an 8 GB address-space limit: a mutant that
+loops or blows up is killed, too.
+"""
+import os, re, resource, subprocess, sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BUN = os.path.join(ROOT, 'node_modules/.bin/bun')
+SRC = 'packages/ui/src/'
+T = 'packages/ui/test/'
+# the tests that run for the mutants of a file
+TESTS = {
+    'freetypefont.ts': [T + 'freetypefont.test.ts'],
+    'dynamictexture.ts': [T + 'dynamictexture.test.ts', T + 'freetypefont.test.ts'],
+    'font.ts': [T + 'freetypefont.test.ts', T + 'combobox.test.ts'],
+    'fontmanager.ts': [T + 'fontmanager.test.ts', T + 'freetypefont.test.ts', T + 'combobox.test.ts'],
+    'main.ts': [T + 'fontmanager.test.ts', T + 'combobox.test.ts'],
+}
+
+M = []
+
+
+def m(f, name, a, b, why=''):
+    M.append((f, name, a, b, why))
+
+
+def path_of(f):
+    return os.path.join(ROOT, SRC + f)
+
+
+FT = 'freetypefont.ts'
+
+# ---- scanHex (the %x of the colour codes)
+m(FT, 'scanHex: the sign is ignored', 'if (m[1] === "-") v = -v;', 'if (false) v = -v;')
+m(FT, 'scanHex: a plus sign is not accepted', r'([+-]?)', r'(-?)')
+m(FT, 'scanHex: a minus sign is not accepted', r'([+-]?)', r'(\+?)')
+m(FT, 'scanHex: no 0x prefix', r'(?:0[xX](?=[0-9a-fA-F]))?', '')
+m(FT, 'scanHex: only 0x, not 0X', r'(?:0[xX](?=[0-9a-fA-F]))?', r'(?:0x(?=[0-9a-fA-F]))?')
+m(FT, 'scanHex: only 0X, not 0x', r'(?:0[xX](?=[0-9a-fA-F]))?', r'(?:0X(?=[0-9a-fA-F]))?')
+m(FT, 'scanHex: white space is not skipped', r'/^[ \t\n\v\f\r]*', r'/^')
+m(FT, 'scanHex: only a space is white space', r'[ \t\n\v\f\r]*', r'[ ]*')
+m(FT, 'scanHex: the digits are decimal', 'parseInt(m[2]!, 16)', 'parseInt(m[2]!, 10)')
+m(FT, 'scanHex: upper case digits only', r'([0-9a-fA-F]+)/.exec', r'([0-9A-F]+)/.exec')
+m(FT, 'scanHex: lower case digits only', r'([0-9a-fA-F]+)/.exec', r'([0-9a-f]+)/.exec')
+m(FT, 'scanHex: a value is not wrapped to 32 bits', 'return v >>> 0;', 'return v;',
+  'equivalent: the only caller ORs the value with the alpha and wraps the result with `>>> 0` itself, and a negative number has the same bits')
+m(FT, 'scanHex: nothing readable is 0 (not "no value")', 'if (!m) return null;', 'if (!m) return 0;')
+m(FT, 'wcslen: a NUL does not end the string', 'return at < 0 ? s.length : at;', 'return s.length;')
+
+# ---- the constructor and the fields it computes
+m(FT, 'ctor: an enlargement below 1 is 1', 'enlargeNum < 1 ? 1 : enlargeNum;', 'enlargeNum;')
+m(FT, 'ctor: the size is the enlargement times the height', 'Math.imul(enlargeNum, iFontSize);', 'iFontSize;')
+m(FT, 'ctor: the cell holds the outline and a pixel on both sides', '(this.m_iFontSize + 2 * (iOutLineSize + 1)) | 0;', '(this.m_iFontSize + 2 * iOutLineSize) | 0;')
+m(FT, 'resolutionScale: (1, 1) without a render', '?? { x: 1, y: 1 };', '?? { x: 1, y: 2 };')
+m(FT, 'resolutionScale: the scale of the render', 'return this.host.render?.resolutionScale ?? {', 'return this.host.render?.resolutionScale && {')
+m(FT, 'a vertex of a font that is not RHW is 24 bytes', 'return this.m_bRHW ? 28 : 24;', 'return this.m_bRHW ? 28 : 28;')
+m(FT, 'a vertex of a RHW font is 28 bytes', 'return this.m_bRHW ? 28 : 24;', 'return this.m_bRHW ? 24 : 24;')
+m(FT, 'textureHost: the log of the mass file manager', 'log: host.devices.massFiles.log }', 'log: { push: () => 0 } as never }')
+
+# ---- Load
+m(FT, 'Load: a loaded font is not loaded again', 'if (this.m_bLoad) return true;', '')
+m(FT, 'Load: the size follows the resolution unless bNoRes', 'if (!this.m_bNoRes) org =', 'if (this.m_bNoRes) org =')
+m(FT, 'Load: the size does not follow the resolution', 'if (!this.m_bNoRes) org =', 'if (false) org =')
+m(FT, 'Load: the resolution is the y scale', 'host.render.resolutionScale.y : 1));', 'host.render.resolutionScale.x : 1));')
+m(FT, 'Load: the scaled size is cut, not rounded', 'this.m_iFontSize = ftoi(org);', 'this.m_iFontSize = Math.round(org);')
+m(FT, 'Load: the cell is the size, the outline twice and 2', 'const cell = (this.m_iFontSize + 2 * this.m_iOutLineSize + 2) | 0;', 'const cell = (this.m_iFontSize + 2 * this.m_iOutLineSize + 1) | 0;')
+m(FT, 'Load: the cell takes the outline once', 'const cell = (this.m_iFontSize + 2 * this.m_iOutLineSize + 2) | 0;', 'const cell = (this.m_iFontSize + this.m_iOutLineSize + 2) | 0;')
+m(FT, 'Load: a page holds three rows of 256 pixels of candidates', 'Math.imul(idiv(3 * 256, cell), idiv(256, cell));', 'Math.imul(idiv(4 * 256, cell), idiv(256, cell));')
+m(FT, 'Load: the candidates of a page take the cell across', 'Math.imul(idiv(3 * 256, cell), idiv(256, cell));', 'Math.imul(idiv(3 * 256, cell), idiv(3 * 256, cell));')
+m(FT, 'Load: the cells in all are four rows of 256 times the columns', 'this.m_iTotalCache = Math.imul(idiv(4 * 256, cell), idiv(256, cell));', 'this.m_iTotalCache = Math.imul(idiv(256, cell), idiv(256, cell)) * 4;')
+m(FT, 'Load: the cells in all are one page of rows', 'this.m_iTotalCache = Math.imul(idiv(4 * 256, cell), idiv(256, cell));', 'this.m_iTotalCache = Math.imul(idiv(256, cell), idiv(256, cell));')
+m(FT, 'Load: a file of no bytes is not a failure by itself', 'if (mem.length === 0) return { face: null, failed: true };', 'if (false) return { face: null, failed: true };',
+  'equivalent: FreeType refuses a file of no bytes just the same (Unknown_File_Format) and the failure is the answer there')
+m(FT, 'Load: a refusal of FreeType is not a failure', 'if (e instanceof FtError && !(e.code === FtErr.Unimplemented_Feature && /not ported/.test(e.message))) return { face: null, failed: true };\n        throw e;', 'throw e;')
+m(FT, 'Load: the main face is set to the font size', 'this.m_FreeTypeFace = main.face;\n    if (sizeFails(main.face!)) {', 'this.m_FreeTypeFace = main.face;\n    if (false) {')
+m(FT, 'Load: the size is in 26.6 (<< 6)', 'setCharSize(face, this.m_iFontSize << 6, 0, 72, 72)', 'setCharSize(face, this.m_iFontSize, 0, 72, 72)')
+m(FT, 'Load: the size is for 72 dpi', 'setCharSize(face, this.m_iFontSize << 6, 0, 72, 72)', 'setCharSize(face, this.m_iFontSize << 6, 0, 96, 96)')
+m(FT, 'Load: the main face error says the font name', 'host.messageBox(name, "Font Load Error!");\n      return false;\n    }\n    this.m_FreeTypeFace = main.face;', 'host.messageBox("JhengHeiBold", "Font Load Error!");\n      return false;\n    }\n    this.m_FreeTypeFace = main.face;')
+m(FT, 'Load: the main face error is a load error', 'host.messageBox(name, "Font Load Error!");\n      return false;\n    }\n    this.m_FreeTypeFace = main.face;', 'host.messageBox(name, "Font Size Error!");\n      return false;\n    }\n    this.m_FreeTypeFace = main.face;')
+m(FT, 'Load: the main face error is logged', 'log.push(0x1aa, "FT_New_Memory_Face");\n      host.messageBox(name, "Font Load Error!");\n      return false;\n    }\n    this.m_FreeTypeFace = main.face;', 'host.messageBox(name, "Font Load Error!");\n      return false;\n    }\n    this.m_FreeTypeFace = main.face;')
+m(FT, 'Load: the main size error says the font name', 'host.messageBox(name, "Font Size Error!");\n      log.push(0x1aa, "FT_Set_Char_Size");\n      return false;\n    }\n    // the sub face', 'host.messageBox("GULIM", "Font Size Error!");\n      log.push(0x1aa, "FT_Set_Char_Size");\n      return false;\n    }\n    // the sub face')
+m(FT, 'Load: the main size error is a size error', 'host.messageBox(name, "Font Size Error!");\n      log.push(0x1aa, "FT_Set_Char_Size");\n      return false;\n    }\n    // the sub face', 'host.messageBox(name, "Font Load Error!");\n      log.push(0x1aa, "FT_Set_Char_Size");\n      return false;\n    }\n    // the sub face')
+m(FT, 'Load: the main size error is logged', 'host.messageBox(name, "Font Size Error!");\n      log.push(0x1aa, "FT_Set_Char_Size");\n      return false;\n    }\n    // the sub face', 'host.messageBox(name, "Font Size Error!");\n      return false;\n    }\n    // the sub face')
+m(FT, 'Load: the sub face is JhengHeiBold', 'const sub = openFace("JhengHeiBold");', 'const sub = openFace("JhengHei");')
+m(FT, 'Load: the sub face error is the main font\'s name', 'host.messageBox(name, "Font Load Error!");\n      return false;\n    }\n    this.m_FreeTypeSubFace = sub.face;', 'host.messageBox("JhengHeiBold", "Font Load Error!");\n      return false;\n    }\n    this.m_FreeTypeSubFace = sub.face;')
+m(FT, 'Load: the sub face error is logged', 'log.push(0x1aa, "FT_New_Memory_Face");\n      host.messageBox(name, "Font Load Error!");\n      return false;\n    }\n    this.m_FreeTypeSubFace = sub.face;', 'host.messageBox(name, "Font Load Error!");\n      return false;\n    }\n    this.m_FreeTypeSubFace = sub.face;')
+m(FT, 'Load: the sub face size is checked', 'this.m_FreeTypeSubFace = sub.face;\n    if (sizeFails(sub.face!)) {', 'this.m_FreeTypeSubFace = sub.face;\n    if (false) {')
+m(FT, 'Load: the sub face size error says the main font\'s name', 'if (sizeFails(sub.face!)) {\n      host.messageBox(name, "Font Size Error!");', 'if (sizeFails(sub.face!)) {\n      host.messageBox("JhengHeiBold", "Font Size Error!");')
+m(FT, 'Load: the Korean face is not opened for a font called GULIM, compared exactly', 'if (name !== "GULIM") {', 'if (name.toUpperCase() !== "GULIM") {')
+m(FT, 'Load: the Korean face is not opened for a font called GULIM', 'if (name !== "GULIM") {', 'if (true) {')
+m(FT, 'Load: the Korean face is GULIM', 'const kor = openFace("GULIM");', 'const kor = openFace("JhengHeiBold");')
+m(FT, 'Load: the Korean face error says GULIM', 'host.messageBox("GULIM", "Font Load Error!");', 'host.messageBox(name, "Font Load Error!");')
+m(FT, 'Load: the Korean face error is logged', 'log.push(0x1aa, "FT_New_Memory_Face");\n        host.messageBox("GULIM", "Font Load Error!");', 'host.messageBox("GULIM", "Font Load Error!");')
+m(FT, 'Load: the Korean size error says GULIM', 'host.messageBox("GULIM", "Font Size Error!");', 'host.messageBox(name, "Font Size Error!");')
+m(FT, 'Load: the Korean size error is logged', 'log.push(0x1aa, "FT_Set_Char_Size");\n        host.messageBox("GULIM", "Font Size Error!");', 'host.messageBox("GULIM", "Font Size Error!");')
+m(FT, 'Load: a Korean face is set to the size', 'this.m_KoreanFreeTypeFace = kor.face;\n      if (sizeFails(kor.face!)) {', 'this.m_KoreanFreeTypeFace = kor.face;\n      if (false) {')
+m(FT, 'Load: a font has four pages', 'for (let page = 0; page < 4; page++) {\n      const tex = new CKTDGDynamicTexture', 'for (let page = 0; page < 3; page++) {\n      const tex = new CKTDGDynamicTexture')
+m(FT, 'Load: a page is 256 wide', 'tex.CreateTexture(256, 256, 21)', 'tex.CreateTexture(128, 256, 21)')
+m(FT, 'Load: a page is 256 high', 'tex.CreateTexture(256, 256, 21)', 'tex.CreateTexture(256, 128, 21)')
+m(FT, 'Load: a page is A8R8G8B8', 'tex.CreateTexture(256, 256, 21)', 'tex.CreateTexture(256, 256, 22)')
+m(FT, 'Load: a page that cannot be made is logged as 6', 'log.push(6, name);', 'log.push(7, name);')
+m(FT, 'Load: an outline page that cannot be made is logged as 7', 'log.push(7, name);', 'log.push(6, name);')
+m(FT, 'Load: an outline page that cannot be made says the font name', 'log.push(7, name);', 'log.push(7, "");')
+m(FT, 'Load: an outline page is 256 wide', 'outline.CreateTexture(256, 256, 21)', 'outline.CreateTexture(128, 256, 21)')
+m(FT, 'Load: an outline page is made for a font with an outline of 1', 'if (this.m_iOutLineSize > 0) {\n        const outline', 'if (this.m_iOutLineSize > 1) {\n        const outline')
+m(FT, 'Load: an outline page is not made for a font without an outline', 'if (this.m_iOutLineSize > 0) {\n        const outline', 'if (this.m_iOutLineSize >= 0) {\n        const outline')
+m(FT, 'Load: the hash table starts empty', 'this.hashCell.fill(-1);\n    this.hashSizeKnown.fill(0);', 'this.hashCell.fill(0);\n    this.hashSizeKnown.fill(0);')
+m(FT, 'Load: the vertex memory is six vertices a candidate', 'const bytes = 6 * this.m_iNumCandidatesInAPage * this.vertexStride;', 'const bytes = 5 * this.m_iNumCandidatesInAPage * this.vertexStride;')
+m(FT, 'Load: every page has vertex memory', 'for (let page = 0; page < 4; page++) {\n      const bytes', 'for (let page = 0; page < 3; page++) {\n      const bytes')
+m(FT, 'Load: the font is loaded at the end', 'this.m_bLoad = true;\n    return true;', 'return true;')
+
+# ---- the glyph cache
+m(FT, 'pageTexture: pages 4 to 7 are the outline pages', 'const alias = page < 8 && !outline ? this.m_pTextureOutLine[page - 4] : null;', 'const alias = null;')
+m(FT, 'pageTexture: the alias is for the main pass only', 'const alias = page < 8 && !outline ? this.m_pTextureOutLine[page - 4] : null;', 'const alias = page < 8 ? this.m_pTextureOutLine[page - 4] : null;')
+m(FT, 'pageTexture: the alias is page - 4', 'this.m_pTextureOutLine[page - 4] : null;', 'this.m_pTextureOutLine[page - 3] : null;')
+m(FT, 'pageTexture: page 4 is the first alias', 'if (page > 3) {', 'if (page > 4) {')
+m(FT, 'pageTexture: the outline page of a pass', 'const tex = outline ? this.m_pTextureOutLine[page] : this.m_pTexture[page];', 'const tex = outline ? this.m_pTexture[page] : this.m_pTextureOutLine[page];')
+m(FT, 'CharToSystemTexture: the main face is asked first', 'for (const candidate of [this.m_FreeTypeFace, this.m_FreeTypeSubFace, this.m_KoreanFreeTypeFace]) {', 'for (const candidate of [this.m_FreeTypeSubFace, this.m_FreeTypeFace, this.m_KoreanFreeTypeFace]) {')
+m(FT, 'CharToSystemTexture: the Korean face comes after the sub face', 'for (const candidate of [this.m_FreeTypeFace, this.m_FreeTypeSubFace, this.m_KoreanFreeTypeFace]) {', 'for (const candidate of [this.m_FreeTypeFace, this.m_KoreanFreeTypeFace, this.m_FreeTypeSubFace]) {')
+m(FT, 'CharToSystemTexture: the Korean face is asked', 'for (const candidate of [this.m_FreeTypeFace, this.m_FreeTypeSubFace, this.m_KoreanFreeTypeFace]) {', 'for (const candidate of [this.m_FreeTypeFace, this.m_FreeTypeSubFace]) {')
+m(FT, 'CharToSystemTexture: glyph index 0 is not a glyph', 'if (index !== 0 && !ftFailed(', 'if (!ftFailed(')
+m(FT, 'CharToSystemTexture: the glyph is loaded without bitmaps', 'loadGlyph(candidate, index, 8)', 'loadGlyph(candidate, index, 0)',
+  'equivalent for the faces the tests and the client have: none has an embedded bitmap strike (FT_LOAD_NO_BITMAP only matters for EBDT / sbix, and decoding those is not ported)')
+m(FT, 'CharToSystemTexture: the glyph is rendered normal', 'renderGlyph(candidate.glyph, 0)', 'renderGlyph(candidate.glyph, 2)')
+m(FT, 'CharToSystemTexture: a character no face has leaves the cell', 'if (!face) return;', 'if (!face) face = this.m_FreeTypeFace;')
+m(FT, 'CharToSystemTexture: the outline bitmap is emboldened by outline pixels', 'bitmapEmbolden(obitmap, outline << 7, outline << 7);', 'bitmapEmbolden(obitmap, outline << 6, outline << 6);')
+m(FT, 'CharToSystemTexture: the outline bitmap is emboldened sideways', 'bitmapEmbolden(obitmap, outline << 7, outline << 7);', 'bitmapEmbolden(obitmap, 0, outline << 7);')
+m(FT, 'CharToSystemTexture: the outline bitmap is emboldened upwards', 'bitmapEmbolden(obitmap, outline << 7, outline << 7);', 'bitmapEmbolden(obitmap, outline << 7, 0);')
+m(FT, 'CharToSystemTexture: the outline bitmap is a copy', 'bitmapCopy(bm, obitmap);', 'obitmap = bm;')
+m(FT, 'CharToSystemTexture: a font without outline has no outline bitmap', 'if (outline > 0) {\n      obitmap = new Bitmap();', 'if (outline >= 0) {\n      obitmap = new Bitmap();',
+  'equivalent: embolden by 0 leaves the bitmap as it is, and the outline page is only written when the outline is above 0')
+m(FT, 'CharToSystemTexture: the left bearing is cut at 0', 'const xOff = bearing <= 0 ? 0 : bearing; // v45', 'const xOff = bearing; // v45')
+m(FT, 'CharToSystemTexture: the left bearing counts', 'const xOff = bearing <= 0 ? 0 : bearing; // v45', 'const xOff = 0; // v45')
+m(FT, 'CharToSystemTexture: the left bearing is in whole pixels', 'const bearing = glyph.metrics.horiBearingX >> 6;', 'const bearing = glyph.metrics.horiBearingX >> 5;')
+m(FT, 'CharToSystemTexture: the ascender less the top bearing', '(face.size.metrics.ascender - glyph.metrics.horiBearingY) >> 6; // v47', '(face.size.metrics.ascender + glyph.metrics.horiBearingY) >> 6; // v47')
+m(FT, 'CharToSystemTexture: the rows start below the ascender', '(face.size.metrics.ascender - glyph.metrics.horiBearingY) >> 6; // v47', '(glyph.metrics.horiBearingY) >> 6; // v47')
+m(FT, 'CharToSystemTexture: the cell is as wide as the advance and the outline', 'let cw = (advance >> 6) + 2 * outline;', 'let cw = (advance >> 6) + outline;')
+m(FT, 'CharToSystemTexture: the advance is in whole pixels', 'let cw = (advance >> 6) + 2 * outline;', 'let cw = (advance >> 5) + 2 * outline;')
+m(FT, 'CharToSystemTexture: a wider bitmap sets the width', 'if (cw <= owidth) cw = owidth;', 'if (false) cw = owidth;')
+m(FT, 'CharToSystemTexture: a wider bitmap sets the width (the outline\'s)', 'if (cw <= owidth) cw = owidth;', 'if (cw <= width) cw = width;')
+m(FT, 'CharToSystemTexture: the height is the offset, the rows and 1', 'let ch = yOff + orows + 1;', 'let ch = yOff + orows;')
+m(FT, 'CharToSystemTexture: the height counts the outline\'s rows', 'let ch = yOff + orows + 1;', 'let ch = yOff + rows + 1;')
+m(FT, 'CharToSystemTexture: the height is cut to the cell', 'if (ch >= cell) ch = cell;', 'if (false) ch = cell;')
+m(FT, 'CharToSystemTexture: the width is cut to the cell', 'if (cw < cell) cell = cw;', 'if (false) cell = cw;')
+m(FT, 'CharToSystemTexture: the cell holds the width', 'cache.iWidth = cell;', 'cache.iWidth = cw;')
+m(FT, 'CharToSystemTexture: the right texel is half a pixel in', 'cache._texRight = f(f(f(cell + cache.iLeft) + 0.5) * PIXEL_TO_TEX);', 'cache._texRight = f(f(f(cell + cache.iLeft)) * PIXEL_TO_TEX);')
+m(FT, 'CharToSystemTexture: the bottom texel is half a pixel in', 'cache._texBottom = f(f(f(ch + cache.iTop) + 0.5) * PIXEL_TO_TEX);', 'cache._texBottom = f(f(f(ch + cache.iTop)) * PIXEL_TO_TEX);')
+m(FT, 'CharToSystemTexture: the right texel is from the cell\'s left', 'cache._texRight = f(f(f(cell + cache.iLeft) + 0.5) * PIXEL_TO_TEX);', 'cache._texRight = f(f(f(cell) + 0.5) * PIXEL_TO_TEX);')
+m(FT, 'CharToSystemTexture: the bottom texel is from the cell\'s top', 'cache._texBottom = f(f(f(ch + cache.iTop) + 0.5) * PIXEL_TO_TEX);', 'cache._texBottom = f(f(f(ch) + 0.5) * PIXEL_TO_TEX);')
+m(FT, 'CharToSystemTexture: the rows are those of the cell', 'for (let r = 0; r < cache.iHeight; r++) {', 'for (let r = 0; r < rows; r++) {')
+m(FT, 'CharToSystemTexture: the bitmap starts below the outline', 'const y = r - outline - yOff;', 'const y = r - yOff;')
+m(FT, 'CharToSystemTexture: the bitmap starts below the offset', 'const y = r - outline - yOff;', 'const y = r - outline;')
+m(FT, 'CharToSystemTexture: the outline bitmap starts below the offset', 'const oy = r - yOff;', 'const oy = r;')
+m(FT, 'CharToSystemTexture: the columns are those of the cell', 'for (let c = 0; c < cache.iWidth; c++) {', 'for (let c = 0; c < width; c++) {')
+m(FT, 'CharToSystemTexture: the bitmap starts right of the outline', 'const x = c - outline - xOff;', 'const x = c - xOff;')
+m(FT, 'CharToSystemTexture: the bitmap starts right of the bearing', 'const x = c - outline - xOff;', 'const x = c - outline;')
+m(FT, 'CharToSystemTexture: the texel is in the cell of the page', 'const at = c + cache.iLeft + (r << 8) + (cache.iTop << 8);', 'const at = c + cache.iLeft + (r << 8);')
+m(FT, 'CharToSystemTexture: the texel is in the column of the cell', 'const at = c + cache.iLeft + (r << 8) + (cache.iTop << 8);', 'const at = c + (r << 8) + (cache.iTop << 8);')
+m(FT, 'CharToSystemTexture: a texel above the bitmap is 0', 'pBits[at] = y < 0 || y >= rows || x < 0 || x >= width ? 0 :', 'pBits[at] = y >= rows || x < 0 || x >= width ? 0 :')
+m(FT, 'CharToSystemTexture: a texel below the bitmap is 0', 'pBits[at] = y < 0 || y >= rows || x < 0 || x >= width ? 0 :', 'pBits[at] = y < 0 || x < 0 || x >= width ? 0 :')
+m(FT, 'CharToSystemTexture: a texel left of the bitmap is 0', 'pBits[at] = y < 0 || y >= rows || x < 0 || x >= width ? 0 :', 'pBits[at] = y < 0 || y >= rows || x >= width ? 0 :')
+m(FT, 'CharToSystemTexture: a texel right of the bitmap is 0', 'pBits[at] = y < 0 || y >= rows || x < 0 || x >= width ? 0 :', 'pBits[at] = y < 0 || y >= rows || x < 0 ? 0 :')
+m(FT, 'CharToSystemTexture: a texel is the coverage in the alpha, white', '(((src![width * y + x]! << 24) | 0xffffff) >>> 0)', '(((src![width * y + x]! << 24)) >>> 0)')
+m(FT, 'CharToSystemTexture: the bitmap rows are width wide', 'src![width * y + x]!', 'src![rows * y + x]!')
+m(FT, 'CharToSystemTexture: an outline texel above the bitmap is 0', 'oBits![at] = oy < 0 || oy >= orows || ox < 0 || ox >= owidth ? 0 :', 'oBits![at] = oy >= orows || ox < 0 || ox >= owidth ? 0 :')
+m(FT, 'CharToSystemTexture: an outline texel below the bitmap is 0', 'oBits![at] = oy < 0 || oy >= orows || ox < 0 || ox >= owidth ? 0 :', 'oBits![at] = oy < 0 || ox < 0 || ox >= owidth ? 0 :')
+m(FT, 'CharToSystemTexture: an outline texel left of the bitmap is 0', 'oBits![at] = oy < 0 || oy >= orows || ox < 0 || ox >= owidth ? 0 :', 'oBits![at] = oy < 0 || oy >= orows || ox >= owidth ? 0 :')
+m(FT, 'CharToSystemTexture: an outline texel right of the bitmap is 0', 'oBits![at] = oy < 0 || oy >= orows || ox < 0 || ox >= owidth ? 0 :', 'oBits![at] = oy < 0 || oy >= orows || ox < 0 ? 0 :')
+m(FT, 'CharToSystemTexture: the outline bitmap starts right of the bearing', 'const ox = c - xOff;', 'const ox = c;')
+m(FT, 'CharToSystemTexture: the outline bitmap rows are owidth wide', 'osrc![owidth * oy + ox]!', 'osrc![width * oy + ox]!')
+m(FT, 'CharToSystemTexture: the outline texel is the coverage in the alpha, white', '(((osrc![owidth * oy + ox]! << 24) | 0xffffff) >>> 0)', '(((osrc![owidth * oy + ox]! << 24)) >>> 0)')
+
+# ---- GetFontCache
+m(FT, 'GetFontCache: the character is a 16-bit wchar_t', 'ch &= 0xffff;\n    const cells', 'const cells')
+m(FT, 'GetFontCache: a cell that is cached gets the newest stamp', 'cache.dwLastUse = this.m_dwCurrentStamp;\n      this.m_dwCurrentStamp = (this.m_dwCurrentStamp + 1) >>> 0;\n      return cache;', 'this.m_dwCurrentStamp = (this.m_dwCurrentStamp + 1) >>> 0;\n      return cache;')
+m(FT, 'GetFontCache: a cell that is cached counts the stamp up', 'cache.dwLastUse = this.m_dwCurrentStamp;\n      this.m_dwCurrentStamp = (this.m_dwCurrentStamp + 1) >>> 0;\n      return cache;', 'cache.dwLastUse = this.m_dwCurrentStamp;\n      return cache;')
+m(FT, 'GetFontCache: a new cell takes the stamp', 'cache.dwLastUse = this.m_dwCurrentStamp;\n      this.m_dwCurrentStamp = (this.m_dwCurrentStamp + 1) >>> 0;\n      this.fillCell(cache);\n      this.m_iSizeArray++;', 'this.m_dwCurrentStamp = (this.m_dwCurrentStamp + 1) >>> 0;\n      this.fillCell(cache);\n      this.m_iSizeArray++;')
+m(FT, 'GetFontCache: a new cell counts the stamp up', 'cache.dwLastUse = this.m_dwCurrentStamp;\n      this.m_dwCurrentStamp = (this.m_dwCurrentStamp + 1) >>> 0;\n      this.fillCell(cache);\n      this.m_iSizeArray++;', 'cache.dwLastUse = this.m_dwCurrentStamp;\n      this.fillCell(cache);\n      this.m_iSizeArray++;')
+m(FT, 'GetFontCache: a new cell is counted', 'this.fillCell(cache);\n      this.m_iSizeArray++;', 'this.fillCell(cache);')
+m(FT, 'GetFontCache: the free cells are used up before one is given up', 'if (this.m_iSizeArray < this.m_iTotalCache) {', 'if (this.m_iSizeArray <= this.m_iTotalCache) {')
+m(FT, 'GetFontCache: the next free cell is the one after the last', 'const i = this.m_iSizeArray;\n      this.hashCell[ch] = i;', 'const i = this.m_iSizeArray + 1;\n      this.hashCell[ch] = i;')
+m(FT, 'GetFontCache: a new character is entered in the hash table', 'this.hashCell[ch] = i;\n      const cache = cells[i]!;', 'const cache = cells[i]!;')
+m(FT, 'GetFontCache: a page holds v * v cells', 'const inPage = i % (v * v);', 'const inPage = i % v;')
+m(FT, 'GetFontCache: a cell is on page i / (v * v)', 'cache.iPage = idiv(i, v * v);', 'cache.iPage = idiv(i, v);')
+m(FT, 'GetFontCache: the column is the cell in the row', 'cache.iLeft = Math.imul(this.m_iFontCacheSize, inPage % v);', 'cache.iLeft = Math.imul(this.m_iFontCacheSize, idiv(inPage, v));')
+m(FT, 'GetFontCache: the row is the cell over the columns', 'cache.iTop = Math.imul(this.m_iFontCacheSize, idiv(inPage, v));', 'cache.iTop = Math.imul(this.m_iFontCacheSize, inPage % v);')
+m(FT, 'GetFontCache: a cell is a cell size wide', 'cache.iLeft = Math.imul(this.m_iFontCacheSize, inPage % v);', 'cache.iLeft = Math.imul(this.m_iFontSize, inPage % v);')
+m(FT, 'GetFontCache: a cell is a cell size high', 'cache.iTop = Math.imul(this.m_iFontCacheSize, idiv(inPage, v));', 'cache.iTop = Math.imul(this.m_iFontSize, idiv(inPage, v));')
+m(FT, 'GetFontCache: the cells in a row are 256 over the cell size', 'const v = idiv(256, this.m_iFontCacheSize);\n      const inPage', 'const v = idiv(256, this.m_iFontSize);\n      const inPage')
+m(FT, 'GetFontCache: the left texel is half a pixel in', 'cache._texLeft = f(f(cache.iLeft + 0.5) * PIXEL_TO_TEX);', 'cache._texLeft = f(f(cache.iLeft) * PIXEL_TO_TEX);')
+m(FT, 'GetFontCache: the top texel is half a pixel in', 'cache._texTop = f(f(cache.iTop + 0.5) * PIXEL_TO_TEX);', 'cache._texTop = f(f(cache.iTop) * PIXEL_TO_TEX);')
+m(FT, 'GetFontCache: the left texel is of the left', 'cache._texLeft = f(f(cache.iLeft + 0.5) * PIXEL_TO_TEX);', 'cache._texLeft = f(f(cache.iTop + 0.5) * PIXEL_TO_TEX);')
+m(FT, 'GetFontCache: the top texel is of the top', 'cache._texTop = f(f(cache.iTop + 0.5) * PIXEL_TO_TEX);', 'cache._texTop = f(f(cache.iLeft + 0.5) * PIXEL_TO_TEX);')
+m(FT, 'GetFontCache: a new cell knows its character', 'cache._Char = ch;\n      cache.dwLastUse = this.m_dwCurrentStamp;\n      this.m_dwCurrentStamp = (this.m_dwCurrentStamp + 1) >>> 0;\n      this.fillCell(cache);\n      this.m_iSizeArray++;', 'cache.dwLastUse = this.m_dwCurrentStamp;\n      this.m_dwCurrentStamp = (this.m_dwCurrentStamp + 1) >>> 0;\n      this.fillCell(cache);\n      this.m_iSizeArray++;')
+m(FT, 'GetFontCache: the cell given up is the first one to start with', 'let victim = 0;\n    let oldest = cells[0]!.dwLastUse;', 'let victim = 0;\n    let oldest = 0;')
+m(FT, 'GetFontCache: the first cell is not compared with itself', 'for (let i = 1; i < this.m_iTotalCache; i++) {', 'for (let i = 0; i < this.m_iTotalCache; i++) {',
+  'equivalent: cell 0 against itself is never older (the difference is 0)')
+m(FT, 'GetFontCache: every cell is a candidate to give up', 'for (let i = 1; i < this.m_iTotalCache; i++) {', 'for (let i = 1; i < this.m_iTotalCache - 1; i++) {')
+m(FT, 'GetFontCache: the oldest cell goes (the stamps are compared as a wrapping DWORD)', 'if (((oldest - stamp) | 0) > 0) {', 'if (oldest > stamp) {')
+m(FT, 'GetFontCache: the first of equal stamps goes', 'if (((oldest - stamp) | 0) > 0) {', 'if (((oldest - stamp) | 0) >= 0) {')
+m(FT, 'GetFontCache: the newest stamp goes last', 'if (((oldest - stamp) | 0) > 0) {', 'if (((stamp - oldest) | 0) > 0) {')
+m(FT, 'GetFontCache: the cell given up forgets its character', 'this.hashCell[cache._Char] = -1;\n    this.hashCell[ch] = victim;', 'this.hashCell[ch] = victim;')
+m(FT, 'GetFontCache: the cell given up is the new character\'s', 'this.hashCell[ch] = victim;\n    cache._Char = ch;', 'this.hashCell[ch] = 0;\n    cache._Char = ch;')
+m(FT, 'GetFontCache: the cell given up knows the new character', 'this.hashCell[ch] = victim;\n    cache._Char = ch;', 'this.hashCell[ch] = victim;')
+m(FT, 'GetFontCache: the cell given up takes the stamp', 'cache._Char = ch;\n    cache.dwLastUse = this.m_dwCurrentStamp;\n    this.m_dwCurrentStamp = (this.m_dwCurrentStamp + 1) >>> 0;\n    this.fillCell(cache);\n    return cache;', 'cache._Char = ch;\n    this.m_dwCurrentStamp = (this.m_dwCurrentStamp + 1) >>> 0;\n    this.fillCell(cache);\n    return cache;')
+m(FT, 'GetFontCache: the cell given up counts the stamp up', 'cache._Char = ch;\n    cache.dwLastUse = this.m_dwCurrentStamp;\n    this.m_dwCurrentStamp = (this.m_dwCurrentStamp + 1) >>> 0;\n    this.fillCell(cache);\n    return cache;', 'cache._Char = ch;\n    cache.dwLastUse = this.m_dwCurrentStamp;\n    this.fillCell(cache);\n    return cache;')
+m(FT, 'GetFontCache: the stamp wraps like a DWORD', 'cache._Char = ch;\n    cache.dwLastUse = this.m_dwCurrentStamp;\n    this.m_dwCurrentStamp = (this.m_dwCurrentStamp + 1) >>> 0;\n    this.fillCell(cache);\n    return cache;', 'cache._Char = ch;\n    cache.dwLastUse = this.m_dwCurrentStamp;\n    this.m_dwCurrentStamp = this.m_dwCurrentStamp + 1;\n    this.fillCell(cache);\n    return cache;')
+m(FT, 'fillCell: the glyph is drawn', 'this.CharToSystemTexture(cache);\n    const rect', 'const rect')
+m(FT, 'fillCell: the page is told the cell changed', 'this.pageTexture(cache.iPage, false).SetChange(rect);', 'this.pageTexture(cache.iPage, false);')
+m(FT, 'fillCell: the rectangle is as wide as the cell', 'right: cache.iLeft + cache.iWidth, bottom', 'right: cache.iLeft + cache.iHeight, bottom')
+m(FT, 'fillCell: the rectangle is as high as the cell', 'bottom: cache.iTop + cache.iHeight }', 'bottom: cache.iTop + cache.iWidth }')
+m(FT, 'fillCell: the rectangle starts at the cell', 'const rect: Rect = { left: cache.iLeft, top: cache.iTop,', 'const rect: Rect = { left: 0, top: cache.iTop,')
+m(FT, 'fillCell: the outline page is told as well', 'if (outline) outline.SetChange(rect);', '')
+m(FT, 'fillCell: the outline page is the page\'s', 'const outline = cache.iPage < 4 ? this.m_pTextureOutLine[cache.iPage] : null;', 'const outline = cache.iPage < 4 ? this.m_pTextureOutLine[0] : null;')
+m(FT, 'fillCell: a cell on page 4 does not tell an outline page', 'const outline = cache.iPage < 4 ? this.m_pTextureOutLine[cache.iPage] : null;', 'const outline = this.m_pTextureOutLine[cache.iPage] ?? null;')
+
+# ---- measuring
+m(FT, '_EstimateFontSize: a CR has no size', 'if (wChar === 13) return { cx: 0, cy: 0 };', 'if (wChar === 10) return { cx: 0, cy: 0 };')
+m(FT, '_EstimateFontSize: the character is a 16-bit wchar_t', 'wChar &= 0xffff;\n    if (wChar === 13)', 'if (wChar === 13)')
+m(FT, '_EstimateFontSize: a size is looked up', 'if (wChar === 13) return { cx: 0, cy: 0 };\n    this.knowSize(wChar);', 'if (wChar === 13) return { cx: 0, cy: 0 };')
+m(FT, 'knowSize: a known size is not made again', 'if (this.hashSizeKnown[ch]) return;', '')
+m(FT, 'knowSize: the size is known afterwards', 'this.hashSizeKnown[ch] = 1;\n    const cache', 'const cache')
+m(FT, 'knowSize: the width less the outline on both sides and 1', 'this.hashCx[ch] = (cache.iWidth - 2 * this.m_iOutLineSize - 1) | 0;', 'this.hashCx[ch] = (cache.iWidth - this.m_iOutLineSize - 1) | 0;')
+m(FT, 'knowSize: the width less 1', 'this.hashCx[ch] = (cache.iWidth - 2 * this.m_iOutLineSize - 1) | 0;', 'this.hashCx[ch] = (cache.iWidth - 2 * this.m_iOutLineSize) | 0;')
+m(FT, 'knowSize: the height less the outline on both sides and 1', 'this.hashCy[ch] = (cache.iHeight - 2 * this.m_iOutLineSize - 1) | 0;', 'this.hashCy[ch] = (cache.iHeight - this.m_iOutLineSize - 1) | 0;')
+m(FT, 'knowSize: the height less 1', 'this.hashCy[ch] = (cache.iHeight - 2 * this.m_iOutLineSize - 1) | 0;', 'this.hashCy[ch] = (cache.iHeight - 2 * this.m_iOutLineSize) | 0;')
+m(FT, 'knowSize: the height is the cell\'s', 'this.hashCy[ch] = (cache.iHeight - 2 * this.m_iOutLineSize - 1) | 0;', 'this.hashCy[ch] = (cache.iWidth - 2 * this.m_iOutLineSize - 1) | 0;')
+m(FT, '_EstimateStringWidth: a size of 0 or below is no width', 'if (size <= 0) return 0;\n    let sum = 0;', 'if (size < 0) return 0;\n    let sum = 0;',
+  'equivalent: the loop does not run for a size of 0 and the sum is 0 as well')
+m(FT, '_EstimateStringWidth: a negative size is no width', 'if (size <= 0) return 0;\n    let sum = 0;', 'let sum = 0;',
+  'equivalent: the loop does not run for a size below 0 either')
+m(FT, '_EstimateStringWidth: a CR has no width', 'if (c === 13) continue;\n      this.knowSize(c);', 'if (c === 10) continue;\n      this.knowSize(c);')
+m(FT, '_EstimateStringWidth: the widths are added', 'sum = (sum + this.hashCx[c]!) | 0;', 'sum = this.hashCx[c]!;')
+m(FT, '_EstimateStringWidth: past the end the terminator is read', 'const c = str.charCodeAt(i) & 0xffff; // past the end the exe reads the terminator', 'const c = str.charCodeAt(i) & 0xffff; if (i >= str.length) break;')
+m(FT, '_EstimateStringHeight: a size of 0 or below is no height', 'if (size <= 0) return 0;\n    let height = 0;', 'let height = 0;',
+  'equivalent: the loop does not run for a size of 0 or below, and the height is 0')
+m(FT, '_EstimateStringHeight: the last character is the one at size - 1', 'const last = size - 1;\n    for', 'const last = size;\n    for')
+m(FT, '_EstimateStringHeight: a CR as the last character counts', 'if (c === 13) {\n        if (i === last) height', 'if (c === 13) {\n        if (false) height')
+m(FT, '_EstimateStringHeight: a CR is not an LF', 'if (c === 13) {\n        if (i === last)', 'if (c === 13) {\n        if (true)')
+m(FT, '_EstimateStringHeight: a character that is last counts', '} else if (c !== 10) {\n        if (i === last) height', '} else if (c !== 10) {\n        if (false) height')
+m(FT, '_EstimateStringHeight: only the last character counts', '} else if (c !== 10) {\n        if (i === last) height', '} else if (c !== 10) {\n        if (true) height')
+m(FT, '_EstimateStringHeight: an LF counts a line', '} else {\n        height = (height + this.m_iFontSize + 1) | 0;\n      }', '} else {\n      }')
+m(FT, '_EstimateStringHeight: a line is the font size and 1', '} else {\n        height = (height + this.m_iFontSize + 1) | 0;\n      }', '} else {\n        height = (height + this.m_iFontSize) | 0;\n      }')
+m(FT, 'lineWidth: the sum is divided by the enlargement', 'let w = idiv(this._EstimateStringWidth(buf, n), this.m_EnlargeNum);', 'let w = this._EstimateStringWidth(buf, n);')
+m(FT, 'lineWidth: the outline adds 2 * outline - 1 for each character', 'w = (w + Math.imul(n, 2 * this.m_iOutLineSize - 1)) | 0;', 'w = (w + Math.imul(n, this.m_iOutLineSize - 1)) | 0;')
+m(FT, 'lineWidth: the outline adds for each character', 'w = (w + Math.imul(n, 2 * this.m_iOutLineSize - 1)) | 0;', 'w = (w + 2 * this.m_iOutLineSize - 1) | 0;')
+m(FT, 'lineWidth: a font without outline adds nothing', 'if (this.m_iOutLineSize !== 0) w =', 'if (true) w =')
+m(FT, 'widest: an LF ends the line', 'if (c === 10) {\n        const w = this.lineWidth(buf);', 'if (c === 13) {\n        const w = this.lineWidth(buf);')
+m(FT, 'widest: the widest line counts', 'if (w > max) max = w;\n        buf = "";', 'max = w;\n        buf = "";')
+m(FT, 'widest: a new line starts empty', 'if (w > max) max = w;\n        buf = "";', 'if (w > max) max = w;')
+m(FT, 'widest: a # that is the last of the count is a character', 'if (i < n - 1) {\n          const next', 'if (i < n) {\n          const next')
+m(FT, 'widest: #c is a code', 'if (next === 99 || next === 67) {\n            const code', 'if (next === 67) {\n            const code')
+m(FT, 'widest: #C is a code', 'if (next === 99 || next === 67) {\n            const code', 'if (next === 99) {\n            const code')
+m(FT, 'widest: #cx is 3 characters', 'i += code === 120 || code === 88 ? 2 : 7;', 'i += code === 120 || code === 88 ? 3 : 7;')
+m(FT, 'widest: #cx is x or X (x)', 'i += code === 120 || code === 88 ? 2 : 7;', 'i += code === 120 ? 2 : 7;')
+m(FT, 'widest: #cx is x or X (X)', 'i += code === 120 || code === 88 ? 2 : 7;', 'i += code === 88 ? 2 : 7;')
+m(FT, 'widest: a code with digits is 8 characters', 'i += code === 120 || code === 88 ? 2 : 7;', 'i += code === 120 || code === 88 ? 2 : 6;')
+m(FT, 'widest: a lone # is a character', 'buf += "#";', '')
+m(FT, 'widest: a NUL is skipped', '} else if (c !== 0 && !Number.isNaN(c)) {', '} else if (!Number.isNaN(c)) {')
+m(FT, 'widest: past the end is skipped', '} else if (c !== 0 && !Number.isNaN(c)) {', '} else if (c !== 0) {')
+m(FT, 'widest: the last line counts', 'const w = this.lineWidth(buf);\n    return w > max ? w : max;', 'return max;')
+m(FT, 'widest: the widest line is the answer', 'return w > max ? w : max;', 'return w;')
+m(FT, 'GetWidth: no text has no width', 'if (wszText === null) return 0;', '')
+m(FT, 'GetWidth: a count of 0 has no width', 'if (nCount === 0 || wcslen(wszText) === 0) return 0;', 'if (wcslen(wszText) === 0) return 0;')
+m(FT, 'GetWidth: an empty text has no width', 'if (nCount === 0 || wcslen(wszText) === 0) return 0;', 'if (nCount === 0) return 0;')
+m(FT, 'GetWidth: a negative count is all the text', 'return this.widest(wszText, nCount < 0 ? wcslen(wszText) : nCount);', 'return this.widest(wszText, nCount);')
+m(FT, 'GetWidth: a count of 0 is not all the text', 'return this.widest(wszText, nCount < 0 ? wcslen(wszText) : nCount);', 'return this.widest(wszText, nCount <= 0 ? wcslen(wszText) : nCount);')
+
+# ---- Buffering
+m(FT, 'Buffering: no text draws nothing', 'if (str === null) return;\n    const n = nCount < 0', 'const n = nCount < 0')
+m(FT, 'Buffering: a negative count is all the text', 'const n = nCount < 0 ? wcslen(str) : nCount;\n    let x = f(iLeft);', 'const n = nCount <= 0 ? wcslen(str) : nCount;\n    let x = f(iLeft);')
+m(FT, 'Buffering: a count of 0 draws nothing', 'if (n <= 0) return;\n    const last = n - 1;', 'if (n < 0) return;\n    const last = n - 1;')
+m(FT, 'Buffering: the pen starts at iLeft', 'let x = f(iLeft);\n    let col', 'let x = f(iLeft + 1);\n    let col')
+m(FT, 'Buffering: the top is iTop', 'const top = f(iTop);\n    if (n <= 0)', 'const top = f(iTop + 1);\n    if (n <= 0)')
+m(FT, 'Buffering: the colour starts as given', 'let col = color >>> 0;', 'let col = DefColor >>> 0;')
+m(FT, 'Buffering: the text stops once the pen is past iRight', 'iRight <= 0 || x <= f(iRight)', 'iRight <= 0 || x < f(iRight)')
+m(FT, 'Buffering: iRight of 0 is no limit', 'iRight <= 0 || x <= f(iRight)', 'iRight < 0 || x <= f(iRight)')
+m(FT, 'Buffering: a negative iRight is no limit', 'iRight <= 0 || x <= f(iRight)', 'iRight === 0 || x <= f(iRight)')
+m(FT, 'Buffering: a character past the end is read as the terminating NUL', 'const c = str.charCodeAt(i) || 0;', 'const c = str.charCodeAt(i);')
+m(FT, 'Buffering: an LF is not drawn', 'if (c !== 10 && c !== 13) {\n        const next', 'if (c !== 13) {\n        const next')
+m(FT, 'Buffering: a CR is not drawn', 'if (c !== 10 && c !== 13) {\n        const next', 'if (c !== 10) {\n        const next')
+m(FT, 'Buffering: a # needs a #c', 'if (c === 35 && i !== last && (next === 67 || next === 99)) {', 'if (c === 35 && i !== last && (next === 99)) {')
+m(FT, 'Buffering: a # needs a #C', 'if (c === 35 && i !== last && (next === 67 || next === 99)) {', 'if (c === 35 && i !== last && (next === 67)) {')
+m(FT, 'Buffering: a # that is the last character of the count is a character', 'if (c === 35 && i !== last && (next === 67 || next === 99)) {', 'if (c === 35 && (next === 67 || next === 99)) {')
+m(FT, 'Buffering: a # that is not the last is a code', 'if (c === 35 && i !== last && (next === 67 || next === 99)) {', 'if (c === 35 && i === last && (next === 67 || next === 99)) {')
+m(FT, 'Buffering: #cx is lower case x', 'if (code === 88 || code === 120) {\n            i += 2;', 'if (code === 88) {\n            i += 2;')
+m(FT, 'Buffering: #cx is capital X', 'if (code === 88 || code === 120) {\n            i += 2;', 'if (code === 120) {\n            i += 2;')
+m(FT, 'Buffering: #cx takes 3 characters', 'i += 2;\n            if (!bNoColor) col = DefColor >>> 0;', 'i += 3;\n            if (!bNoColor) col = DefColor >>> 0;')
+m(FT, 'Buffering: #cx takes 3 characters (not 2 more)', 'i += 2;\n            if (!bNoColor) col = DefColor >>> 0;', 'i += 1;\n            if (!bNoColor) col = DefColor >>> 0;')
+m(FT, 'Buffering: #cx sets the colour unless bNoColor', 'if (!bNoColor) col = DefColor >>> 0;', 'col = DefColor >>> 0;')
+m(FT, 'Buffering: #cx sets DefColor', 'if (!bNoColor) col = DefColor >>> 0;', 'if (!bNoColor) col = color >>> 0;')
+m(FT, 'Buffering: a code sets the colour unless bNoColor', 'if (!bNoColor) {\n              const digits', 'if (true) {\n              const digits')
+m(FT, 'Buffering: the digits are the six characters after #c', 'wcslenSlice(str, i + 2, 6)', 'wcslenSlice(str, i + 2, 5)')
+m(FT, 'Buffering: the digits are at most six characters', 'wcslenSlice(str, i + 2, 6)', 'wcslenSlice(str, i + 2, 7)')
+m(FT, 'Buffering: the digits start after #c', 'wcslenSlice(str, i + 2, 6)', 'wcslenSlice(str, i + 3, 6)')
+m(FT, 'Buffering: a code that cannot be read keeps the last one', 'if (v !== null) iCol = v;', 'iCol = v ?? 0;')
+m(FT, 'Buffering: a code that is read is kept', 'if (v !== null) iCol = v;', 'if (v !== null) iCol = 0;')
+m(FT, 'Buffering: a code keeps the alpha', 'col = ((iCol | (col & 0xff000000)) >>> 0);', 'col = (iCol >>> 0);')
+m(FT, 'Buffering: a code keeps the alpha of the current colour', 'col = ((iCol | (col & 0xff000000)) >>> 0);', 'col = ((iCol | (color & 0xff000000)) >>> 0);')
+m(FT, 'Buffering: a code keeps only the alpha', 'col = ((iCol | (col & 0xff000000)) >>> 0);', 'col = ((iCol | col) >>> 0);')
+m(FT, 'Buffering: a code takes 8 characters', 'i += 7;\n          }', 'i += 6;\n          }')
+m(FT, 'Buffering: a code takes 8 characters (not 9)', 'i += 7;\n          }', 'i += 8;\n          }')
+m(FT, 'Buffering: a glyph on a page above 3 stops the text', 'if (fc.iPage > 3) return;', '',
+  'unreachable: a cell on page 4 or above makes CharToSystemTexture throw first (the exe dereferences a null page there), so GetFontCache never answers one')
+m(FT, 'Buffering: page 3 is a page', 'if (fc.iPage > 3) return;', 'if (fc.iPage > 2) return;')
+m(FT, 'Buffering: a page without vertex memory stops the text', 'if (this.m_apPageVertex[page] === null) {\n            this.m_iCandidate[page] = 0;\n            return;\n          }', '')
+m(FT, 'Buffering: a page without vertex memory has no candidates', 'if (this.m_apPageVertex[page] === null) {\n            this.m_iCandidate[page] = 0;\n            return;\n          }', 'if (this.m_apPageVertex[page] === null) {\n            return;\n          }')
+m(FT, 'Buffering: a full page is flushed', 'if (this.m_iCandidate[page]! >= this.m_iNumCandidatesInAPage) {\n            this.Flush(bOutLine, page);', 'if (this.m_iCandidate[page]! > this.m_iNumCandidatesInAPage) {\n            this.Flush(bOutLine, page);')
+m(FT, 'Buffering: the page is flushed with the same pass', 'this.Flush(bOutLine, page);\n            if', 'this.Flush(false, page);\n            if')
+m(FT, 'Buffering: the page that is full is the one flushed', 'this.Flush(bOutLine, page);\n            if', 'this.Flush(bOutLine, -1);\n            if')
+m(FT, 'Buffering: a page that is still full after the flush stops the text', 'if (this.m_iCandidate[page]! >= this.m_iNumCandidatesInAPage) {\n              this.m_iCandidate[page] = 0;\n              return;\n            }', '')
+m(FT, 'Buffering: a page that is still full after the flush is emptied', 'this.m_iCandidate[page] = 0;\n              return;\n            }', 'return;\n            }')
+m(FT, 'Buffering: the quad goes in the next free slot of the page', 'this.writeQuad(page, this.m_iCandidate[page]!, x, top, fc, col, fScaleX, fScaleY);', 'this.writeQuad(page, 0, x, top, fc, col, fScaleX, fScaleY);')
+m(FT, 'Buffering: the pen moves by the width less 1', '(-(this.m_iOutLineSize !== 0 ? 1 : 0) - 1 + idiv(fc.iWidth, this.m_EnlargeNum)) | 0;', '(-(this.m_iOutLineSize !== 0 ? 1 : 0) + idiv(fc.iWidth, this.m_EnlargeNum)) | 0;')
+m(FT, 'Buffering: the pen moves by the width less 1 more with an outline', '(-(this.m_iOutLineSize !== 0 ? 1 : 0) - 1 + idiv(fc.iWidth, this.m_EnlargeNum)) | 0;', '(-1 + idiv(fc.iWidth, this.m_EnlargeNum)) | 0;')
+m(FT, 'Buffering: the pen moves by the width over the enlargement', '(-(this.m_iOutLineSize !== 0 ? 1 : 0) - 1 + idiv(fc.iWidth, this.m_EnlargeNum)) | 0;', '(-(this.m_iOutLineSize !== 0 ? 1 : 0) - 1 + fc.iWidth) | 0;')
+m(FT, 'Buffering: the pen moves by the width over the enlargement (whole numbers)', '(-(this.m_iOutLineSize !== 0 ? 1 : 0) - 1 + idiv(fc.iWidth, this.m_EnlargeNum)) | 0;', '(-(this.m_iOutLineSize !== 0 ? 1 : 0) - 1 + Math.round(fc.iWidth / this.m_EnlargeNum)) | 0;')
+m(FT, 'Buffering: a quad is counted', 'this.m_iCandidate[page]!++;', '')
+m(FT, 'Buffering: the pen moves by the scale', 'x = f(x + f(f(advance) * fScaleX));', 'x = f(x + f(f(advance) * fScaleY));')
+m(FT, 'Buffering: the pen moves', 'x = f(x + f(f(advance) * fScaleX));', 'x = f(x + f(advance));')
+m(FT, 'Buffering: the text ends at the count', 'if (++i >= n) return;', 'if (++i > n) return;')
+
+# ---- writeQuad
+m(FT, 'writeQuad: the width is scaled by x', 'const w = f(f(fc.iWidth) * fScaleX);', 'const w = f(f(fc.iWidth) * fScaleY);')
+m(FT, 'writeQuad: the height is scaled by y', 'const h = f(f(fc.iHeight) * fScaleY);', 'const h = f(f(fc.iHeight) * fScaleX);')
+m(FT, 'writeQuad: an enlarged font has insets', 'if (this.m_EnlargeNum > 1) {\n      insetX', 'if (this.m_EnlargeNum > 2) {\n      insetX')
+m(FT, 'writeQuad: a font that is not enlarged has none', 'if (this.m_EnlargeNum > 1) {\n      insetX', 'if (this.m_EnlargeNum >= 1) {\n      insetX')
+m(FT, 'writeQuad: the inset at the side is a width over 4E - 4', 'idiv(fc.iWidth, 4 * this.m_EnlargeNum - 4)', 'idiv(fc.iWidth, 4 * this.m_EnlargeNum - 3)')
+m(FT, 'writeQuad: the inset at the side is of the width', 'idiv(fc.iWidth, 4 * this.m_EnlargeNum - 4)', 'idiv(fc.iHeight, 4 * this.m_EnlargeNum - 4)')
+m(FT, 'writeQuad: the inset at the side is scaled by x', 'f(f(idiv(fc.iWidth, 4 * this.m_EnlargeNum - 4)) * fScaleX)', 'f(f(idiv(fc.iWidth, 4 * this.m_EnlargeNum - 4)) * fScaleY)')
+m(FT, 'writeQuad: the inset at the bottom is a height over 2E - 2', 'idiv(fc.iHeight, 2 * this.m_EnlargeNum - 2)', 'idiv(fc.iHeight, 2 * this.m_EnlargeNum - 1)')
+m(FT, 'writeQuad: the inset at the bottom is of the height', 'idiv(fc.iHeight, 2 * this.m_EnlargeNum - 2)', 'idiv(fc.iWidth, 2 * this.m_EnlargeNum - 2)')
+m(FT, 'writeQuad: the inset at the bottom is scaled by y', 'f(f(idiv(fc.iHeight, 2 * this.m_EnlargeNum - 2)) * fScaleY)', 'f(f(idiv(fc.iHeight, 2 * this.m_EnlargeNum - 2)) * fScaleX)')
+m(FT, 'writeQuad: the left edge is inset', 'const x0 = f(insetX + x);', 'const x0 = x;')
+m(FT, 'writeQuad: the right edge is inset', 'const x1 = f(f(w + x) - insetX);', 'const x1 = f(w + x);')
+m(FT, 'writeQuad: the bottom edge is inset', 'const y1 = f(f(top + h) - insetY);', 'const y1 = f(top + h);')
+m(FT, 'writeQuad: a RHW quad is 42 floats', 'const b = 42 * slot;', 'const b = 36 * slot;')
+m(FT, 'writeQuad: a RHW vertex is 7 floats', 'const o = b + 7 * k;', 'const o = b + 6 * k;')
+m(FT, 'writeQuad: z of a RHW vertex is 0', 'v[o + 2] = 0; v[o + 3] = 1; u[o + 4] = col;', 'v[o + 2] = 0.5; v[o + 3] = 1; u[o + 4] = col;')
+m(FT, 'writeQuad: rhw of a vertex is 1', 'v[o + 2] = 0; v[o + 3] = 1; u[o + 4] = col;', 'v[o + 2] = 0; v[o + 3] = 0; u[o + 4] = col;')
+m(FT, 'writeQuad: the colour of a RHW vertex', 'v[o + 2] = 0; v[o + 3] = 1; u[o + 4] = col;', 'v[o + 2] = 0; v[o + 3] = 1; u[o + 4] = 0xffffffff;')
+m(FT, 'writeQuad: RHW vertex 0 is the left of the top', 'put(0, x0, top, u0, v0);', 'put(0, x1, top, u0, v0);')
+m(FT, 'writeQuad: RHW vertex 1 is the right of the top', 'put(1, x1, top, u1, v0);\n      put(2, x0, y1, u0, v1);', 'put(1, x0, top, u1, v0);\n      put(2, x0, y1, u0, v1);')
+m(FT, 'writeQuad: RHW vertex 2 is the left of the bottom', 'put(2, x0, y1, u0, v1);\n      put(3, x1, top, u1, v0);', 'put(2, x1, y1, u0, v1);\n      put(3, x1, top, u1, v0);')
+m(FT, 'writeQuad: RHW vertex 3 is the right of the top', 'put(2, x0, y1, u0, v1);\n      put(3, x1, top, u1, v0);\n      put(4', 'put(2, x0, y1, u0, v1);\n      put(3, x1, top, u1, v1);\n      put(4')
+m(FT, 'writeQuad: RHW vertex 4 is the right of the bottom', 'put(4, x1, y1, u1, v1);\n      put(5, x0, y1, u0, v1);', 'put(4, x1, y1, u1, v0);\n      put(5, x0, y1, u0, v1);')
+m(FT, 'writeQuad: RHW vertex 5 is the left of the bottom', 'put(5, x0, y1, u0, v1);\n    } else {', 'put(5, x0, y1, u1, v1);\n    } else {')
+m(FT, 'writeQuad: a quad is 36 floats without rhw', 'const b = 36 * slot;', 'const b = 42 * slot;')
+m(FT, 'writeQuad: a vertex is 6 floats without rhw', 'const o = b + 6 * k;', 'const o = b + 7 * k;')
+m(FT, 'writeQuad: z of a vertex without rhw is 0.5', 'v[o + 2] = 0.5; u[o + 3] = col;', 'v[o + 2] = 0; u[o + 3] = col;')
+m(FT, 'writeQuad: the quad goes down without rhw', 'const y1 = f(top - h);', 'const y1 = f(top + h);')
+m(FT, 'writeQuad: the right edge without rhw', 'const x1 = f(w + x);\n      const y1', 'const x1 = f(x);\n      const y1')
+m(FT, 'writeQuad: vertex 2 without rhw', 'put(2, x, y1, u0, v1);\n      put(3, x1, top, u1, v0);', 'put(2, x1, y1, u0, v1);\n      put(3, x1, top, u1, v0);')
+m(FT, 'writeQuad: vertex 4 without rhw', 'put(4, x1, y1, u1, v1);\n      put(5, x, y1, u0, v1);', 'put(4, x1, y1, u1, v0);\n      put(5, x, y1, u0, v1);')
+
+# ---- Flush
+m(FT, 'Flush: a page past 3 is left alone', 'if (iPage >= 4) return;', 'if (iPage > 4) return;')
+m(FT, 'Flush: a page past 3 is left alone (all of it)', 'if (iPage >= 4) return;', '')
+m(FT, 'Flush: a negative page is all pages', 'const first = iPage < 0 ? 0 : iPage;', 'const first = iPage < 0 ? 1 : iPage;')
+m(FT, 'Flush: page 0 is page 0', 'const lastPage = iPage < 0 ? 3 : iPage;', 'const lastPage = iPage <= 0 ? 3 : iPage;')
+m(FT, 'Flush: a negative page is all four', 'const lastPage = iPage < 0 ? 3 : iPage;', 'const lastPage = iPage < 0 ? 2 : iPage;')
+m(FT, 'Flush: the page is the last', 'const lastPage = iPage < 0 ? 3 : iPage;', 'const lastPage = 3;')
+m(FT, 'Flush: the states are pushed', 'const stack = render ? new KD3DStack(render.states, this.m_RenderStateID) : null;', 'const stack = null;')
+m(FT, 'Flush: the states are popped', '} finally {\n      stack?.dispose();\n    }', '} finally {\n    }')
+m(FT, 'Flush: a page with nothing is not drawn', 'if (this.m_iCandidate[p] !== 0) {\n          const memory', 'if (this.m_iCandidate[p] !== 1) {\n          const memory')
+m(FT, 'Flush: a page without vertex memory is not drawn', 'if (memory) {\n            const tex', 'if (true) {\n            const tex')
+m(FT, 'Flush: the quads of the outline pass are on the outline pages', 'const tex = bOutLine ? this.m_pTextureOutLine[p] : this.m_pTexture[p];', 'const tex = bOutLine ? this.m_pTexture[p] : this.m_pTextureOutLine[p];')
+m(FT, 'Flush: the texture goes on stage 0', 'tex.SetTexture(0);', 'tex.SetTexture(1);')
+m(FT, 'Flush: a RHW font draws vertices with rhw', 'drawPrimitive(this.m_bRHW ? DVB_XYZRHW_DIFFUSE_TEX1 : DVB_XYZ_DIFFUSE_TEX1,', 'drawPrimitive(this.m_bRHW ? DVB_XYZ_DIFFUSE_TEX1 : DVB_XYZ_DIFFUSE_TEX1,')
+m(FT, 'Flush: a font that is not RHW draws vertices without', 'drawPrimitive(this.m_bRHW ? DVB_XYZRHW_DIFFUSE_TEX1 : DVB_XYZ_DIFFUSE_TEX1,', 'drawPrimitive(this.m_bRHW ? DVB_XYZRHW_DIFFUSE_TEX1 : DVB_XYZRHW_DIFFUSE_TEX1,')
+m(FT, 'Flush: the quads are a triangle list', 'D3DPT_TRIANGLELIST, 2 * this.m_iCandidate[p]!', 'D3DPT_TRIANGLELIST + 1, 2 * this.m_iCandidate[p]!')
+m(FT, 'Flush: two triangles to a quad', 'D3DPT_TRIANGLELIST, 2 * this.m_iCandidate[p]!', 'D3DPT_TRIANGLELIST, this.m_iCandidate[p]!')
+m(FT, 'Flush: the candidates are drawn once', 'new Uint8Array(memory), 1);', 'new Uint8Array(memory), 2);')
+m(FT, 'Flush: the candidates are forgotten', 'this.m_iCandidate[p] = 0;\n        }\n      }\n    } finally', '}\n      }\n    } finally')
+m(FT, 'Flush: with no device nothing is drawn', 'render?.dvb.drawPrimitive(', 'render!.dvb.drawPrimitive(')
+
+# ---- alignX
+m(FT, 'alignX: with a rectangle flag 1 centres in it', 'if (pRt) {\n      if (dwFlag & 1) {', 'if (pRt) {\n      if (dwFlag & 2) {')
+m(FT, 'alignX: the width of the rectangle is right - left', 'const rectWidth = (pRt.right - pRt.left) | 0;', 'const rectWidth = (pRt.right + pRt.left) | 0;')
+m(FT, 'alignX: centred in the rectangle the half is subtracted', 'return (pRt.left - ftoi(f(f(f(rectWidth) - f(f(width()) * fScaleX)) * -0.5))) | 0;', 'return (pRt.left - ftoi(f(f(f(rectWidth) - f(f(width()) * fScaleX)) * 0.5))) | 0;')
+m(FT, 'alignX: centred in the rectangle the text is as wide as scaled', 'return (pRt.left - ftoi(f(f(f(rectWidth) - f(f(width()) * fScaleX)) * -0.5))) | 0;', 'return (pRt.left - ftoi(f(f(f(rectWidth) - f(width())) * -0.5))) | 0;')
+m(FT, 'alignX: centred in the rectangle the half is cut towards 0', 'return (pRt.left - ftoi(f(f(f(rectWidth) - f(f(width()) * fScaleX)) * -0.5))) | 0;', 'return (pRt.left - Math.floor(f(f(f(rectWidth) - f(f(width()) * fScaleX)) * -0.5))) | 0;')
+m(FT, 'alignX: centred in the rectangle from its left', 'return (pRt.left - ftoi(f(f(f(rectWidth) - f(f(width()) * fScaleX)) * -0.5))) | 0;', 'return (pRt.right - ftoi(f(f(f(rectWidth) - f(f(width()) * fScaleX)) * -0.5))) | 0;')
+m(FT, 'alignX: with a rectangle flag 0 starts at iLeft', 'if ((dwFlag & 2) === 0) return iLeft;\n      return (pRt.right', 'if ((dwFlag & 2) === 0) return pRt.left;\n      return (pRt.right')
+m(FT, 'alignX: with a rectangle flag 2 ends at its right', 'return (pRt.right - ftoi(f(f(width()) * fScaleX))) | 0;', 'return (pRt.left - ftoi(f(f(width()) * fScaleX))) | 0;')
+m(FT, 'alignX: ended at the right the text is as wide as scaled', 'return (pRt.right - ftoi(f(f(width()) * fScaleX))) | 0;', 'return (pRt.right - ftoi(f(width()))) | 0;')
+m(FT, 'alignX: without a rectangle flag 1 centres on iLeft', 'if (dwFlag & 1) return (iLeft - ftoi(f(f(f(width()) * fScaleX) * 0.5))) | 0;', 'if (dwFlag & 2) return (iLeft - ftoi(f(f(f(width()) * fScaleX) * 0.5))) | 0;')
+m(FT, 'alignX: without a rectangle the centre is half the width', 'return (iLeft - ftoi(f(f(f(width()) * fScaleX) * 0.5))) | 0;', 'return (iLeft - ftoi(f(f(f(width()) * fScaleX)))) | 0;')
+m(FT, 'alignX: without a rectangle the centre is left of iLeft', 'return (iLeft - ftoi(f(f(f(width()) * fScaleX) * 0.5))) | 0;', 'return (iLeft + ftoi(f(f(f(width()) * fScaleX) * 0.5))) | 0;')
+m(FT, 'alignX: without a rectangle the centre is of the scaled width', 'return (iLeft - ftoi(f(f(f(width()) * fScaleX) * 0.5))) | 0;', 'return (iLeft - ftoi(f(f(f(width())) * 0.5))) | 0;')
+m(FT, 'alignX: without a rectangle flag 0 starts at iLeft', 'if ((dwFlag & 2) === 0) return iLeft;\n    return (iLeft + ftoi', 'if ((dwFlag & 2) !== 0) return iLeft;\n    return (iLeft + ftoi')
+m(FT, 'alignX: without a rectangle flag 2 ends at the font size', 'return (iLeft + ftoi(f(f(idiv(this.m_iFontSize, this.m_EnlargeNum)) - f(f(width()) * fScaleX)))) | 0;', 'return (iLeft + ftoi(f(f(idiv(this.m_iFontCacheSize, this.m_EnlargeNum)) - f(f(width()) * fScaleX)))) | 0;')
+m(FT, 'alignX: without a rectangle flag 2 ends at the font size over the enlargement', 'return (iLeft + ftoi(f(f(idiv(this.m_iFontSize, this.m_EnlargeNum)) - f(f(width()) * fScaleX)))) | 0;', 'return (iLeft + ftoi(f(f(this.m_iFontSize) - f(f(width()) * fScaleX)))) | 0;')
+m(FT, 'alignX: without a rectangle flag 2 is of the scaled width', 'return (iLeft + ftoi(f(f(idiv(this.m_iFontSize, this.m_EnlargeNum)) - f(f(width()) * fScaleX)))) | 0;', 'return (iLeft + ftoi(f(f(idiv(this.m_iFontSize, this.m_EnlargeNum)) - f(width())))) | 0;')
+m(FT, 'alignX: without a rectangle flag 2 is cut towards 0', 'return (iLeft + ftoi(f(f(idiv(this.m_iFontSize, this.m_EnlargeNum)) - f(f(width()) * fScaleX)))) | 0;', 'return (iLeft + Math.floor(f(f(idiv(this.m_iFontSize, this.m_EnlargeNum)) - f(f(width()) * fScaleX)))) | 0;')
+m(FT, 'alignX: without a rectangle flag 2 ends the text there', 'return (iLeft + ftoi(f(f(idiv(this.m_iFontSize, this.m_EnlargeNum)) - f(f(width()) * fScaleX)))) | 0;', 'return (iLeft + ftoi(f(f(idiv(this.m_iFontSize, this.m_EnlargeNum)) + f(f(width()) * fScaleX)))) | 0;')
+
+# ---- OutTextXY
+m(FT, 'OutTextXY: no text draws nothing', 'if (wszText === null || wcslen(wszText) === 0) return;\n    const x = this.alignX', 'if (wcslen(wszText ?? "") === 0) return;\n    const x = this.alignX')
+m(FT, 'OutTextXY: an empty text draws nothing', 'if (wszText === null || wcslen(wszText) === 0) return;\n    const x = this.alignX', 'if (wszText === null) return;\n    const x = this.alignX')
+m(FT, 'OutTextXY: a count of 0 is a width of 0', '() => (nCount !== 0 ? this.widest(wszText, nCount >= 0 ? nCount : wcslen(wszText)) : 0)', '() => this.widest(wszText, nCount >= 0 ? nCount : wcslen(wszText))',
+  'equivalent: the widest line of 0 characters is 0 as well')
+m(FT, 'OutTextXY: a negative count measures the whole text', '() => (nCount !== 0 ? this.widest(wszText, nCount >= 0 ? nCount : wcslen(wszText)) : 0)', '() => (nCount !== 0 ? this.widest(wszText, nCount) : 0)')
+m(FT, 'OutTextXY: a count of 0 is the whole text for the width', '() => (nCount !== 0 ? this.widest(wszText, nCount >= 0 ? nCount : wcslen(wszText)) : 0)', '() => (nCount !== 0 ? this.widest(wszText, nCount > 0 ? nCount : wcslen(wszText)) : 0)',
+  'equivalent: the guard before it has dealt with 0')
+m(FT, 'OutTextXY: the stamp restarts at the clock', 'this.m_dwCurrentStamp = this.host.clock() >>> 0;', '')
+m(FT, 'OutTextXY: the stamp is a DWORD', 'this.m_dwCurrentStamp = this.host.clock() >>> 0;', 'this.m_dwCurrentStamp = this.host.clock();')
+m(FT, 'OutTextXY: the stamp is set after the alignment is measured', 'const x = this.alignX(iLeft, pRt, dwFlag, () => (nCount !== 0 ? this.widest(wszText, nCount >= 0 ? nCount : wcslen(wszText)) : 0), fScaleX);\n    this.m_dwCurrentStamp = this.host.clock() >>> 0;', 'this.m_dwCurrentStamp = this.host.clock() >>> 0;\n    const x = this.alignX(iLeft, pRt, dwFlag, () => (nCount !== 0 ? this.widest(wszText, nCount >= 0 ? nCount : wcslen(wszText)) : 0), fScaleX);')
+m(FT, 'OutTextXY: a rectangle with a width clips', 'const right = pRt && pRt.right > pRt.left ? pRt.right : 0;\n    if (this.m_iOutLineSize !== 0) {', 'const right = pRt && pRt.right >= pRt.left ? pRt.right : 0;\n    if (this.m_iOutLineSize !== 0) {')
+m(FT, 'OutTextXY: a rectangle without a width does not clip', 'const right = pRt && pRt.right > pRt.left ? pRt.right : 0;\n    if (this.m_iOutLineSize !== 0) {', 'const right = pRt ? pRt.right : 0;\n    if (this.m_iOutLineSize !== 0) {')
+m(FT, 'OutTextXY: the clip is the right edge', 'const right = pRt && pRt.right > pRt.left ? pRt.right : 0;\n    if (this.m_iOutLineSize !== 0) {', 'const right = pRt && pRt.right > pRt.left ? pRt.right + 1 : 0;\n    if (this.m_iOutLineSize !== 0) {')
+m(FT, 'OutTextXY: a font with an outline draws it', 'if (this.m_iOutLineSize !== 0) {\n      this.Buffering(true, x, iTop', 'if (this.m_iOutLineSize > 1) {\n      this.Buffering(true, x, iTop')
+m(FT, 'OutTextXY: the outline pass has no colour codes', 'this.Buffering(true, x, iTop, wszText, colorOutLine, colorOutLine, true, nCount', 'this.Buffering(true, x, iTop, wszText, colorOutLine, colorOutLine, false, nCount')
+m(FT, 'OutTextXY: the outline pass has the outline colour', 'this.Buffering(true, x, iTop, wszText, colorOutLine, colorOutLine, true, nCount', 'this.Buffering(true, x, iTop, wszText, color, colorOutLine, true, nCount')
+m(FT, 'OutTextXY: the outline pass is flushed to the outline pages', 'this.Flush(true, -1);\n    }\n    this.Buffering(false, x, iTop, wszText, color, color,', 'this.Flush(false, -1);\n    }\n    this.Buffering(false, x, iTop, wszText, color, color,')
+m(FT, 'OutTextXY: the outline pass is flushed', 'this.Flush(true, -1);\n    }\n    this.Buffering(false, x, iTop, wszText, color, color,', '}\n    this.Buffering(false, x, iTop, wszText, color, color,')
+m(FT, 'OutTextXY: the text is drawn with its colour', 'this.Buffering(false, x, iTop, wszText, color, color, (dwFlag & 0xf0000000) !== 0, nCount', 'this.Buffering(false, x, iTop, wszText, colorOutLine, color, (dwFlag & 0xf0000000) !== 0, nCount')
+m(FT, 'OutTextXY: the default colour is the colour', 'this.Buffering(false, x, iTop, wszText, color, color, (dwFlag & 0xf0000000) !== 0, nCount', 'this.Buffering(false, x, iTop, wszText, color, colorOutLine, (dwFlag & 0xf0000000) !== 0, nCount')
+m(FT, 'OutTextXY: bNoColor is a bit of 0xF0000000', '(dwFlag & 0xf0000000) !== 0, nCount', '(dwFlag & 0x70000000) !== 0, nCount')
+m(FT, 'OutTextXY: bNoColor is a bit of 0xF0000000 (the lowest)', '(dwFlag & 0xf0000000) !== 0, nCount', '(dwFlag & 0xe0000000) !== 0, nCount')
+m(FT, 'OutTextXY: the text is flushed', 'fScaleY, right);\n    this.Flush(false, -1);\n  }\n\n  /**\n   * `OutTextMultiline', 'fScaleY, right);\n  }\n\n  /**\n   * `OutTextMultiline')
+
+# ---- OutTextMultiline
+m(FT, 'OutTextMultiline: no text draws nothing', 'if (wszText === null || wcslen(wszText) === 0 || nCount === 0) return;\n    let len', 'if (wcslen(wszText ?? "") === 0 || nCount === 0) return;\n    let len')
+m(FT, 'OutTextMultiline: an empty text draws nothing', 'if (wszText === null || wcslen(wszText) === 0 || nCount === 0) return;\n    let len', 'if (wszText === null || nCount === 0) return;\n    let len')
+m(FT, 'OutTextMultiline: a count of 0 draws nothing', 'if (wszText === null || wcslen(wszText) === 0 || nCount === 0) return;\n    let len', 'if (wszText === null || wcslen(wszText) === 0) return;\n    let len')
+m(FT, 'OutTextMultiline: a negative count is all the text', 'if (nCount >= 0 && nCount < len) len = nCount;', 'if (nCount < len) len = nCount;')
+m(FT, 'OutTextMultiline: a count cuts the text', 'if (nCount >= 0 && nCount < len) len = nCount;', 'if (nCount >= 0 && nCount > len) len = nCount;')
+m(FT, 'OutTextMultiline: a count of the length is the text', 'if (nCount >= 0 && nCount < len) len = nCount;', 'if (nCount >= 0 && nCount <= len) len = nCount;',
+  'equivalent: a count equal to the length changes nothing')
+m(FT, 'OutTextMultiline: at most 2999 characters', 'const n = Math.min(len, 2999);', 'const n = Math.min(len, 3000);')
+m(FT, 'OutTextMultiline: at most 2999 characters (not fewer)', 'const n = Math.min(len, 2999);', 'const n = Math.min(len, 2998);')
+m(FT, 'OutTextMultiline: the text is the first n characters', 'const text = wszText.slice(0, n);', 'const text = wszText.slice(0, len);')
+m(FT, 'OutTextMultiline: the step is a cell less 1', 'ftoi(f(f(f(idiv(this.m_iFontCacheSize, this.m_EnlargeNum) - 1) * fLineSpace) * fScaleY));', 'ftoi(f(f(f(idiv(this.m_iFontCacheSize, this.m_EnlargeNum)) * fLineSpace) * fScaleY));')
+m(FT, 'OutTextMultiline: the step is of the cell', 'ftoi(f(f(f(idiv(this.m_iFontCacheSize, this.m_EnlargeNum) - 1) * fLineSpace) * fScaleY));', 'ftoi(f(f(f(idiv(this.m_iFontSize, this.m_EnlargeNum) - 1) * fLineSpace) * fScaleY));')
+m(FT, 'OutTextMultiline: the step is of the cell over the enlargement', 'ftoi(f(f(f(idiv(this.m_iFontCacheSize, this.m_EnlargeNum) - 1) * fLineSpace) * fScaleY));', 'ftoi(f(f(f(this.m_iFontCacheSize - 1) * fLineSpace) * fScaleY));')
+m(FT, 'OutTextMultiline: the step has the line space', 'ftoi(f(f(f(idiv(this.m_iFontCacheSize, this.m_EnlargeNum) - 1) * fLineSpace) * fScaleY));', 'ftoi(f(f(f(idiv(this.m_iFontCacheSize, this.m_EnlargeNum) - 1)) * fScaleY));')
+m(FT, 'OutTextMultiline: the step is scaled', 'ftoi(f(f(f(idiv(this.m_iFontCacheSize, this.m_EnlargeNum) - 1) * fLineSpace) * fScaleY));', 'ftoi(f(f(f(idiv(this.m_iFontCacheSize, this.m_EnlargeNum) - 1) * fLineSpace)));')
+m(FT, 'OutTextMultiline: the step is scaled by y', 'ftoi(f(f(f(idiv(this.m_iFontCacheSize, this.m_EnlargeNum) - 1) * fLineSpace) * fScaleY));', 'ftoi(f(f(f(idiv(this.m_iFontCacheSize, this.m_EnlargeNum) - 1) * fLineSpace) * fScaleX));')
+m(FT, 'OutTextMultiline: the step is cut towards 0', 'ftoi(f(f(f(idiv(this.m_iFontCacheSize, this.m_EnlargeNum) - 1) * fLineSpace) * fScaleY));', 'Math.floor(f(f(f(idiv(this.m_iFontCacheSize, this.m_EnlargeNum) - 1) * fLineSpace) * fScaleY));')
+m(FT, 'OutTextMultiline: a rectangle with a width clips', 'const right = pRt && pRt.right > pRt.left ? pRt.right : 0;\n    const pass = (outlinePass', 'const right = pRt && pRt.right >= pRt.left ? pRt.right : 0;\n    const pass = (outlinePass')
+m(FT, 'OutTextMultiline: a rectangle without a width does not clip', 'const right = pRt && pRt.right > pRt.left ? pRt.right : 0;\n    const pass = (outlinePass', 'const right = pRt ? pRt.right : 0;\n    const pass = (outlinePass')
+m(FT, 'OutTextMultiline: the outline pass has the outline colour', 'const lineColor = outlinePass ? colorOutLine : color;', 'const lineColor = outlinePass ? color : color;')
+m(FT, 'OutTextMultiline: the text pass has the colour', 'const lineColor = outlinePass ? colorOutLine : color;', 'const lineColor = outlinePass ? colorOutLine : colorOutLine;')
+m(FT, 'OutTextMultiline: a pass starts at iTop', 'let y = iTop;\n      let start = 0;', 'let y = 0;\n      let start = 0;')
+m(FT, 'OutTextMultiline: a pass starts with the first character', 'let y = iTop;\n      let start = 0;', 'let y = iTop;\n      let start = 1;')
+m(FT, 'OutTextMultiline: a line is aligned by its own width', '() => (len === 0 ? 0 : this.widest(s, len)), fScaleX);', '() => (len === 0 ? 0 : this.widest(text, n)), fScaleX);')
+m(FT, 'OutTextMultiline: an empty line has no width', '() => (len === 0 ? 0 : this.widest(s, len)), fScaleX);', '() => this.widest(s, len), fScaleX);',
+  'equivalent: the widest line of 0 characters is 0 as well')
+m(FT, 'OutTextMultiline: a line is drawn at its y', 'this.Buffering(outlinePass, x, y, s, lineColor, color,', 'this.Buffering(outlinePass, x, iTop, s, lineColor, color,')
+m(FT, 'OutTextMultiline: the outline pass has no colour codes', 'outlinePass ? true : (dwFlag & 0xf0000000) !== 0, -1,', 'outlinePass ? false : (dwFlag & 0xf0000000) !== 0, -1,')
+m(FT, 'OutTextMultiline: the text pass follows bNoColor', 'outlinePass ? true : (dwFlag & 0xf0000000) !== 0, -1,', 'outlinePass ? true : false, -1,')
+m(FT, 'OutTextMultiline: bNoColor is a bit of 0xF0000000', 'outlinePass ? true : (dwFlag & 0xf0000000) !== 0, -1,', 'outlinePass ? true : (dwFlag & 0x70000000) !== 0, -1,')
+m(FT, 'OutTextMultiline: the default colour is the colour', 'this.Buffering(outlinePass, x, y, s, lineColor, color,', 'this.Buffering(outlinePass, x, y, s, lineColor, colorOutLine,')
+m(FT, 'OutTextMultiline: a line is drawn whole', 'outlinePass ? true : (dwFlag & 0xf0000000) !== 0, -1, fScaleX', 'outlinePass ? true : (dwFlag & 0xf0000000) !== 0, 1, fScaleX')
+m(FT, 'OutTextMultiline: a line is cut at the right edge', 'fScaleX, fScaleY, right);\n      };', 'fScaleX, fScaleY, 0);\n      };')
+m(FT, 'OutTextMultiline: a CR ends a line', 'if (c === 13 || c === 10) {\n          line(i);', 'if (c === 10) {\n          line(i);')
+m(FT, 'OutTextMultiline: an LF ends a line', 'if (c === 13 || c === 10) {\n          line(i);', 'if (c === 13) {\n          line(i);')
+m(FT, 'OutTextMultiline: only an LF moves down', 'if (c === 10) y = this.m_bRHW', 'if (c === 10 || c === 13) y = this.m_bRHW')
+m(FT, 'OutTextMultiline: a CR does not move down (an LF does)', 'if (c === 10) y = this.m_bRHW', 'if (c === 13) y = this.m_bRHW')
+m(FT, 'OutTextMultiline: a RHW font moves down by adding', 'y = this.m_bRHW ? (y + step) | 0 : (y - step) | 0;', 'y = this.m_bRHW ? (y - step) | 0 : (y + step) | 0;')
+m(FT, 'OutTextMultiline: a line starts after the break', 'start = i + 1;\n        } else if', 'start = i;\n        } else if')
+m(FT, 'OutTextMultiline: the last line is drawn at the last character', '} else if (i === n - 1) {\n          line(n);', '} else if (i === n) {\n          line(n);')
+m(FT, 'OutTextMultiline: the last line ends at the end', '} else if (i === n - 1) {\n          line(n);', '} else if (i === n - 1) {\n          line(n - 1);')
+m(FT, 'OutTextMultiline: a line ends at its break', 'if (c === 13 || c === 10) {\n          line(i);', 'if (c === 13 || c === 10) {\n          line(i + 1);')
+m(FT, 'OutTextMultiline: a font with an outline draws it', 'if (this.m_iOutLineSize !== 0) {\n      pass(true);', 'if (this.m_iOutLineSize > 1) {\n      pass(true);')
+m(FT, 'OutTextMultiline: the outline pass is flushed to the outline pages', 'pass(true);\n      this.Flush(true, -1);', 'pass(true);\n      this.Flush(false, -1);')
+m(FT, 'OutTextMultiline: the outline pass is flushed', 'pass(true);\n      this.Flush(true, -1);', 'pass(true);')
+m(FT, 'OutTextMultiline: the text pass is a pass', 'pass(false);\n    this.Flush(false, -1);', 'this.Flush(false, -1);')
+m(FT, 'OutTextMultiline: the text is flushed', 'pass(false);\n    this.Flush(false, -1);', 'pass(false);')
+
+# ---- font.ts: CUKFont
+FO = 'font.ts'
+SC = 'const rect = this.scaledRect(pRt);\n    const s = this.scale;\n    const x = ftoi(f(f(iLeft) * s.x));\n    const y = ftoi(f(f(iTop) * s.y));\n    this.ft.'
+SC_B = 'const rect = this.scaledRect(pRt);\n    const s = this.scale;\n    const x = ftoi(f(f(iLeft) * s.y));\n    const y = ftoi(f(f(iTop) * s.y));\n    this.ft.'
+SH = 'if (fontStyle >>> 0 < FONT_STYLE.FS_SHELL) colorOutLine = 0;\n    '
+m(FO, 'CUKFont: the line height is the size over the enlargement and 1', 'return (idiv(ft.m_iFontSize, ft.m_EnlargeNum) + 1) | 0;', 'return (idiv(ft.m_iFontSize, ft.m_EnlargeNum) + 2) | 0;')
+m(FO, 'CUKFont: the scale is the glyph font\'s', 'return this.ft.resolutionScale;', 'return { x: 1, y: 1 };')
+m(FO, 'CUKFont: a rectangle scales left by x', 'left: ftoi(f(f(pRt.left) * s.x)),', 'left: ftoi(f(f(pRt.left) * s.y)),')
+m(FO, 'CUKFont: a rectangle scales top by y', 'top: ftoi(f(f(pRt.top) * s.y)),', 'top: ftoi(f(f(pRt.top) * s.x)),')
+m(FO, 'CUKFont: a rectangle scales right by x', 'right: ftoi(f(f(pRt.right) * s.x)),', 'right: ftoi(f(f(pRt.right) * s.y)),')
+m(FO, 'CUKFont: a rectangle scales bottom by y', 'bottom: ftoi(f(f(pRt.bottom) * s.y)),', 'bottom: ftoi(f(f(pRt.bottom) * s.x)),',
+  'equivalent: the glyph font never reads the top or the bottom of the rectangle (only left and right place and clip the text)')
+m(FO, 'CUKFont: a rectangle scales top by y (not x)', 'top: ftoi(f(f(pRt.top) * s.y)),', 'top: ftoi(f(f(pRt.top) * s.y)) + 1,',
+  'equivalent: the glyph font never reads the top or the bottom of the rectangle (only left and right place and clip the text)')
+m(FO, 'CUKFont: a rectangle is cut towards 0 at the left', 'left: ftoi(f(f(pRt.left) * s.x)),', 'left: Math.floor(f(f(pRt.left) * s.x)),')
+m(FO, 'CUKFont: a rectangle is cut towards 0 at the right', 'right: ftoi(f(f(pRt.right) * s.x)),', 'right: Math.floor(f(f(pRt.right) * s.x)),')
+m(FO, 'CUKFont: no rectangle stays none', 'if (!pRt) return null;', 'if (!pRt) return { left: 0, top: 0, right: 0, bottom: 0 };')
+m(FO, 'CUKFont.OutTextXY: a style below SHELL has no outline colour', SH + SC + 'OutTextXY(', 'if (fontStyle < FONT_STYLE.FS_SHELL) colorOutLine = 0;\n    ' + SC + 'OutTextXY(')
+m(FO, 'CUKFont.OutTextXY: SHELL has an outline colour', SH + SC + 'OutTextXY(', 'if (fontStyle >>> 0 <= FONT_STYLE.FS_SHELL) colorOutLine = 0;\n    ' + SC + 'OutTextXY(')
+m(FO, 'CUKFont.OutTextXY: SHADOW has no outline colour', SH + SC + 'OutTextXY(', 'if (fontStyle >>> 0 < FONT_STYLE.FS_SHADOW) colorOutLine = 0;\n    ' + SC + 'OutTextXY(')
+m(FO, 'CUKFont.OutTextXY: x is scaled by x', SC + 'OutTextXY(', SC_B + 'OutTextXY(')
+m(FO, 'CUKFont.OutTextXY: y is scaled by y', SC + 'OutTextXY(', 'const rect = this.scaledRect(pRt);\n    const s = this.scale;\n    const x = ftoi(f(f(iLeft) * s.x));\n    const y = ftoi(f(f(iTop) * s.x));\n    this.ft.OutTextXY(')
+m(FO, 'CUKFont.OutTextXY: x is cut towards 0', SC + 'OutTextXY(', 'const rect = this.scaledRect(pRt);\n    const s = this.scale;\n    const x = Math.floor(f(f(iLeft) * s.x));\n    const y = ftoi(f(f(iTop) * s.y));\n    this.ft.OutTextXY(')
+m(FO, 'CUKFont.OutTextXY: y is cut towards 0', SC + 'OutTextXY(', 'const rect = this.scaledRect(pRt);\n    const s = this.scale;\n    const x = ftoi(f(f(iLeft) * s.x));\n    const y = Math.floor(f(f(iTop) * s.y));\n    this.ft.OutTextXY(')
+m(FO, 'CUKFont.OutTextXY: the colours reach the glyph font', 'this.ft.OutTextXY(x, y, wszText, color, colorOutLine, rect, dwFlag, nCount, fScaleX, fScaleY);', 'this.ft.OutTextXY(x, y, wszText, colorOutLine, color, rect, dwFlag, nCount, fScaleX, fScaleY);')
+m(FO, 'CUKFont.OutTextXY: the scales reach the glyph font', 'this.ft.OutTextXY(x, y, wszText, color, colorOutLine, rect, dwFlag, nCount, fScaleX, fScaleY);', 'this.ft.OutTextXY(x, y, wszText, color, colorOutLine, rect, dwFlag, nCount, fScaleY, fScaleX);')
+m(FO, 'CUKFont.OutTextXY: the flag and the count reach the glyph font', 'this.ft.OutTextXY(x, y, wszText, color, colorOutLine, rect, dwFlag, nCount, fScaleX, fScaleY);', 'this.ft.OutTextXY(x, y, wszText, color, colorOutLine, rect, nCount, dwFlag, fScaleX, fScaleY);')
+m(FO, 'CUKFont.OutTextMultiline: a style below SHELL has no outline colour', SH + SC + 'OutTextMultiline(', 'if (fontStyle < FONT_STYLE.FS_SHELL) colorOutLine = 0;\n    ' + SC + 'OutTextMultiline(')
+m(FO, 'CUKFont.OutTextMultiline: SHELL has an outline colour', SH + SC + 'OutTextMultiline(', 'if (fontStyle >>> 0 <= FONT_STYLE.FS_SHELL) colorOutLine = 0;\n    ' + SC + 'OutTextMultiline(')
+m(FO, 'CUKFont.OutTextMultiline: x is scaled by x', SC + 'OutTextMultiline(', SC_B + 'OutTextMultiline(')
+m(FO, 'CUKFont.OutTextMultiline: y is scaled by y', SC + 'OutTextMultiline(', 'const rect = this.scaledRect(pRt);\n    const s = this.scale;\n    const x = ftoi(f(f(iLeft) * s.x));\n    const y = ftoi(f(f(iTop) * s.x));\n    this.ft.OutTextMultiline(')
+m(FO, 'CUKFont.OutTextMultiline: x is cut towards 0', SC + 'OutTextMultiline(', 'const rect = this.scaledRect(pRt);\n    const s = this.scale;\n    const x = Math.floor(f(f(iLeft) * s.x));\n    const y = ftoi(f(f(iTop) * s.y));\n    this.ft.OutTextMultiline(')
+m(FO, 'CUKFont.OutTextMultiline: y is cut towards 0', SC + 'OutTextMultiline(', 'const rect = this.scaledRect(pRt);\n    const s = this.scale;\n    const x = ftoi(f(f(iLeft) * s.x));\n    const y = Math.floor(f(f(iTop) * s.y));\n    this.ft.OutTextMultiline(')
+m(FO, 'CUKFont.OutTextMultiline: the scales reach the glyph font', 'this.ft.OutTextMultiline(x, y, wszText, color, colorOutLine, fLineSpace, rect, dwFlag, nCount, fScaleX, fScaleY);', 'this.ft.OutTextMultiline(x, y, wszText, color, colorOutLine, fLineSpace, rect, dwFlag, nCount, fScaleY, fScaleX);')
+m(FO, 'CUKFont.OutTextMultiline: the line space reaches the glyph font', 'this.ft.OutTextMultiline(x, y, wszText, color, colorOutLine, fLineSpace, rect, dwFlag, nCount, fScaleX, fScaleY);', 'this.ft.OutTextMultiline(x, y, wszText, color, colorOutLine, 1, rect, dwFlag, nCount, fScaleX, fScaleY);')
+m(FO, 'CUKFont.OutTextMultiline: the colours reach the glyph font', 'this.ft.OutTextMultiline(x, y, wszText, color, colorOutLine, fLineSpace, rect, dwFlag, nCount, fScaleX, fScaleY);', 'this.ft.OutTextMultiline(x, y, wszText, colorOutLine, color, fLineSpace, rect, dwFlag, nCount, fScaleX, fScaleY);')
+m(FO, 'CUKFont.OutTextMultiline: the flag and the count reach the glyph font', 'this.ft.OutTextMultiline(x, y, wszText, color, colorOutLine, fLineSpace, rect, dwFlag, nCount, fScaleX, fScaleY);', 'this.ft.OutTextMultiline(x, y, wszText, color, colorOutLine, fLineSpace, rect, nCount, dwFlag, fScaleX, fScaleY);')
+m(FO, 'CUKFont.Draw2DText: no text draws nothing', 'if (strMsg === null) return;\n    const rect: Rect', 'const rect: Rect')
+m(FO, 'CUKFont.Draw2DText: the rectangle starts at the position', 'const rect: Rect = { left: xPos, top: yPos, right: xPos, bottom: yPos };', 'const rect: Rect = { left: 0, top: yPos, right: xPos, bottom: yPos };')
+m(FO, 'CUKFont.Draw2DText: the rectangle has no width', 'const rect: Rect = { left: xPos, top: yPos, right: xPos, bottom: yPos };', 'const rect: Rect = { left: xPos, top: yPos, right: xPos + 100, bottom: yPos };')
+m(FO, 'CUKFont.Draw2DText: the rectangle starts at the top', 'const rect: Rect = { left: xPos, top: yPos, right: xPos, bottom: yPos };', 'const rect: Rect = { left: xPos, top: 0, right: xPos, bottom: yPos };',
+  'equivalent: the glyph font never reads the top or the bottom of the rectangle (only left and right place and clip the text)')
+m(FO, 'CUKFont.Draw2DText: the rectangle has no height', 'const rect: Rect = { left: xPos, top: yPos, right: xPos, bottom: yPos };', 'const rect: Rect = { left: xPos, top: yPos, right: xPos, bottom: yPos + 100 };',
+  'equivalent: the glyph font never reads the top or the bottom of the rectangle (only left and right place and clip the text)')
+m(FO, 'CUKFont.Draw2DText: the outline colour is packed', 'const outline = packColor(outlineColor);', 'const outline = packColor(color);')
+m(FO, 'CUKFont.Draw2DText: the colour is packed', 'const packed = packColor(color);', 'const packed = packColor(outlineColor);')
+m(FO, 'CUKFont.Draw2DText: 0x20 is one line', 'if (sortFlag & 0x20) this.OutTextXY(', 'if (sortFlag & 0x10) this.OutTextXY(')
+m(FO, 'CUKFont.Draw2DText: one line is drawn at the position', 'this.OutTextXY(xPos, yPos, strMsg, packed, fontStyle, outline, rect, sortFlag, nCount, 1, 1);', 'this.OutTextXY(yPos, xPos, strMsg, packed, fontStyle, outline, rect, sortFlag, nCount, 1, 1);')
+m(FO, 'CUKFont.Draw2DText: one line has the colours', 'this.OutTextXY(xPos, yPos, strMsg, packed, fontStyle, outline, rect, sortFlag, nCount, 1, 1);', 'this.OutTextXY(xPos, yPos, strMsg, outline, fontStyle, packed, rect, sortFlag, nCount, 1, 1);')
+m(FO, 'CUKFont.Draw2DText: one line has the style', 'this.OutTextXY(xPos, yPos, strMsg, packed, fontStyle, outline, rect, sortFlag, nCount, 1, 1);', 'this.OutTextXY(xPos, yPos, strMsg, packed, 2, outline, rect, sortFlag, nCount, 1, 1);')
+m(FO, 'CUKFont.Draw2DText: one line is placed by the flag', 'this.OutTextXY(xPos, yPos, strMsg, packed, fontStyle, outline, rect, sortFlag, nCount, 1, 1);', 'this.OutTextXY(xPos, yPos, strMsg, packed, fontStyle, outline, rect, 0, nCount, 1, 1);')
+m(FO, 'CUKFont.Draw2DText: one line has the count', 'this.OutTextXY(xPos, yPos, strMsg, packed, fontStyle, outline, rect, sortFlag, nCount, 1, 1);', 'this.OutTextXY(xPos, yPos, strMsg, packed, fontStyle, outline, rect, sortFlag, -1, 1, 1);')
+m(FO, 'CUKFont.Draw2DText: one line has the scale x', 'this.OutTextXY(xPos, yPos, strMsg, packed, fontStyle, outline, rect, sortFlag, nCount, 1, 1);', 'this.OutTextXY(xPos, yPos, strMsg, packed, fontStyle, outline, rect, sortFlag, nCount, 2, 1);')
+m(FO, 'CUKFont.Draw2DText: one line has the scale y', 'this.OutTextXY(xPos, yPos, strMsg, packed, fontStyle, outline, rect, sortFlag, nCount, 1, 1);', 'this.OutTextXY(xPos, yPos, strMsg, packed, fontStyle, outline, rect, sortFlag, nCount, 1, 2);')
+m(FO, 'CUKFont.Draw2DText: lines are drawn at the position', 'else this.OutTextMultiline(xPos, yPos, strMsg, packed, fontStyle, outline, 1, rect, sortFlag, nCount, 1, 1);', 'else this.OutTextMultiline(yPos, xPos, strMsg, packed, fontStyle, outline, 1, rect, sortFlag, nCount, 1, 1);')
+m(FO, 'CUKFont.Draw2DText: lines have the colours', 'else this.OutTextMultiline(xPos, yPos, strMsg, packed, fontStyle, outline, 1, rect, sortFlag, nCount, 1, 1);', 'else this.OutTextMultiline(xPos, yPos, strMsg, outline, fontStyle, packed, 1, rect, sortFlag, nCount, 1, 1);')
+m(FO, 'CUKFont.Draw2DText: lines have the style', 'else this.OutTextMultiline(xPos, yPos, strMsg, packed, fontStyle, outline, 1, rect, sortFlag, nCount, 1, 1);', 'else this.OutTextMultiline(xPos, yPos, strMsg, packed, 2, outline, 1, rect, sortFlag, nCount, 1, 1);')
+m(FO, 'CUKFont.Draw2DText: lines are one line space apart', 'else this.OutTextMultiline(xPos, yPos, strMsg, packed, fontStyle, outline, 1, rect, sortFlag, nCount, 1, 1);', 'else this.OutTextMultiline(xPos, yPos, strMsg, packed, fontStyle, outline, 2, rect, sortFlag, nCount, 1, 1);')
+m(FO, 'CUKFont.Draw2DText: lines are placed by the flag', 'else this.OutTextMultiline(xPos, yPos, strMsg, packed, fontStyle, outline, 1, rect, sortFlag, nCount, 1, 1);', 'else this.OutTextMultiline(xPos, yPos, strMsg, packed, fontStyle, outline, 1, rect, 0, nCount, 1, 1);')
+m(FO, 'CUKFont.Draw2DText: lines have the count', 'else this.OutTextMultiline(xPos, yPos, strMsg, packed, fontStyle, outline, 1, rect, sortFlag, nCount, 1, 1);', 'else this.OutTextMultiline(xPos, yPos, strMsg, packed, fontStyle, outline, 1, rect, sortFlag, -1, 1, 1);')
+m(FO, 'CUKFont.Draw2DText: lines have the scale x', 'else this.OutTextMultiline(xPos, yPos, strMsg, packed, fontStyle, outline, 1, rect, sortFlag, nCount, 1, 1);', 'else this.OutTextMultiline(xPos, yPos, strMsg, packed, fontStyle, outline, 1, rect, sortFlag, nCount, 2, 1);')
+m(FO, 'CUKFont.Draw2DText: lines have the scale y', 'else this.OutTextMultiline(xPos, yPos, strMsg, packed, fontStyle, outline, 1, rect, sortFlag, nCount, 1, 1);', 'else this.OutTextMultiline(xPos, yPos, strMsg, packed, fontStyle, outline, 1, rect, sortFlag, nCount, 1, 2);')
+m(FO, 'packColor: alpha is the high byte', '(clampedByte(c.a) << 24) | (clampedByte(c.r) << 16) | (clampedByte(c.g) << 8) | clampedByte(c.b)', '(clampedByte(c.r) << 24) | (clampedByte(c.a) << 16) | (clampedByte(c.g) << 8) | clampedByte(c.b)')
+m(FO, 'packColor: red is the second byte', '(clampedByte(c.a) << 24) | (clampedByte(c.r) << 16) | (clampedByte(c.g) << 8) | clampedByte(c.b)', '(clampedByte(c.a) << 24) | (clampedByte(c.b) << 16) | (clampedByte(c.g) << 8) | clampedByte(c.r)')
+m(FO, 'packColor: green is the third byte', '(clampedByte(c.a) << 24) | (clampedByte(c.r) << 16) | (clampedByte(c.g) << 8) | clampedByte(c.b)', '(clampedByte(c.a) << 24) | (clampedByte(c.r) << 16) | (clampedByte(c.b) << 8) | clampedByte(c.g)')
+m(FO, 'packColor: the colour is unsigned', 'clampedByte(c.b)) >>> 0);', 'clampedByte(c.b)) | 0);')
+m(FO, 'CUKFont.GetWidth: the whole text', 'return this.ft.GetWidth(wszText, -1);', 'return this.ft.GetWidth(wszText, 0);')
+m(FO, 'CUKFont.GetWidthOfChar: the width of the character', 'return (idiv(size.cx, ft.m_EnlargeNum) + 2 * ft.m_iOutLineSize - 1) | 0;', 'return (idiv(size.cy, ft.m_EnlargeNum) + 2 * ft.m_iOutLineSize - 1) | 0;')
+m(FO, 'CUKFont.GetWidthOfChar: the outline on both sides', 'return (idiv(size.cx, ft.m_EnlargeNum) + 2 * ft.m_iOutLineSize - 1) | 0;', 'return (idiv(size.cx, ft.m_EnlargeNum) + ft.m_iOutLineSize - 1) | 0;')
+m(FO, 'CUKFont.GetWidthOfChar: less 1', 'return (idiv(size.cx, ft.m_EnlargeNum) + 2 * ft.m_iOutLineSize - 1) | 0;', 'return (idiv(size.cx, ft.m_EnlargeNum) + 2 * ft.m_iOutLineSize) | 0;')
+m(FO, 'CUKFont.GetWidthOfChar: over the enlargement', 'return (idiv(size.cx, ft.m_EnlargeNum) + 2 * ft.m_iOutLineSize - 1) | 0;', 'return (size.cx + 2 * ft.m_iOutLineSize - 1) | 0;')
+m(FO, 'CUKFont.GetWidthOfChar: over the enlargement (towards 0)', 'return (idiv(size.cx, ft.m_EnlargeNum) + 2 * ft.m_iOutLineSize - 1) | 0;', 'return (Math.floor(size.cx / ft.m_EnlargeNum) + 2 * ft.m_iOutLineSize - 1) | 0;')
+m(FO, 'CUKFont.lines: a text has a line', 'let lines = 1;\n    if (wszText !== null) {', 'let lines = 0;\n    if (wszText !== null) {')
+m(FO, 'CUKFont.lines: no text is a line', 'if (wszText !== null) {\n      const s', 'if (wszText === null) {\n      const s')
+m(FO, 'CUKFont.lines: the text ends at a NUL', 'const s = wszText.slice(0, wcslen(wszText));', 'const s = wszText;')
+m(FO, 'CUKFont.lines: an LF is a line break', 'const lf = s.indexOf("\\n", at);', 'const lf = s.indexOf("\\r", at);')
+m(FO, 'CUKFont.lines: the search goes on after the LF', 'at = lf + 1;\n        lines++;', 'at = lf;\n        lines++;')
+m(FO, 'CUKFont.lines: a line is counted for each LF', 'at = lf + 1;\n        lines++;', 'at = lf + 1;')
+m(FO, 'CUKFont.lines: a trailing LF is a line', 'while (s.length !== 0 && at <= s.length - 1) {', 'while (s.length !== 0 && at < s.length - 1) {')
+m(FO, 'CUKFont.lines: the search ends with the text', 'while (s.length !== 0 && at <= s.length - 1) {', 'while (at <= s.length - 1) {',
+  'equivalent: for an empty text `at <= -1` is false as well')
+m(FO, 'CUKFont.GetHeight: a font without glyph font is 1', 'const ft = this.m_pUKFont;\n    if (!ft) return 1;\n    return Math.imul(UKFont.lines(wszText), idiv(ft.m_iFontSize, ft.m_EnlargeNum) + 1);', 'const ft = this.m_pUKFont;\n    if (!ft) return 0;\n    return Math.imul(UKFont.lines(wszText), idiv(ft.m_iFontSize, ft.m_EnlargeNum) + 1);')
+m(FO, 'CUKFont.GetHeight: a line is the size and 1', 'return Math.imul(UKFont.lines(wszText), idiv(ft.m_iFontSize, ft.m_EnlargeNum) + 1);', 'return Math.imul(UKFont.lines(wszText), idiv(ft.m_iFontSize, ft.m_EnlargeNum));')
+m(FO, 'CUKFont.GetHeight: a line is the size over the enlargement', 'return Math.imul(UKFont.lines(wszText), idiv(ft.m_iFontSize, ft.m_EnlargeNum) + 1);', 'return Math.imul(UKFont.lines(wszText), ft.m_iFontSize + 1);')
+m(FO, 'CUKFont.GetPaddedHeight: a font without glyph font is 1', 'const ft = this.m_pUKFont;\n    if (!ft) return 1;\n    return Math.imul(UKFont.lines(wszText), (iAddHeight', 'const ft = this.m_pUKFont;\n    if (!ft) return 0;\n    return Math.imul(UKFont.lines(wszText), (iAddHeight')
+m(FO, 'CUKFont.GetPaddedHeight: the padding and 1', '(iAddHeight + 1 + idiv(ft.m_iFontSize, ft.m_EnlargeNum)) | 0', '(iAddHeight + idiv(ft.m_iFontSize, ft.m_EnlargeNum)) | 0')
+m(FO, 'CUKFont.GetPaddedHeight: the size over the enlargement', '(iAddHeight + 1 + idiv(ft.m_iFontSize, ft.m_EnlargeNum)) | 0', '(iAddHeight + 1 + ft.m_iFontSize) | 0')
+m(FO, 'CUKFont.CalcTextRect: no rectangle is nothing', 'if (pos === null) return;', '')
+m(FO, 'CUKFont.CalcTextRect: no text is an empty rectangle', 'if (strMsg === null || wcslen(strMsg) === 0 || nCount === 0) {', 'if (wcslen(strMsg ?? "") === 0 || nCount === 0) {')
+m(FO, 'CUKFont.CalcTextRect: an empty text is an empty rectangle', 'if (strMsg === null || wcslen(strMsg) === 0 || nCount === 0) {', 'if (strMsg === null || nCount === 0) {')
+m(FO, 'CUKFont.CalcTextRect: a count of 0 is an empty rectangle', 'if (strMsg === null || wcslen(strMsg) === 0 || nCount === 0) {', 'if (strMsg === null || wcslen(strMsg) === 0) {')
+m(FO, 'CUKFont.CalcTextRect: an empty rectangle is all 0', 'pos.left = pos.top = pos.right = pos.bottom = 0;', 'pos.right = pos.bottom = 0;')
+m(FO, 'CUKFont.CalcTextRect: an empty rectangle has no top', 'pos.left = pos.top = pos.right = pos.bottom = 0;', 'pos.left = pos.right = pos.bottom = 0;')
+m(FO, 'CUKFont.CalcTextRect: 0x20 is one line', 'if (format & 0x20) {\n      pos.bottom', 'if (format & 0x10) {\n      pos.bottom')
+m(FO, 'CUKFont.CalcTextRect: one line is the size and 1 high', 'pos.bottom = (pos.top + 1 + idiv(ft.m_iFontSize, ft.m_EnlargeNum)) | 0;', 'pos.bottom = (pos.top + idiv(ft.m_iFontSize, ft.m_EnlargeNum)) | 0;')
+m(FO, 'CUKFont.CalcTextRect: one line is the size over the enlargement high', 'pos.bottom = (pos.top + 1 + idiv(ft.m_iFontSize, ft.m_EnlargeNum)) | 0;', 'pos.bottom = (pos.top + 1 + ft.m_iFontSize) | 0;')
+m(FO, 'CUKFont.CalcTextRect: one line is as wide as the text', 'pos.right = (ft.GetWidth(strMsg, nCount) + pos.left) | 0;\n    } else {', 'pos.right = (ft.GetWidth(strMsg, nCount)) | 0;\n    } else {')
+m(FO, 'CUKFont.CalcTextRect: lines are as wide as the text', 'pos.right = (ft.GetWidth(strMsg, nCount) + pos.left) | 0;\n      const n', 'pos.right = (ft.GetWidth(strMsg, nCount)) | 0;\n      const n')
+m(FO, 'CUKFont.CalcTextRect: a negative count is the whole text', 'const n = nCount < 0 ? wcslen(strMsg) : nCount;', 'const n = nCount;')
+m(FO, 'CUKFont.CalcTextRect: lines are as high as the text over the enlargement', 'pos.bottom = (pos.top + idiv(ft._EstimateStringHeight(strMsg, n), ft.m_EnlargeNum)) | 0;', 'pos.bottom = (pos.top + ft._EstimateStringHeight(strMsg, n)) | 0;')
+m(FO, 'CUKFont.CalcTextRect: lines are from the top', 'pos.bottom = (pos.top + idiv(ft._EstimateStringHeight(strMsg, n), ft.m_EnlargeNum)) | 0;', 'pos.bottom = idiv(ft._EstimateStringHeight(strMsg, n), ft.m_EnlargeNum) | 0;')
+
+# ---- dynamictexture.ts
+DT = 'dynamictexture.ts'
+m(DT, 'CreateTexture: the size is kept', 'this.m_dwWidth = dwWidth >>> 0;\n    this.m_dwHeight = dwHeight >>> 0;', 'this.m_dwHeight = dwHeight >>> 0;')
+m(DT, 'CreateTexture: the format is kept', 'this.m_d3dFormat = d3dFormat;', '')
+m(DT, 'CreateTexture: without a device only A8R8G8B8 is made', 'if (d3dFormat !== 21) throw', 'if (d3dFormat === 21) throw')
+m(DT, 'CreateTexture: without a device the pixels are width * height', 'this.pBits = new Uint32Array(dwWidth * dwHeight);', 'this.pBits = new Uint32Array(dwWidth + dwHeight);')
+m(DT, 'CreateTexture: without a device a row is width * 4 bytes', 'this.pitch = dwWidth * 4;', 'this.pitch = dwWidth;')
+m(DT, 'CreateTexture: the system texture is in system memory', 'D3DXCreateTexture(device, dwWidth, dwHeight, 1, 0, d3dFormat, D3DPOOL.SYSTEMMEM)', 'D3DXCreateTexture(device, dwWidth, dwHeight, 1, 0, d3dFormat, D3DPOOL.MANAGED)')
+m(DT, 'CreateTexture: the system texture has one level', 'D3DXCreateTexture(device, dwWidth, dwHeight, 1, 0, d3dFormat, D3DPOOL.SYSTEMMEM)', 'D3DXCreateTexture(device, dwWidth, dwHeight, 0, 0, d3dFormat, D3DPOOL.SYSTEMMEM)')
+m(DT, 'CreateTexture: the system texture is of the given size', 'D3DXCreateTexture(device, dwWidth, dwHeight, 1, 0, d3dFormat, D3DPOOL.SYSTEMMEM)', 'D3DXCreateTexture(device, dwHeight, dwWidth, 1, 0, d3dFormat, D3DPOOL.SYSTEMMEM)')
+m(DT, 'CreateTexture: a system texture that fails is error 9', 'this.host.log.push(9, hresultName(sys.hr));', 'this.host.log.push(0x72, hresultName(sys.hr));')
+m(DT, 'CreateTexture: a system texture that fails has the name of the HRESULT', 'this.host.log.push(9, hresultName(sys.hr));', 'this.host.log.push(9);')
+m(DT, 'CreateTexture: a system texture that fails is false', 'this.host.log.push(9, hresultName(sys.hr));\n      return false;', 'this.host.log.push(9, hresultName(sys.hr));')
+m(DT, 'CreateTexture: the video texture is in the default pool', 'D3DXCreateTexture(device, this.m_dwWidth, this.m_dwHeight, 1, 0, d3dFormat, D3DPOOL.DEFAULT)', 'D3DXCreateTexture(device, this.m_dwWidth, this.m_dwHeight, 1, 0, d3dFormat, D3DPOOL.MANAGED)')
+m(DT, 'CreateTexture: the video texture is of the given size', 'D3DXCreateTexture(device, this.m_dwWidth, this.m_dwHeight, 1, 0, d3dFormat, D3DPOOL.DEFAULT)', 'D3DXCreateTexture(device, this.m_dwHeight, this.m_dwWidth, 1, 0, d3dFormat, D3DPOOL.DEFAULT)')
+m(DT, 'CreateTexture: a video texture that fails is error 0x72', 'this.host.log.push(0x72, hresultName(vid.hr));', 'this.host.log.push(9, hresultName(vid.hr));')
+m(DT, 'CreateTexture: a video texture that fails has the name of the HRESULT', 'this.host.log.push(0x72, hresultName(vid.hr));', 'this.host.log.push(0x72);')
+m(DT, 'CreateTexture: a video texture that fails is false', 'this.host.log.push(0x72, hresultName(vid.hr));\n      return false;', 'this.host.log.push(0x72, hresultName(vid.hr));')
+m(DT, 'CreateTexture: the system texture is locked', 'this.m_bUpdateTexture = false;\n    this.lock();\n    return true;', 'this.m_bUpdateTexture = false;\n    return true;')
+m(DT, 'CreateTexture: a new texture has nothing to upload', 'this.m_bUpdateTexture = false;\n    this.lock();\n    return true;', 'this.m_bUpdateTexture = true;\n    this.lock();\n    return true;')
+m(DT, 'hresultName: D3DERR_NOTAVAILABLE', 'case D3DERR_NOTAVAILABLE: return "D3DERR_NOTAVAILABLE";', 'case D3DERR_NOTAVAILABLE: return "D3DERR_INVALIDCALL";')
+m(DT, 'hresultName: E_OUTOFMEMORY', 'case E_OUTOFMEMORY: return "E_OUTOFMEMORY";', 'case E_OUTOFMEMORY: return "D3DERR_OUTOFVIDEOMEMORY";')
+m(DT, 'hresultName: D3DERR_OUTOFVIDEOMEMORY', 'case D3DERR_OUTOFVIDEOMEMORY: return "D3DERR_OUTOFVIDEOMEMORY";', 'case D3DERR_OUTOFVIDEOMEMORY: return "E_OUTOFMEMORY";')
+m(DT, 'hresultName: D3DERR_INVALIDCALL', 'case D3DERR_INVALIDCALL: return "D3DERR_INVALIDCALL";', 'case D3DERR_INVALIDCALL: return "D3DERR_NOTAVAILABLE";')
+m(DT, 'hresultName: any other HRESULT has no name', 'default: return undefined;', 'default: return "";')
+m(DT, 'hresultName: the value of D3DERR_INVALIDCALL', 'const D3DERR_INVALIDCALL = -2005530516;', 'const D3DERR_INVALIDCALL = -2005530515;')
+m(DT, 'hresultName: the value of D3DERR_NOTAVAILABLE', 'const D3DERR_NOTAVAILABLE = -2005530518;', 'const D3DERR_NOTAVAILABLE = -2005530517;')
+m(DT, 'hresultName: the value of E_OUTOFMEMORY', 'const E_OUTOFMEMORY = -2147024882;', 'const E_OUTOFMEMORY = -2147024881;')
+m(DT, 'hresultName: the value of D3DERR_OUTOFVIDEOMEMORY', 'const D3DERR_OUTOFVIDEOMEMORY = -2005532292;', 'const D3DERR_OUTOFVIDEOMEMORY = -2005532291;')
+m(DT, 'lock: the system texture is locked without dirty updates', 'LockRect(0, null, D3DLOCK.NO_DIRTY_UPDATE)', 'LockRect(0, null, 0)')
+m(DT, 'lock: the pixels are the locked bytes', 'this.pBits = new Uint32Array(lk.pBits.buffer, lk.pBits.byteOffset, lk.pBits.byteLength >> 2);', 'this.pBits = new Uint32Array(lk.pBits.byteLength >> 2);')
+m(DT, 'lock: the pitch is the locked one', 'this.pitch = lk.pitch;', '')
+m(DT, 'SetChange: an empty rectangle changes nothing (width)', 'if (rect.right > rect.left && rect.bottom > rect.top) {', 'if (rect.right >= rect.left && rect.bottom > rect.top) {')
+m(DT, 'SetChange: an empty rectangle changes nothing (height)', 'if (rect.right > rect.left && rect.bottom > rect.top) {', 'if (rect.right > rect.left && rect.bottom >= rect.top) {')
+m(DT, 'SetChange: a change is remembered', 'this.dirtyRects.push({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom });', '')
+m(DT, 'SetChange: a change is a copy of the rectangle', 'this.dirtyRects.push({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom });', 'this.dirtyRects.push(rect);')
+m(DT, 'SetChange: a change needs an update', 'this.m_bUpdateTexture = true;\n      }\n    }\n  }', '}\n    }\n  }')
+m(DT, 'SetTexture: a change is uploaded', 'if (this.m_bUpdateTexture) {\n      this.m_bUpdateTexture = false;', 'if (!this.m_bUpdateTexture) {\n      this.m_bUpdateTexture = false;')
+m(DT, 'SetTexture: an upload is done once', 'if (this.m_bUpdateTexture) {\n      this.m_bUpdateTexture = false;', 'if (this.m_bUpdateTexture) {')
+m(DT, 'SetTexture: an upload empties the dirty rectangles', 'this.dirtyRects.length = 0;', '')
+m(DT, 'SetTexture: the system texture is unlocked first', 'sys.UnlockRect(0);\n        this.host.device.UpdateTexture', 'this.host.device.UpdateTexture')
+m(DT, 'SetTexture: the system texture is copied to the video texture', 'this.host.device.UpdateTexture(sys, this.m_pTextureVid);', 'this.host.device.UpdateTexture(this.m_pTextureVid, sys);')
+m(DT, 'SetTexture: the system texture is locked again', 'this.host.device.UpdateTexture(sys, this.m_pTextureVid);\n        this.lock();', 'this.host.device.UpdateTexture(sys, this.m_pTextureVid);')
+m(DT, 'SetTexture: no video texture sets nothing', 'if (!vid || !target) return; // no device: nothing to set', 'if (!target) return; // no device: nothing to set')
+m(DT, 'SetTexture: a stage below 16 goes through the mirror', 'if (iStage < 0x10) {\n      const mirror', 'if (iStage <= 0x10) {\n      const mirror')
+m(DT, 'SetTexture: a stage from 16 does not', 'if (iStage < 0x10) {\n      const mirror', 'if (iStage < 0x11) {\n      const mirror')
+m(DT, 'SetTexture: a stage that holds the texture is left alone', 'if (mirror[iStage] === vid) return;', '')
+m(DT, 'SetTexture: the texture is set on the stage', 'hr = target.device.SetTexture(iStage, vid);\n      if (hr < 0)', 'hr = target.device.SetTexture(iStage + 1, vid);\n      if (hr < 0)')
+m(DT, 'SetTexture: a failing SetTexture sets none', 'if (hr < 0) target.device.SetTexture(iStage, null);', '')
+m(DT, 'SetTexture: only a failure sets none', 'if (hr < 0) target.device.SetTexture(iStage, null);', 'if (hr <= 0) target.device.SetTexture(iStage, null);')
+m(DT, 'SetTexture: the old texture is released', 'mirror[iStage]?.Release();', '')
+m(DT, 'SetTexture: the mirror holds the texture', 'mirror[iStage] = vid;\n      vid.AddRef();', 'vid.AddRef();')
+m(DT, 'SetTexture: the mirror holds a reference', 'mirror[iStage] = vid;\n      vid.AddRef();', 'mirror[iStage] = vid;')
+m(DT, 'SetTexture: a stage from 16 calls the device', 'hr = target.device.SetTexture(iStage, vid);\n    }\n    if (hr < 0)', 'hr = 0;\n    }\n    if (hr < 0)')
+m(DT, 'SetTexture: a failing SetTexture is error 0xD', 'if (hr < 0) this.host.log.push(0xd);', 'if (hr < 0) this.host.log.push(0xe);')
+m(DT, 'SetTexture: only a failing SetTexture is logged', 'if (hr < 0) this.host.log.push(0xd);', 'this.host.log.push(0xd);')
+
+# ---- fontmanager.ts
+FM = 'fontmanager.ts'
+m(FM, 'upper: a is upper-cased', "s.replace(/[a-z]/g, (c)", "s.replace(/[b-z]/g, (c)")
+m(FM, 'upper: z is upper-cased', "s.replace(/[a-z]/g, (c)", "s.replace(/[a-y]/g, (c)")
+m(FM, 'upper: the case is 32 apart', 'String.fromCharCode(c.charCodeAt(0) - 32)', 'String.fromCharCode(c.charCodeAt(0) - 31)')
+m(FM, 'InstallFont: neither name may be empty (the name)', 'if (strFontName.length === 0 || strFontPath.length === 0) return;', 'if (strFontPath.length === 0) return;')
+m(FM, 'InstallFont: neither name may be empty (the path)', 'if (strFontName.length === 0 || strFontPath.length === 0) return;', 'if (strFontName.length === 0) return;')
+m(FM, 'InstallFont: the name is upper-cased', 'const name = upper(strFontName);', 'const name = strFontName;')
+m(FM, 'InstallFont: the path is upper-cased', 'const path = upper(strFontPath);', 'const path = strFontPath;')
+m(FM, 'InstallFont: the name is mapped to the file', 'this.m_mapFontNameFile.set(name, path);', '')
+m(FM, 'InstallFont: a file that is there is not read again', 'if (this.m_mapFontFileMemory.has(path)) return;', '')
+m(FM, 'InstallFont: the file is read by its upper-cased path', 'this.host.devices.massFiles.loadDataFile(path);', 'this.host.devices.massFiles.loadDataFile(strFontPath);')
+m(FM, 'InstallFont: a file of no bytes is an error', 'if (bytes !== undefined && bytes.length > 0) {', 'if (bytes !== undefined) {')
+m(FM, 'InstallFont: a file that cannot be read is an error', 'if (bytes !== undefined && bytes.length > 0) {', 'if (bytes === undefined || bytes.length > 0) {')
+m(FM, 'InstallFont: the bytes are kept', 'this.m_mapFontFileMemory.set(path, bytes);', '')
+m(FM, 'InstallFont: the error is 0x10', 'this.host.devices.massFiles.log.push(0x10, path);', 'this.host.devices.massFiles.log.push(0x11, path);')
+m(FM, 'InstallFont: the error has the path', 'this.host.devices.massFiles.log.push(0x10, path);', 'this.host.devices.massFiles.log.push(0x10, strFontName);')
+m(FM, 'InstallFont: the message box says Font Error!', 'this.host.messageBox(path, "Font Error!");', 'this.host.messageBox(path, "Font Load Error!");')
+m(FM, 'InstallFont: the message box has the path', 'this.host.messageBox(path, "Font Error!");', 'this.host.messageBox(strFontName, "Font Error!");')
+m(FM, 'GetFontMemory: an empty name has no font', 'if (strFontName.length === 0) return DUMMY_FONT;', '')
+m(FM, 'GetFontMemory: the name is upper-cased', 'this.m_mapFontNameFile.get(upper(strFontName));', 'this.m_mapFontNameFile.get(strFontName);')
+m(FM, 'GetFontMemory: a name that is not installed has no font', 'if (path === undefined) return DUMMY_FONT;', '')
+m(FM, 'GetFontMemory: a file that could not be read has no font', 'return this.m_mapFontFileMemory.get(path) ?? DUMMY_FONT;', 'return this.m_mapFontFileMemory.get(path)!;')
+m(FM, 'CreateNewUIUKFont: no name is an empty name', 'new CKTDGFreeTypeFont(fontName ?? "", height,', 'new CKTDGFreeTypeFont(fontName ?? "X", height,')
+m(FM, 'CreateNewUIUKFont: the glyph font is RHW', 'height, outlineSize, true, weight, enlargeNum, bNoRes, this);', 'height, outlineSize, false, weight, enlargeNum, bNoRes, this);')
+m(FM, 'CreateNewUIUKFont: the outline size is the third argument', 'height, outlineSize, true, weight, enlargeNum, bNoRes, this);', 'height, enlargeNum, true, weight, outlineSize, bNoRes, this);')
+m(FM, 'CreateNewUIUKFont: the glyph font is loaded', 'glyphFont.Load(); // the CUKFont constructor', '// the CUKFont constructor')
+m(FM, 'CreateNewUIUKFont: the font is listed', 'this.m_UKFontList.push(font);', '')
+m(FM, 'CreateNewUIUKFont: the font is entered under its id', 'this.fonts.setUKFont(fontID, font);', '')
+m(FM, 'MapUIFontToUKFont: the dialog manager maps it', 'this.fonts.mapUIFontToUKFont(fontID, ukFontID);', '')
+
+# ---- main.ts
+MA = 'main.ts'
+m(MA, 'InstallFont: the font manager installs the font', 'this.fontManager.InstallFont(pValueName, pFontFileName);', '')
+m(MA, 'InstallFont: a file that is not on disk answers false', 'if (!this.hasLocalFile(pFontFileName)) return false;', 'if (this.hasLocalFile(pFontFileName)) return false;')
+m(MA, 'InstallFont: a file on disk is remembered', 'this.m_UseFontNameList.push(pFontFileName);', '')
+m(MA, 'InstallFont: a file on disk answers true', 'this.m_UseFontNameList.push(pFontFileName);\n    return true;', 'this.m_UseFontNameList.push(pFontFileName);\n    return false;')
+
+
+# ---- reasons found after the first full run (no input can tell these from the original; see the notes of each)
+SIZE_ERROR = ('unreachable: FT_Set_Char_Size clamps the size to at least one pixel and then only tt_size_reset can fail, and only for a ppem below 1 '
+              '(FreeType 2.4.11 ftobjs.c / ttobjs.c), so the size of a face the loader has accepted is never an error')
+RECT_TOP = 'equivalent: the glyph font never reads the top or the bottom of the rectangle (only left and right)'
+NULL_TEXT = 'equivalent: a null text is an empty one for the check that follows it ((null ?? "") has no characters)'
+WHY = {
+    ('freetypefont.ts', 'Load: the main size error says the font name'): SIZE_ERROR,
+    ('freetypefont.ts', 'Load: the main size error is a size error'): SIZE_ERROR,
+    ('freetypefont.ts', 'Load: the main size error is logged'): SIZE_ERROR,
+    ('freetypefont.ts', "Load: the sub face size error says the main font's name"): SIZE_ERROR,
+    ('freetypefont.ts', 'Load: the Korean size error says GULIM'): SIZE_ERROR,
+    ('freetypefont.ts', 'Load: the Korean size error is logged'): SIZE_ERROR,
+    ('freetypefont.ts', 'pageTexture: pages 4 to 7 are the outline pages'):
+        'equivalent: a page from 4 on ends in the same exception whichever way it goes (without an alias at once; with one the outline pass fails next), '
+        'and nothing but the cell\'s own numbers has been written by then',
+    ('freetypefont.ts', 'pageTexture: the alias is page - 4'):
+        'equivalent: the alias only decides where the exception is thrown (the outline pass of the same cell fails next), never whether',
+    ('freetypefont.ts', 'fillCell: a cell on page 4 does not tell an outline page'):
+        'equivalent: m_pTextureOutLine has four entries, so an index from 4 on is undefined (null) as well',
+    ('freetypefont.ts', 'GetWidth: a count of 0 has no width'): 'equivalent: the widest line of 0 characters is 0 as well',
+    ('freetypefont.ts', 'GetWidth: a count of 0 is not all the text'): 'equivalent: the guard before it has dealt with a count of 0',
+    ('freetypefont.ts', 'Buffering: a character past the end is read as the terminating NUL'):
+        'equivalent: GetFontCache keeps 16 bits of the character, which turns the NaN of a position past the end into the 0 of the terminator',
+    ('freetypefont.ts', 'OutTextXY: no text draws nothing'): NULL_TEXT,
+    ('freetypefont.ts', 'OutTextMultiline: no text draws nothing'): NULL_TEXT,
+    ('freetypefont.ts', 'OutTextMultiline: the text is the first n characters'):
+        'equivalent: nothing past the first n characters is read (every slice of the text ends at i or at n)',
+    ('font.ts', 'CUKFont: a rectangle scales top by y'): RECT_TOP,
+    ('font.ts', 'CUKFont.Draw2DText: no text draws nothing'): 'equivalent: the glyph font draws nothing for a null text either',
+    ('font.ts', 'CUKFont.CalcTextRect: no text is an empty rectangle'): NULL_TEXT,
+    ('fontmanager.ts', 'GetFontMemory: an empty name has no font'): 'equivalent: InstallFont never stores an empty name, so the lookup of one finds nothing and ends at the next check',
+    ('fontmanager.ts', 'GetFontMemory: a name that is not installed has no font'): 'equivalent: the lookup of the missing file finds nothing and the `?? DUMMY_FONT` after it answers the same',
+}
+_names = [(f, n) for f, n, *_ in M]
+for _k in WHY:
+    assert _names.count(_k) == 1, f'WHY has no mutant {_k}'
+M[:] = [(f, n, a, b, why or WHY.get((f, n), '')) for f, n, a, b, why in M]
+
+
+def limits():
+    resource.setrlimit(resource.RLIMIT_AS, (8 * 2**30, 8 * 2**30))
+
+
+def main():
+    args = sys.argv[1:]
+    mutants = M
+    if '--list' in args:
+        for f, name, a, b, why in mutants:
+            print(f'{f:18s} {name}' + (f'   [survives: {why}]' if why else ''))
+        print(f'{len(mutants)} mutants')
+        return 0
+    pick = [a for a in args if not a.startswith('--')]
+    for a in args:
+        if a.startswith('--survivors='):
+            # only the mutants that survived in an earlier run (its log): to see which a new test now kills
+            gone = {m_.group(1) + ': ' + m_.group(2) for m_ in (re.match(r'SURVIVED  (\S+): (.*?)(   |$)', ln) for ln in open(a.split('=', 1)[1])) if m_}
+            mutants = [mu for mu in mutants if mu[0] + ': ' + mu[1] in gone]
+    sources = {}
+    errors = []
+    for f, name, a, b, why in mutants:
+        path = path_of(f)
+        if path not in sources:
+            sources[path] = open(path).read()
+        if sources[path].count(a) != 1:
+            errors.append(f'anchor found {sources[path].count(a)} times: {f}: {name}')
+        if a == b:
+            errors.append(f'no change: {name}')
+    names = [(f, name) for f, name, *_ in mutants]
+    for dup in sorted({n for n in names if names.count(n) > 1}):
+        errors.append(f'duplicate name: {dup}')
+    if errors:
+        print('\n'.join(errors))
+        return 2
+    if '--check' in args:
+        print(f'{len(mutants)} mutants, every anchor occurs exactly once')
+        return 0
+    bad = survived = run = stale = 0
+    try:
+        for f, name, a, b, why in mutants:
+            if pick and not any(p in name for p in pick):
+                continue
+            path = path_of(f)
+            orig = sources[path]
+            open(path, 'w').write(orig.replace(a, b, 1))
+            try:
+                r = subprocess.run([BUN, 'test', '--bail', *TESTS[f]], cwd=ROOT, capture_output=True, text=True, timeout=90, preexec_fn=limits)
+                killed = r.returncode != 0
+            except subprocess.TimeoutExpired:
+                killed = True
+            finally:
+                open(path, 'w').write(orig)
+            run += 1
+            if killed:
+                if why:
+                    stale += 1
+                    print(f'killed    {f}: {name}   <-- its reason to survive is out of date: {why}', flush=True)
+                else:
+                    print(f'killed    {f}: {name}', flush=True)
+            else:
+                survived += 1
+                if why:
+                    print(f'SURVIVED  {f}: {name}   (expected: {why})', flush=True)
+                else:
+                    bad += 1
+                    print(f'SURVIVED  {f}: {name}   <-- not expected', flush=True)
+    finally:
+        for path, orig in sources.items():
+            open(path, 'w').write(orig)
+    print(f'{run} mutants: {run - survived} killed, {survived} survived ({survived - bad} expected, {bad} not), {stale} reasons out of date')
+    return 1 if (bad or stale) else 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

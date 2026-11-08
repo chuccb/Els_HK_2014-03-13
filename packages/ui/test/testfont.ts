@@ -13,8 +13,10 @@ export interface BoxGlyph {
   char: string;
   /** the advance width, font units */
   advance: number;
-  /** the rectangle [xMin, yMin, xMax, yMax] in font units; none: an empty glyph (a space) */
+  /** the rectangle [xMin, yMin, xMax, yMax] in font units; none (and no `boxes`): an empty glyph (a space) */
   box?: [number, number, number, number];
+  /** several rectangles, one contour each (a glyph that is not solid: the bars of an H); instead of `box` */
+  boxes?: [number, number, number, number][];
 }
 
 export interface BoxFontSpec {
@@ -56,11 +58,21 @@ function checksum(data: number[]): number {
   return sum;
 }
 
-/** the bytes of a simple glyph with one clockwise rectangle (the left edge up, across the top, down the right edge) */
-function rectGlyph([x0, y0, x1, y1]: [number, number, number, number]): number[] {
-  const pts: [number, number][] = [[x0, y0], [x0, y1], [x1, y1], [x1, y0]];
-  const g = new Out().u16(1).u16(x0).u16(y0).u16(x1).u16(y1).u16(3).u16(0); // one contour, the box, 4 points, no instructions
-  for (let i = 0; i < 4; i++) g.u8(1); // on curve, 16-bit deltas
+/** the rectangles of a glyph: `boxes`, else `box`, else none */
+const boxesOf = (g: BoxGlyph): [number, number, number, number][] => g.boxes ?? (g.box ? [g.box] : []);
+
+/** the bytes of a simple glyph with a clockwise rectangle for each contour (the left edge up, across the top, down the right edge) */
+function boxesGlyph(boxes: [number, number, number, number][]): number[] {
+  const pts: [number, number][] = boxes.flatMap(([x0, y0, x1, y1]): [number, number][] => [[x0, y0], [x0, y1], [x1, y1], [x1, y0]]);
+  const g = new Out()
+    .u16(boxes.length)
+    .u16(Math.min(...boxes.map((b) => b[0])))
+    .u16(Math.min(...boxes.map((b) => b[1])))
+    .u16(Math.max(...boxes.map((b) => b[2])))
+    .u16(Math.max(...boxes.map((b) => b[3])));
+  for (let k = 0; k < boxes.length; k++) g.u16(4 * k + 3); // the last point of each contour
+  g.u16(0); // no instructions
+  for (let i = 0; i < pts.length; i++) g.u8(1); // on curve, 16-bit deltas
   let px = 0;
   for (const [x] of pts) {
     g.u16(x - px);
@@ -83,14 +95,18 @@ export function boxFont(spec: BoxFontSpec): Uint8Array {
   const loca = new Out();
   loca.u16(0);
   for (const gl of all) {
-    if (gl.box) glyf.bytes(rectGlyph(gl.box));
+    const rects = boxesOf(gl);
+    if (rects.length > 0) glyf.bytes(boxesGlyph(rects));
     loca.u16(glyf.a.length >> 1);
   }
 
   const hmtx = new Out();
-  for (const gl of all) hmtx.u16(gl.advance).u16(gl.box ? gl.box[0] : 0);
+  for (const gl of all) {
+    const rects = boxesOf(gl);
+    hmtx.u16(gl.advance).u16(rects.length > 0 ? Math.min(...rects.map((b) => b[0])) : 0);
+  }
 
-  const boxes = all.filter((g) => g.box).map((g) => g.box!);
+  const boxes = all.flatMap(boxesOf);
   const xMin = Math.min(0, ...boxes.map((b) => b[0]));
   const yMin = Math.min(0, ...boxes.map((b) => b[1]));
   const xMax = Math.max(0, ...boxes.map((b) => b[2]));
