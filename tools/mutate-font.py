@@ -719,16 +719,13 @@ m(FO, 'DrawFontStyle: bottom is the bottom', 'bottom: sy((rt.bottom + dy) | 0)',
 m(FO, 'DrawFontStyle: the sides are cut, not rounded (x)', 'const sx = (v: number): number => ftoi(f(f(v) * s.x));', 'const sx = (v: number): number => Math.round(f(f(v) * s.x));')
 m(FO, 'DrawFontStyle: the sides are cut towards 0, not down (x)', 'const sx = (v: number): number => ftoi(f(f(v) * s.x));', 'const sx = (v: number): number => Math.floor(f(f(v) * s.x));')
 m(FO, 'DrawFontStyle: the sides are cut, not rounded (y)', 'const sy = (v: number): number => ftoi(f(f(v) * s.y));', 'const sy = (v: number): number => Math.round(f(f(v) * s.y));')
-m(FO, 'DrawFontStyle: the sides are cut towards 0, not down (y)', 'const sy = (v: number): number => ftoi(f(f(v) * s.y));', 'const sy = (v: number): number => Math.floor(f(f(v) * s.y));',
-  'equivalent: the y scale of the scene (2) makes whole numbers of every int side, so rounding and flooring leave them')
+m(FO, 'DrawFontStyle: the sides are cut towards 0, not down (y)', 'const sy = (v: number): number => ftoi(f(f(v) * s.y));', 'const sy = (v: number): number => Math.floor(f(f(v) * s.y));')
 m(FO, 'DrawFontStyle: the x scale is x', 'const sx = (v: number): number => ftoi(f(f(v) * s.x));', 'const sx = (v: number): number => ftoi(f(f(v) * s.y));')
 m(FO, 'DrawFontStyle: the y scale is y', 'const sy = (v: number): number => ftoi(f(f(v) * s.y));', 'const sy = (v: number): number => ftoi(f(f(v) * s.x));')
 m(FO, 'DrawFontStyle: the side is a float before the scale (x)', 'const sx = (v: number): number => ftoi(f(f(v) * s.x));', 'const sx = (v: number): number => ftoi(f(v * s.x));')
 m(FO, 'DrawFontStyle: the product is a float (x)', 'const sx = (v: number): number => ftoi(f(f(v) * s.x));', 'const sx = (v: number): number => ftoi(f(v) * s.x);')
-m(FO, 'DrawFontStyle: the side is a float before the scale (y)', 'const sy = (v: number): number => ftoi(f(f(v) * s.y));', 'const sy = (v: number): number => ftoi(f(v * s.y));',
-  'equivalent: the y scale of the scene (2) only changes the exponent, so the product of a float and 2 is a float already')
-m(FO, 'DrawFontStyle: the product is a float (y)', 'const sy = (v: number): number => ftoi(f(f(v) * s.y));', 'const sy = (v: number): number => ftoi(f(v) * s.y);',
-  'equivalent: the y scale of the scene (2) only changes the exponent, so the product of a float and 2 is a float already')
+m(FO, 'DrawFontStyle: the side is a float before the scale (y)', 'const sy = (v: number): number => ftoi(f(f(v) * s.y));', 'const sy = (v: number): number => ftoi(f(v * s.y));')
+m(FO, 'DrawFontStyle: the product is a float (y)', 'const sy = (v: number): number => ftoi(f(f(v) * s.y));', 'const sy = (v: number): number => ftoi(f(v) * s.y);')
 m(FO, 'DrawFontStyle: the colour is the outline colour', 'const color = packColor(outlineColor);', 'const color = 0;')
 m(FO, 'DrawFontStyle: the colour is packed from the outline colour', 'const color = packColor(outlineColor);', 'const color = packColor({ r: outlineColor.b, g: outlineColor.g, b: outlineColor.r, a: outlineColor.a });')
 m(FO, 'DrawFontStyle: the text is at the left', 'ft.OutTextMultiline(rect.left, rect.top, strMsg, color, 0xff000000, 1, rect, 0, nCount, 1, 1);', 'ft.OutTextMultiline(rect.right, rect.top, strMsg, color, 0xff000000, 1, rect, 0, nCount, 1, 1);')
@@ -796,14 +793,12 @@ m(FO, 'DrawTextFont: top is the top', 'top: ftoi(f(f(rt.top) * s.y)),', 'top: ft
 m(FO, 'DrawTextFont: right is the right', 'right: ftoi(f(f(rt.right) * s.x)),', 'right: ftoi(f(f(rt.left) * s.x)),')
 m(FO, 'DrawTextFont: bottom is the bottom', 'bottom: ftoi(f(f(rt.bottom) * s.y)),', 'bottom: ftoi(f(f(rt.top) * s.y)),')
 m(FO, 'DrawTextFont: the sides are cut, not rounded (x)', 'left: ftoi(f(f(rt.left) * s.x)),', 'left: Math.round(f(f(rt.left) * s.x)),')
-m(FO, 'DrawTextFont: the sides are cut towards 0 (x)', 'left: ftoi(f(f(rt.left) * s.x)),', 'left: Math.floor(f(f(rt.left) * s.x)),',
-  'equivalent: the flag 0 case of the tests has a left of 16 and 100, none below 0 (a left side below 0 is cut the same way as DrawFontStyle cuts, which the DrawFontStyle tests check)')
+m(FO, 'DrawTextFont: the sides are cut towards 0 (x)', 'left: ftoi(f(f(rt.left) * s.x)),', 'left: Math.floor(f(f(rt.left) * s.x)),')
 m(FO, 'DrawTextFont: the sides are cut, not rounded (right)', 'right: ftoi(f(f(rt.right) * s.x)),', 'right: Math.round(f(f(rt.right) * s.x)),')
 m(FO, 'DrawTextFont: the sides are cut, not rounded (top)', 'top: ftoi(f(f(rt.top) * s.y)),', 'top: Math.round(f(f(rt.top) * s.y)),')
 m(FO, 'DrawTextFont: the side is a float before the scale (left)', 'left: ftoi(f(f(rt.left) * s.x)),', 'left: ftoi(f(rt.left * s.x)),')
 m(FO, 'DrawTextFont: the product is a float (right)', 'right: ftoi(f(f(rt.right) * s.x)),', 'right: ftoi(f(rt.right) * s.x),')
-m(FO, 'DrawTextFont: the y sides are floats', 'top: ftoi(f(f(rt.top) * s.y)),', 'top: ftoi(f(rt.top * s.y)),',
-  'equivalent: the y scale of the scene (2) only changes the exponent, so the product of a float and 2 is a float already')
+m(FO, 'DrawTextFont: the y sides are floats', 'top: ftoi(f(f(rt.top) * s.y)),', 'top: ftoi(f(rt.top * s.y)),')
 m(FO, 'DrawTextFont: the text is drawn', 'this.ft.OutTextMultiline(scaled.left, scaled.top, strMsg, packColor(color), 0xff000000, 1, scaled, sortFlag, nCount, 1, 1);', '')
 m(FO, 'DrawTextFont: the text is at the left', 'this.ft.OutTextMultiline(scaled.left, scaled.top, strMsg, packColor(color), 0xff000000, 1, scaled, sortFlag, nCount, 1, 1);', 'this.ft.OutTextMultiline(scaled.right, scaled.top, strMsg, packColor(color), 0xff000000, 1, scaled, sortFlag, nCount, 1, 1);')
 m(FO, 'DrawTextFont: the text is at the top', 'this.ft.OutTextMultiline(scaled.left, scaled.top, strMsg, packColor(color), 0xff000000, 1, scaled, sortFlag, nCount, 1, 1);', 'this.ft.OutTextMultiline(scaled.left, scaled.bottom, strMsg, packColor(color), 0xff000000, 1, scaled, sortFlag, nCount, 1, 1);')

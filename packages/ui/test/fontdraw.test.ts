@@ -17,6 +17,9 @@ import { fontWorld } from "./fontworld.ts";
  * `OutTextMultiline` writes its calls down.  The colours: the text (0.25, 0.375, 0.125, 0.5) is 0x80406020 (each channel
  * `(int)((float)(c * 255) + 0.5)`: 64, 96, 32, 128; cutting without the 0.5 would give 63, 95, 31, 127) and the outline
  * (0.875, 0.0625, 0.9375, 0.8125) is 0xCFDF10EF (223, 16, 239, 207).
+ *
+ * Some tests use a second scene, a back buffer of 1536 x 1152, the scale (1.5, 1.5): the y scale of the first (2) turns every int side into
+ * a whole number and a float into a float, so there only the x sides show how a side is rounded.
  */
 
 const TEXT: ColorF = { r: 0.25, g: 0.375, b: 0.125, a: 0.5 };
@@ -28,8 +31,8 @@ const BLACK = 0xff000000;
 type Call = { x: number; y: number; text: string | null; color: number; outline: number; lineSpace: number; rect: number[] | null; flag: number; count: number; sx: number; sy: number };
 
 /** a UK font whose glyph font writes its `OutTextMultiline` calls down (and draws nothing) */
-function scene(size = 16, enlarge = 1) {
-  const w = fontWorld();
+function scene(size = 16, enlarge = 1, backBuffer?: { width: number; height: number }) {
+  const w = fontWorld({}, backBuffer ? { backBuffer } : {});
   const ft = w.font(size, 0, enlarge, true);
   expect(ft.Load()).toBe(true);
   const uk = w.w.fonts.addUKFont(1, ft);
@@ -101,6 +104,39 @@ describe("DrawFontStyle (328B5890)", () => {
     const { uk, calls } = scene();
     uk.DrawFontStyle("AB", rc(16777218, 0, 16777217, 0), 0, OUTLINE, FONT_STYLE.FS_SHADOW, -1);
     expect(calls).toEqual([call([25165830, 2, 25165828, 2], OUTLINE_ARGB, 0)]);
+  });
+
+  test("a y scale of 1.5 (a back buffer of 1536 x 1152): the sides are cut towards 0 like the x ones, not rounded and not floored: 7 * 1.5 = 10.5 -> 10, 25 * 1.5 = 37.5 -> 37, -7 * 1.5 = -10.5 -> -10", () => {
+    const { uk, calls } = scene(16, 1, { width: 1536, height: 1152 });
+    uk.DrawFontStyle("AB", rc(11, 7, 111, 25), 0, OUTLINE, FONT_STYLE.FS_SHELL, -1);
+    expect(calls.map((c) => c.rect)).toEqual([
+      [15, 10, 165, 37],
+      [18, 10, 168, 37],
+      [16, 9, 166, 36],
+      [16, 12, 166, 39],
+      [15, 9, 165, 36],
+      [15, 12, 165, 39],
+      [18, 9, 168, 36],
+      [18, 12, 168, 39],
+    ]);
+    calls.length = 0;
+    uk.DrawFontStyle("AB", rc(-3, -7, 5, 3), 0, OUTLINE, FONT_STYLE.FS_SHELL, -1);
+    expect(calls.map((c) => c.rect)).toEqual([
+      [-6, -10, 6, 4],
+      [-3, -10, 9, 4],
+      [-4, -12, 7, 3],
+      [-4, -9, 7, 6],
+      [-6, -12, 6, 3],
+      [-6, -9, 6, 6],
+      [-3, -12, 9, 3],
+      [-3, -9, 9, 6],
+    ]);
+  });
+
+  test("... and the y sides are floats first and cut after, as the x ones are (a scale of 1.5 shows it where 2 does not): (float)16777219 is 16777220, so 25165830, and 16777218 * 1.5 is 25165827, a float 25165828", () => {
+    const { uk, calls } = scene(16, 1, { width: 1536, height: 1152 });
+    uk.DrawFontStyle("AB", rc(0, 16777218, 0, 16777217), 0, OUTLINE, FONT_STYLE.FS_SHADOW, -1);
+    expect(calls.map((c) => c.rect)).toEqual([[1, 25165830, 1, 25165828]]);
   });
 
   test("any other style draws nothing: FS_NONE, an unknown one, a negative one", () => {
@@ -186,6 +222,22 @@ describe("DrawTextFont (328B6610)", () => {
     expect(calls).toEqual([call([25165830, 0, 25165828, 0], TEXT_ARGB, 0)]);
   });
 
+  test("a left side below 0 is cut towards 0, not down: -3 * 1.5 = -4.5 is -4 (and 7 * 1.5 = 10.5 is 10, not rounded: the y scale here is 1.5 too)", () => {
+    const { uk, calls } = scene(16, 1, { width: 1536, height: 1152 });
+    uk.DrawTextFont("AB", rc(-3, -7, 5, 3), -1, TEXT, false, OUTLINE, 0);
+    expect(calls).toEqual([call([-4, -10, 7, 4], TEXT_ARGB, 0)]);
+    calls.length = 0;
+    uk.DrawTextFont("AB", rc(11, 7, 111, 25), -1, TEXT, false, OUTLINE, 0);
+    // 11 * 1.5 = 16.5 -> 16, 7 * 1.5 = 10.5 -> 10, 111 * 1.5 = 166.5 -> 166, 25 * 1.5 = 37.5 -> 37
+    expect(calls).toEqual([call([16, 10, 166, 37], TEXT_ARGB, 0)]);
+  });
+
+  test("the y sides are floats first as well: (float)16777219 is 16777220 (25165830 where the double 16777219 * 1.5 = 25165828.5 would make 25165828)", () => {
+    const { uk, calls } = scene(16, 1, { width: 1536, height: 1152 });
+    uk.DrawTextFont("AB", rc(16777219, 16777219, 16777218, 16777218), -1, TEXT, false, OUTLINE, 0);
+    expect(calls).toEqual([call([25165830, 25165830, 25165828, 25165828], TEXT_ARGB, 0)]);
+  });
+
   test("the count goes to the copies and to the text, and sets the width the flag moves by: one character of `AB` is 9 wide, (100, 40, 109, 57) -> (96, 40, 105, 57)", () => {
     const { uk, calls } = scene();
     uk.DrawTextFont("AB", POS, 1, TEXT, true, OUTLINE, 5);
@@ -261,6 +313,19 @@ describe("DrawTextFont (328B6610)", () => {
     const e2 = scene(8, 2);
     e2.uk.DrawTextFont("A\nB", POS, -1, TEXT, false, OUTLINE, 4);
     expect(e2.calls).toEqual([call([150, 104, 450, 136], TEXT_ARGB, 4, "A\nB")]);
+  });
+
+  test("... the text's height is the glyph font's over m_EnlargeNum cut towards 0 (E = 2, a line of 19: 9, not 10): top 40 + 20 - 4, bottom 80 + 4 - 20", () => {
+    const { uk, calls } = scene(9, 2);
+    uk.DrawTextFont("AB", POS, -1, TEXT, false, OUTLINE, 4);
+    // 9 * 2 = 18 px a glyph font: a line is 19 high, over 2 is 9 (half of it 4); the rectangle (56, 64) scaled by 2
+    expect(calls).toEqual([call([150, 112, 450, 128], TEXT_ARGB, 4)]);
+  });
+
+  test("... and a rectangle that ends below 0: (top -60, bottom -55) h = 5, t = 17: top -60 + 2 - 8 = -66, bottom -55 + 8 - 2 = -49 (a float 8.5 would give -48.5 cut to -48)", () => {
+    const { uk, calls } = scene();
+    uk.DrawTextFont("AB", rc(100, -60, 300, -55), -1, TEXT, false, OUTLINE, 4);
+    expect(calls).toEqual([call([150, -132, 450, -98], TEXT_ARGB, 4)]);
   });
 
   test("flag 5 is both: the width as flag 1 and, because CalcTextRect left the rectangle as high as the text, no change of top and bottom (top 40, bottom 57)", () => {
@@ -452,6 +517,14 @@ describe("CKTDGFontManager::OnFrameMove (328B7940)", () => {
     expect(uk.m_vecFont2D[0]!.iSpreadCount).toBe(0);
     w.fontManager.OnFrameMove(0, 0.1);
     expect(state(uk)).toEqual([[0, 1]]);
+  });
+
+  test("the elapsed time is a float before it is added: 16777217 is 16777216, and 16777216 + 0.5 is 16777216 (the double 16777217.5 would make 16777218)", () => {
+    const { uk, w } = world();
+    spread(uk, "abc", 1e9);
+    w.fontManager.OnFrameMove(0, 0.5);
+    w.fontManager.OnFrameMove(0, 16777217);
+    expect(uk.m_vecFont2D[0]!.fNowSpreadTime).toBe(16777216);
   });
 
   test("a time equal to the gap counts (the gap must not be greater): gap 0.5, 0.5 at once", () => {
