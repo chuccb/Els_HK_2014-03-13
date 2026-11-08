@@ -19,6 +19,7 @@ import type { DeviceSound, DeviceTexture } from "./device.ts";
 import { VertexUI4 } from "./render.ts";
 import { ftoi } from "./rect.ts";
 import type { CKTDGUIStatic } from "./static.ts";
+import { drawUKString } from "./stringdraw.ts";
 
 const f = Math.fround;
 
@@ -96,19 +97,17 @@ export class CKTDGUIButton extends CKTDGUIControl implements Partial<CKTDGUIButt
   /**
    * `OnFrameRender` (3292ED40): a shown button draws its quad from `m_NowPoint` (`UpdateVertex`, then `UpdateAnimVertex` with the texture
    * change step it is in, then `RenderVertex`), with the edge before (`DrawEdge(true)`: outside the quad) and after (`DrawEdge(false)`:
-   * on it) while it has the focus and an edge width; then its string.  The string (the UK font's `OutTextMultiline`) is not ported: counted
-   * in `render.undrawn`.
+   * on it) while it has the focus and an edge width; then its string (stringdraw.ts: the UK font's `OutTextMultiline`, with or without text).
    */
   override onFrameRender(): number {
     if (!this.m_bShow) return 0;
-    const render = this.ctx.render;
     const edge = this.m_bHasFocus && this.m_EdgeWidth > 0;
     if (edge) this.drawEdge(true);
     this.updateVertex(this.m_Vertex, this.m_NowPoint);
     this.updateAnimVertex(this.m_Vertex, this.m_NowTexChangeData);
     this.renderVertex(this.m_Vertex, this.m_NowPoint, 1);
     if (edge) this.drawEdge(false);
-    if (this.m_pStringData) render?.noteUndrawn("CKTDGUIButton string");
+    if (this.m_pStringData) drawUKString(this.ctx, this, this.m_pStringData, this.m_pStringData.msg);
     return 0;
   }
 

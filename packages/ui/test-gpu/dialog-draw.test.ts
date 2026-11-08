@@ -10,10 +10,10 @@
  * adapter (`./tools/gpu.sh`: SwiftShader) and the client's data; skipped without them.  Heavy (all the textures of a dialog are decoded and
  * uploaded), so `tools/test-packages.sh` runs this folder in a process of its own.
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { CKTDGUIButton, CKTDGUIRadioButton, CKTDGUIStatic } from "../src/index.ts";
+import { CKTDGUIButton, CKTDGUIRadioButton, CKTDGUIStatic, UKFont } from "../src/index.ts";
 import type { CKTDGUIDialog } from "../src/index.ts";
 import { gpuAvailable } from "../../d3d9/test/gpu-helper.ts";
 import { compareImages, newTarget } from "./reference.ts";
@@ -26,21 +26,69 @@ const haveData = existsSync(join(dataDir, "x2.exe")) && existsSync(join(dataDir,
 const HAVE_GPU = haveData && (await gpuAvailable());
 
 /**
- * What the dialog counts as not drawn: the drawing of text is not ported, so each string of a shown static (those with text), button and radio
- * button is counted, and each movie of a static; nothing else is missing (every control class of these dialogs is drawn)
+ * What the dialog counts as not drawn: each movie of a shown static (`CMovieData::OnFrameRender` is not ported); nothing else is missing
+ * (every control class of these dialogs is drawn, the strings of the statics, buttons and radio buttons included)
  */
 function expectedUndrawn(dlg: CKTDGUIDialog): Record<string, number> {
   const out: Record<string, number> = {};
-  const add = (key: string, n: number): void => { if (n > 0) out[key] = (out[key] ?? 0) + n; };
   for (const c of drawnControls(dlg)) {
-    if (c instanceof CKTDGUIStatic) {
-      add("CKTDGUIStatic string", c.m_StringDataList.filter((t) => t.msg.length !== 0).length);
-      add("CMovieData::OnFrameRender", c.m_MovieDataList.length);
-    } else if (c instanceof CKTDGUIButton) add("CKTDGUIButton string", c.m_pStringData ? 1 : 0);
-    else if (c instanceof CKTDGUIRadioButton) add("CKTDGUIRadioButton string", c.m_pStringData ? 1 : 0);
+    if (c instanceof CKTDGUIStatic && c.m_MovieDataList.length > 0) out["CMovieData::OnFrameRender"] = (out["CMovieData::OnFrameRender"] ?? 0) + c.m_MovieDataList.length;
   }
   return out;
 }
+
+/** a call of a UK font that draws (`OutTextMultiline`, or `Draw2DText` for a static's string that does not use a UK font) and the text it was given */
+interface Spoken {
+  method: string;
+  text: string;
+}
+
+/**
+ * The strings the dialog hands to the fonts, in the order of its control list, as its scripts say them: a shown static's strings that have
+ * text (a spreading one shows `iSpreadCount` characters), and the string of each shown button and radio button (one with an empty message
+ * is drawn too).  A static's string goes to `Draw2DText` unless it uses a UK font.
+ */
+function expectedStrings(dlg: CKTDGUIDialog): Spoken[] {
+  const out: Spoken[] = [];
+  for (const c of drawnControls(dlg)) {
+    if (c instanceof CKTDGUIStatic) {
+      for (const t of c.m_StringDataList) {
+        if (t.msg.length === 0) continue;
+        out.push({ method: t.bUseUkFont ? "OutTextMultiline" : "Draw2DText", text: t.bSpread ? t.msg.slice(0, Math.min(t.iSpreadCount, t.msg.length)) : t.msg });
+      }
+    } else if ((c instanceof CKTDGUIButton || c instanceof CKTDGUIRadioButton) && c.m_pStringData) out.push({ method: "OutTextMultiline", text: c.m_pStringData.msg });
+  }
+  return out;
+}
+
+/** what the fonts were asked to draw while a dialog was drawn (the calls the controls make; those the fonts make of each other are not written down) */
+const spoken: Spoken[] = [];
+let listening: (() => void) | undefined;
+function listen(): void {
+  const { OutTextMultiline, Draw2DText } = UKFont.prototype;
+  let depth = 0;
+  const note = (method: string, text: string, call: () => void): void => {
+    if (depth === 0) spoken.push({ method, text });
+    depth++;
+    try {
+      call();
+    } finally {
+      depth--;
+    }
+  };
+  UKFont.prototype.OutTextMultiline = function (this: UKFont, ...args: Parameters<UKFont["OutTextMultiline"]>): void {
+    note("OutTextMultiline", args[2] ?? "<null>", () => OutTextMultiline.apply(this, args));
+  };
+  UKFont.prototype.Draw2DText = function (this: UKFont, ...args: Parameters<UKFont["Draw2DText"]>): void {
+    note("Draw2DText", args[0] ?? "<null>", () => Draw2DText.apply(this, args));
+  };
+  listening = () => {
+    UKFont.prototype.OutTextMultiline = OutTextMultiline;
+    UKFont.prototype.Draw2DText = Draw2DText;
+  };
+}
+beforeAll(listen);
+afterAll(() => listening?.());
 
 /**
  * How many bars of edges the dialog draws (`CKTDXDeviceTexture::Draw` each; an edge is eight of them, two passes of four before and after the
@@ -68,12 +116,27 @@ function report(name: string, d: Difference): string {
  * button pushes none of its own: it blends with what `CKTDGManager::OnResetDevice` left).  Of two kinds:
  *  - a control's quad (`RenderVertex`): the dialog's states, so no alpha test, and clockwise (culled counter-clockwise);
  *  - a bar of an edge (`CKTDXDeviceTexture::Draw`): `akRSICKTDXDeviceTexture`, so the alpha test on (not equal to 0), no z write, and
- *    counter-clockwise (culled clockwise): left-top, left-bottom, right-top, right-bottom.
- * Returns how many bars of edges there are.
+ *    counter-clockwise (culled clockwise): left-top, left-bottom, right-top, right-bottom;
+ *  - a flush of a glyph page (`CKTDGFreeTypeFont::Flush`): a list of quads (primitive 4) with the 13 states of the font (blending SRCALPHA /
+ *    INVSRCALPHA, no z write, linear filters) over the dialog's own (no z test, no alpha test, clockwise, mirrored addressing), the texture a
+ *    glyph page (`image`: the pixels it had at the draw).
+ * Returns how many bars of edges and how many flushes of text there are.
  */
-function expectUIQuads(draws: Draw[]): number {
+function expectUIQuads(draws: Draw[]): { edgeBars: number; textDraws: number } {
   let edgeBars = 0;
+  let textDraws = 0;
   for (const d of draws) {
+    if (d.primitive === 4) {
+      textDraws++;
+      expect([d.type, d.primitive, d.numDraws, d.numPrimitives % 2, d.numPrimitives > 0]).toEqual([3, 4, 1, 0, true]);
+      expect([d.blendEnable, d.zWrite, d.srcBlend, d.destBlend]).toEqual([1, 0, 5, 6]);
+      expect([d.minFilter, d.magFilter, d.addressU, d.addressV]).toEqual([2, 2, 2, 2]);
+      expect([d.zEnable, d.alphaTest, d.cullMode]).toEqual([0, 0, 3]);
+      expect(d.texture).not.toBeNull();
+      expect(d.image).toBeTruthy();
+      expect(d.data.length).toBeGreaterThanOrEqual(d.numPrimitives * 3 * 28);
+      continue;
+    }
     expect([d.type, d.primitive, d.numPrimitives, d.data.length]).toEqual([3, 5, 2, 112]);
     expect([d.blendEnable, d.zEnable, d.srcBlend, d.destBlend]).toEqual([1, 0, 5, 6]);
     expect([d.minFilter, d.magFilter, d.addressU, d.addressV]).toEqual([2, 2, 2, 2]);
@@ -88,30 +151,33 @@ function expectUIQuads(draws: Draw[]): number {
       expect([f[0] === f[7], f[14] === f[21], f[1] === f[15], f[8] === f[22]]).toEqual([true, true, true, true]); // left-top, left-bottom, right-top, right-bottom
     }
   }
-  return edgeBars;
+  return { edgeBars, textDraws };
 }
 
 /**
- * the checks of a dialog that is drawn without anything but its text missing; the picture is the one the rules of Direct3D 9 give.
+ * the checks of a dialog that is drawn without anything but its movies missing; the picture is the one the rules of Direct3D 9 give.
  * `covers`: how many pixels of the window at least are not the clear colour (a window of the game fills much of it, a popup little)
  */
-function expectDrawnLikeDirect3D(name: string, r: Drawn, covers = 200_000): { edgeBars: number } {
+function expectDrawnLikeDirect3D(name: string, r: Drawn, covers = 200_000): { edgeBars: number; textDraws: number } {
   expect(r.dlg.m_bSuccessInitOpenScript).toBe(true);
   expect(r.frameError).toBeUndefined(); // the frame (OnFrameMove) before the drawing needs nothing that is not ported
   expect(r.ret).toBe(0);
   expect(r.referenceError).toBeUndefined(); // the CPU composition has a rule for every quad
   expect(r.w.devices.massFiles.log.entries).toEqual([]);
   expect(r.draws.length).toBeGreaterThan(0);
-  const edgeBars = expectUIQuads(r.draws);
+  const { edgeBars, textDraws } = expectUIQuads(r.draws);
   expect(edgeBars).toBe(expectedEdgeBars(r.dlg));
   expect(r.w.render!.states.stackPointer).toBe(0);
-  // the text is not ported: each string is counted, nothing else is missing (no control class, no edge, no movie)
+  // the movies are not ported: they are counted, nothing else is missing (no control class, no edge, no string)
   expect(Object.fromEntries(r.w.render!.undrawn)).toEqual(expectedUndrawn(r.dlg));
+  // the controls asked the fonts for the strings the scripts say, and a string with something to see made quads
+  expect(spoken).toEqual(expectedStrings(r.dlg));
+  expect(textDraws > 0).toBe(spoken.some((t) => /\S/.test(t.text)));
   const d = compareImages(r.image, r.reference, TOLERANCE);
   expect(d.over, report(name, d)).toBe(0);
   // it is a picture: a good part of the window is not the clear colour
   expect(compareImages(r.image, newTarget(WIDTH, HEIGHT, CLEAR[0]!, CLEAR[1]!, CLEAR[2]!), 0).over).toBeGreaterThan(covers);
-  return { edgeBars };
+  return { edgeBars, textDraws };
 }
 
 const suite = HAVE_GPU ? describe : describe.skip;
@@ -125,6 +191,7 @@ afterEach(() => {
   for (const r of drawn.splice(0)) releaseDrawn(r);
 });
 async function draw(script: string, savedAs: string): Promise<Drawn> {
+  spoken.length = 0;
   const r = await drawDialog(script, savedAs);
   drawn.push(r);
   return r;

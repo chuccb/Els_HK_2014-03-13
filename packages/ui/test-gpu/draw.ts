@@ -4,7 +4,8 @@
  * WebGPU; and the same quads composed again on the CPU by the rules of Direct3D 9 (`reference.ts`).
  *
  * Shared by `dialog-draw.test.ts` (14 dialogs, asserted), `text-draw.test.ts` (text of the client's fonts) and `tools/ui-draw.ts` (every DLG
- * script, counted).  Needs a WebGPU adapter (`./tools/gpu.sh`: SwiftShader) and the client's data.
+ * script, counted).  The strings of the controls are drawn too: their glyph pages are textures that no file owns, so the pixels of the page
+ * on stage 0 are copied at each draw (`pageSnapshot`).  Needs a WebGPU adapter (`./tools/gpu.sh`: SwiftShader) and the client's data.
  *
  * `drawScene` is the common part: whatever the UI hands to `DrawPrimitive` while a body runs is written down with the device state of each
  * draw (`recordDraws`), the picture is read back, and the same draws are composed again on the CPU (`composeDraws`).  A dialog's textures
@@ -17,6 +18,8 @@ import { D3DCLEAR, D3DRS, D3DSAMP } from "@els/d3d9";
 import type { Direct3DDevice9, Direct3DTexture9 } from "@els/d3d9";
 import { CX2SlotManager, UIWorld } from "../src/index.ts";
 import type { CKTDGUIControl, CKTDGUIDialog } from "../src/index.ts";
+import type { CKTDGDynamicTexture } from "../src/dynamictexture.ts";
+import { SGCFontCache } from "../src/freetypefont.ts";
 import { newD3D9, snap } from "../../d3d9/test/gpu-helper.ts";
 import { indexAllKoms, KomMassFileSource } from "../../../tools/komindex.ts";
 import { drawQuad, newTarget } from "./reference.ts";
@@ -216,6 +219,68 @@ export async function drawScene<T>(w: UIWorld, body: () => T, options: SceneOpti
   return { ret, draws: rec.draws, image, reference, referenceError };
 }
 
+/** the pixels of a glyph page as the texture holds them: A8R8G8B8 (the glyph cache writes `coverage << 24 | 0xFFFFFF`), as R G B A bytes */
+export function pageImage(page: CKTDGDynamicTexture): RefImage {
+  const px = page.pBits;
+  if (!px) throw new Error("a glyph page that is not locked has no pixels to copy");
+  const rgba = new Uint8Array(px.length * 4);
+  for (let i = 0; i < px.length; i++) {
+    const v = px[i]!;
+    rgba[4 * i] = (v >>> 16) & 255;
+    rgba[4 * i + 1] = (v >>> 8) & 255;
+    rgba[4 * i + 2] = v & 255;
+    rgba[4 * i + 3] = v >>> 24;
+  }
+  return { width: page.m_dwWidth, height: page.m_dwHeight, rgba };
+}
+
+/** every glyph page (main and outline) of every font of the world, by the Direct3D texture it is drawn through */
+export function glyphPages(w: UIWorld): Map<Direct3DTexture9, CKTDGDynamicTexture> {
+  const pages = new Map<Direct3DTexture9, CKTDGDynamicTexture>();
+  for (const font of w.fonts.m_mapUKFontList.values()) {
+    const ft = font?.m_pUKFont;
+    if (!ft) continue;
+    for (const p of [...ft.m_pTexture, ...ft.m_pTextureOutLine]) if (p?.m_pTextureVid) pages.set(p.m_pTextureVid, p);
+  }
+  return pages;
+}
+
+/**
+ * The snapshot of a recording (`recordDraws`): the pixels of the glyph page that is on stage 0.  A texture that is no glyph page is a
+ * file of the dialog and gives null (the composition decodes it), unless `strict`: a text draw without a page is then a failure.
+ */
+export function pageSnapshot(w: UIWorld, strict = false): (texture: Direct3DTexture9 | null) => RefImage | null {
+  const pages = glyphPages(w);
+  return (texture) => {
+    const page = texture ? pages.get(texture) : undefined;
+    if (!page) {
+      if (strict) throw new Error("a draw whose texture on stage 0 is no glyph page");
+      return null;
+    }
+    return pageImage(page);
+  };
+}
+
+/**
+ * Make every font of the world forget its glyphs, as a client that has drawn nothing yet: the cells, the hash of the characters and the
+ * stamp are what `Load` makes (`m_iSizeArray` 0, `m_iTotalCache` cells of 0, no character known, stamp 1); the faces and the pages stay.  A
+ * world that draws a thousand dialogs would otherwise fill the cells of a font and reach the exe's crash on its fifth page (FINDINGS
+ * 17.12), which one dialog never does.
+ */
+export function forgetGlyphs(w: UIWorld): void {
+  for (const font of w.fonts.m_mapUKFontList.values()) {
+    const ft = font?.m_pUKFont;
+    if (!ft?.m_bLoad) continue;
+    ft.m_iSizeArray = 0;
+    ft.m_FontCacheArray = Array.from({ length: ft.m_iTotalCache }, () => new SGCFontCache());
+    ft.hashCell.fill(-1);
+    ft.hashSizeKnown.fill(0);
+    ft.hashCx.fill(0);
+    ft.hashCy.fill(0);
+    ft.m_dwCurrentStamp = 1;
+  }
+}
+
 /**
  * Open a dialog script (in `world`, or in a new one), run `frames` frames of it, draw it once on a cleared back buffer, and compose the
  * same quads on the CPU.  A world that draws several dialogs one after the other must `releaseTextures` between them.
@@ -258,7 +323,7 @@ export async function drawDialog(script: string, savedAs?: string, world?: UIWor
       }
       return img;
     };
-    const scene = await drawScene(w, () => dlg.onFrameRender(true), { ...(savedAs ? { savedAs } : {}), textureOf });
+    const scene = await drawScene(w, () => dlg.onFrameRender(true), { ...(savedAs ? { savedAs } : {}), snapshot: pageSnapshot(w), textureOf: (d) => d.image ?? textureOf(d) });
     return { w, dlg, ret: scene.ret, draws: scene.draws, image: scene.image, reference: scene.reference, referenceError: scene.referenceError, frameError };
   } catch (e) {
     // the textures of a dialog that failed half way (and, for a world of its own, all it held)
@@ -273,9 +338,11 @@ export const drawnControls = (dlg: CKTDGUIDialog): CKTDGUIControl[] => dlg.m_Con
 
 /**
  * Close the textures a drawn dialog opened: the GPU gets them back (a WebGPU texture is freed only when it is destroyed) and the device
- * manager forgets them, as if every control of the dialog had been destroyed.  A census draws a thousand dialogs on one device.
+ * manager forgets them, as if every control of the dialog had been destroyed; the fonts forget their glyphs (`forgetGlyphs`).  A census
+ * draws a thousand dialogs on one device.
  */
 export function releaseTextures(w: UIWorld): void {
+  forgetGlyphs(w);
   for (const t of w.devices.devices.values()) {
     t.m_pTexture?.Release();
     t.m_pTexture = null;

@@ -366,13 +366,12 @@ describe("CKTDGUIStatic.onFrameRender (3292A2B0)", () => {
     expect(dev.log.filter((l) => l.startsWith("tex"))).toEqual(["tex 0 P.TGA", "tex 0 Q.TGA"]);
   });
 
-  test("what is not ported is counted, not drawn: a string with text (one without is not), a movie; the edge is drawn now (controldraw.test.ts)", () => {
+  test("what is not ported is counted, not drawn: a movie (the strings are drawn: stringdraw.test.ts; the edge: controldraw.test.ts)", () => {
     const { control, picture, w } = scene();
     picture.m_EdgeWidth = 0;
-    control.m_StringDataList.push({ msg: "" } as never, { msg: "Hi" } as never);
-    control.m_MovieDataList.push({} as never);
+    control.m_MovieDataList.push({} as never, {} as never);
     control.onFrameRender();
-    expect([...w.render!.undrawn]).toEqual([["CKTDGUIStatic string", 1], ["CMovieData::OnFrameRender", 1]]);
+    expect([...w.render!.undrawn]).toEqual([["CMovieData::OnFrameRender", 2]]);
   });
 
   test("without a device each picture is error 0x82 and nothing else happens", () => {
@@ -420,7 +419,7 @@ describe("CKTDGUIButton.onFrameRender (3292ED40)", () => {
     expect([f[0], f[1], f[7], f[8]]).toEqual([114.5, 89.5, 210.5, 89.5]);
   });
 
-  test("a hidden button draws nothing; its string is not ported and is counted (the edge is drawn: controldraw.test.ts)", () => {
+  test("a hidden button draws nothing (the string: stringdraw.test.ts; the edge: controldraw.test.ts); nothing is counted as undrawn", () => {
     const { b, dev, w } = scene();
     b.SetShow(false);
     b.onFrameRender();
@@ -428,9 +427,6 @@ describe("CKTDGUIButton.onFrameRender (3292ED40)", () => {
     b.SetShow(true);
     b.onFrameRender();
     expect([...w.render!.undrawn]).toEqual([]);
-    b.m_pStringData = { msg: "Hi" } as never;
-    b.onFrameRender();
-    expect([...w.render!.undrawn]).toEqual([["CKTDGUIButton string", 1]]);
     expect(b.m_ButtonState).toBe(BCS.NORMAL);
   });
 });

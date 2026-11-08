@@ -8,12 +8,15 @@
  * defined; `packages/ui/test-gpu/draw.ts`: the script on the Lua VM, the ported UI classes, the state manager, the dynamic vertex buffers,
  * `Direct3DDevice9` on WebGPU), each drawn once on a cleared 1024 x 768 back buffer; the quads it handed to `DrawPrimitive` are composed
  * again on the CPU by the rules of Direct3D 9 (`reference.ts`).  A script that fails is run again after all the others (a sibling may
- * define the global it needs).  Per dialog the census records how many quads and bars of edges were drawn, what is still counted as not
- * drawn, how many pixels are not the clear colour, how far the device's picture is from the CPU's, and what went into the error log.
+ * define the global it needs).  Per dialog the census records how many quads and bars of edges were drawn, how many flushes of glyph
+ * pages (the strings) and glyph quads, what is still counted as not drawn, how many pixels are not the clear colour, how far the
+ * device's picture is from the CPU's, and what went into the error log.
  * What it is for: a quad shape or a state the reference has no rule for shows up as an error; a dialog that draws nothing shows up in the
- * list of those, with the reason; what the dialogs ask for that is not ported (the strings, ...) is counted over all of them.
+ * list of those, with the reason; what the dialogs ask for that is not ported (the movies, the controls whose drawing is not ported) is
+ * counted over all of them.
  *
- * The textures of a dialog are closed after it is drawn (and their bytes forgotten), so a run needs about 1.5 GB.  `--only` takes a
+ * The textures of a dialog are closed after it is drawn (and their bytes forgotten), and the fonts forget their glyphs (a client that has
+ * drawn nothing else; the exe's cache would overflow into a fifth page over a thousand dialogs, FINDINGS 17.12), so a run needs about 1.5 GB.  `--only` takes a
  * case-insensitive regular expression: the other dialogs are not run then, so a script that needs a sibling's global fails.
  * `--json` writes the rows as it goes (every 20 dialogs); `--png` saves every picture.  `--frames N` (default 1) is the number of frames of
  * no time (`OnFrameMove(0, 0)`) each dialog runs before it is drawn: 0 draws what the script built, as the first census did.
@@ -44,13 +47,17 @@ interface Row {
   /** the controls that draw: shown and in the list */
   shown: number;
   classes: Record<string, number>;
-  /** `DrawPrimitive` calls */
+  /** `DrawPrimitive` calls of the controls' quads and the bars of their edges (strips of two triangles) */
   quads: number;
   /** of them the bars of edges (`CKTDXDeviceTexture::Draw`: the alpha test is on) */
   bars: number;
   /** quads whose four vertices are one point (a picture whose key the TET lacks): they draw nothing */
   flat: number;
-  /** draws that are neither of the two shapes the UI makes (see `shapeOf`) */
+  /** flushes of a glyph page (`CKTDGFreeTypeFont::Flush`: a list of glyph quads), the strings */
+  text: number;
+  /** the glyph quads in them */
+  glyphs: number;
+  /** draws that are none of the three shapes the UI makes (see `shapeOf`) */
   odd: number;
   /** `render.undrawn`: what the dialog asked to draw that is not ported yet */
   undrawn: Record<string, number>;
@@ -73,13 +80,21 @@ interface Row {
 }
 
 /**
- * The two shapes of draw the UI makes (FINDINGS 17.7, 17.8): a strip of two triangles from the buffer of vertex type 3, alpha blending on
- * (SRCALPHA / INVSRCALPHA), z test off, linear filters, mirrored addressing, a texture on stage 0; either
+ * The three shapes of draw the UI makes (FINDINGS 17.7, 17.8, 17.13): from the buffer of vertex type 3, alpha blending on (SRCALPHA /
+ * INVSRCALPHA), z test off, linear filters, mirrored addressing, a texture on stage 0; either a strip of two triangles
  *  - a control's quad (`RenderVertex`): no alpha test, cull counter-clockwise, vertices left-top, right-top, left-bottom, right-bottom; or
  *  - a bar of an edge (`CKTDXDeviceTexture::Draw`): alpha test not equal to 0, cull clockwise, no z write, left-top, left-bottom, right-top,
- *    right-bottom.
+ *    right-bottom;
+ * or a list of quads, two triangles each, the flush of a glyph page (`CKTDGFreeTypeFont::Flush`): the font's states (no z write) over the
+ * dialog's (no alpha test, cull counter-clockwise), the texture a glyph page (its pixels at the draw are the snapshot `image`).
  */
-function shapeOf(d: Draw): "control" | "bar" | "odd" {
+function shapeOf(d: Draw): "control" | "bar" | "text" | "odd" {
+  if (d.primitive === 4) {
+    const ok = d.type === 3 && d.numDraws === 1 && d.numPrimitives > 0 && d.numPrimitives % 2 === 0 && d.data.length >= d.numPrimitives * 3 * 28 && !!d.texture && !!d.image &&
+      d.blendEnable === 1 && d.zEnable === 0 && d.zWrite === 0 && d.srcBlend === 5 && d.destBlend === 6 && d.alphaTest === 0 && d.cullMode === 3 &&
+      d.minFilter === 2 && d.magFilter === 2 && d.addressU === 2 && d.addressV === 2;
+    return ok ? "text" : "odd";
+  }
   if (d.type !== 3 || d.primitive !== 5 || d.numPrimitives !== 2 || d.data.length !== 112) return "odd";
   if (d.blendEnable !== 1 || d.zEnable !== 0 || d.srcBlend !== 5 || d.destBlend !== 6) return "odd";
   if (d.minFilter !== 2 || d.magFilter !== 2 || d.addressU !== 2 || d.addressV !== 2 || !d.texture) return "odd";
@@ -91,6 +106,7 @@ function shapeOf(d: Draw): "control" | "bar" | "odd" {
   return edge && f[0] === f[7] && f[14] === f[21] && f[1] === f[15] && f[8] === f[22] ? "bar" : "odd";
 }
 
+/** a strip whose four vertices are one point */
 const isFlat = (d: Draw): boolean => {
   const f = new Float32Array(d.data.buffer, d.data.byteOffset, d.data.length >> 2);
   return f.length >= 28 && new Set([f[0], f[7], f[14], f[21]]).size === 1 && new Set([f[1], f[8], f[15], f[22]]).size === 1;
@@ -100,7 +116,7 @@ const text = (e: unknown): string => (e instanceof Error ? e.message : String(e)
 
 /** the world the dialogs are drawn in, one after the other: the client's one Lua state (a script may use a global another one defined) */
 async function census(name: string, world: UIWorld): Promise<Row> {
-  const row: Row = { name, opened: false, controls: 0, shown: 0, classes: {}, quads: 0, bars: 0, flat: 0, odd: 0, undrawn: {}, covered: 0, max: 0, over: 0, log: 0, stack: 0 };
+  const row: Row = { name, opened: false, controls: 0, shown: 0, classes: {}, quads: 0, bars: 0, flat: 0, text: 0, glyphs: 0, odd: 0, undrawn: {}, covered: 0, max: 0, over: 0, log: 0, stack: 0 };
   const { source } = await getFixture();
   const render = world.render!;
   const log = world.devices.massFiles.log;
@@ -114,11 +130,16 @@ async function census(name: string, world: UIWorld): Promise<Row> {
     row.controls = r.dlg.m_ControlsList.length;
     row.shown = drawnControls(r.dlg).length;
     for (const c of r.dlg.m_ControlsList) row.classes[c.constructor.name] = (row.classes[c.constructor.name] ?? 0) + 1;
-    row.quads = r.draws.length;
     for (const d of r.draws) {
       const shape = shapeOf(d);
+      if (shape === "text") {
+        row.text++;
+        row.glyphs += d.numPrimitives / 2;
+        continue;
+      }
+      if (shape === "odd") row.odd++;
+      else row.quads++;
       if (shape === "bar") row.bars++;
-      else if (shape === "odd") row.odd++;
       if (isFlat(d)) row.flat++;
     }
     row.undrawn = Object.fromEntries([...render.undrawn].sort(([a], [b]) => (a < b ? -1 : 1)));
@@ -164,13 +185,16 @@ function reasonOf(r: Row): string {
   if (!r.opened) return "the script did not run";
   if (r.controls === 0) return "the script made no control";
   if (r.shown === 0) return "no control is shown";
-  if (Object.keys(r.undrawn).length > 0) return "what the shown controls draw is not ported (strings, ...)";
-  return "the shown controls have no picture to draw";
+  if (Object.keys(r.undrawn).length > 0) return "what the shown controls draw is not ported (movies, controls whose drawing is not ported)";
+  return "the shown controls have no picture and no text to draw";
 }
+
+/** the dialog handed something to `DrawPrimitive` */
+const drew = (r: Row): boolean => r.quads + r.text + r.odd > 0;
 
 function markdown(rows: Row[]): string {
   const ok = rows.filter((r) => !r.error);
-  const drawn = ok.filter((r) => r.quads > 0);
+  const drawn = ok.filter(drew);
   const agree = ok.filter((r) => !r.referenceError && r.over === 0);
   const hist = new Map<string, number>();
   for (const r of ok) {
@@ -192,6 +216,7 @@ function markdown(rows: Row[]): string {
   out.push("# The dialogs drawn through the device (generated by `tools/ui-draw.ts`)\n");
   out.push(
     "Every `DLG_*.lua` of the archives is opened in one UI world with a device (one Lua state, as in the client), run for one frame of no time (`CKTDGUIDialog::OnFrameMove(0, 0)`: nothing moves, the buttons that wait for their first `ChangeState` make it), drawn once on a cleared 1024 x 768 back buffer through `CKTDGUIDialog::OnFrameRender`, the state manager, the dynamic vertex buffers and `Direct3DDevice9` (WebGPU), and the quads it handed to `DrawPrimitive` are composed again on the CPU by the rules of Direct3D 9 (`packages/ui/test-gpu/reference.ts`). " +
+      "The strings of the statics, buttons and radio buttons are drawn too, by the client's fonts (a flush of a glyph page is a list of glyph quads, composed with the pixels the page had at the draw); the fonts forget their glyphs between two dialogs. " +
       "A script that fails is run again after all the others (a sibling script may define the global it needs). " +
       `The device's picture may differ from the CPU's by ${TOLERANCE} levels of a channel (the tolerance of the test). Per dialog: \`docs/ui-draw.tsv\`.\n`,
   );
@@ -202,19 +227,21 @@ function markdown(rows: Row[]): string {
   out.push(`| the script did not run (a game state defines what it needs, FINDINGS 17.1) | ${n(ok.filter((r) => !r.opened).length)} |`);
   out.push(`| drawn without an exception | ${n(ok.length)} |`);
   out.push(`| ... whose frame ended in an exception first (what \`OnFrameMove\` does there is not ported) | ${n(ok.filter((r) => r.frameError).length)} |`);
-  out.push(`| ... that draw at least one quad | ${n(drawn.length)} |`);
-  out.push(`| ... that draw no quad | ${n(ok.length - drawn.length)} |`);
+  out.push(`| ... that draw at least one quad or string | ${n(drawn.length)} |`);
+  out.push(`| ... that draw nothing | ${n(ok.length - drawn.length)} |`);
+  out.push(`| ... that draw text | ${n(ok.filter((r) => r.text > 0).length)} |`);
   out.push(`| device and CPU agree (no pixel over ${TOLERANCE}) | ${n(agree.length)} |`);
   out.push(`| the CPU composition has no rule for a quad | ${n(ok.filter((r) => r.referenceError).length)} |`);
   out.push(`| ... a pixel is over ${TOLERANCE} | ${n(ok.filter((r) => !r.referenceError && r.over > 0).length)} |`);
-  out.push(`| draws that are neither of the two shapes the UI makes | ${n(ok.reduce((a, r) => a + r.odd, 0))} (in ${n(ok.filter((r) => r.odd > 0).length)} dialogs) |`);
+  out.push(`| draws that are none of the three shapes the UI makes | ${n(ok.reduce((a, r) => a + r.odd, 0))} (in ${n(ok.filter((r) => r.odd > 0).length)} dialogs) |`);
   out.push(`| the state stack is not back where it was | ${n(ok.filter((r) => r.stack !== 0).length)} |`);
   out.push(`| quads in all | ${n(ok.reduce((a, r) => a + r.quads, 0))} (${n(ok.reduce((a, r) => a + r.bars, 0))} of them bars of edges, ${n(ok.reduce((a, r) => a + r.flat, 0))} without area) |`);
+  out.push(`| glyph quads in all | ${n(ok.reduce((a, r) => a + r.glyphs, 0))} (in ${n(ok.reduce((a, r) => a + r.text, 0))} flushes of a glyph page) |`);
   out.push("");
   out.push(`The largest difference of a channel between the device and the CPU, per dialog: ${[...hist].sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, c]) => `${k}: ${n(c)}`).join(", ")}.\n`);
 
   out.push("## What the dialogs ask to draw that is not ported yet\n");
-  out.push("`render.undrawn`, summed over the dialogs: a control class whose `OnFrameRender` is not ported, or a part of one (the strings).\n");
+  out.push("`render.undrawn`, summed over the dialogs: a control class whose `OnFrameRender` is not ported, or a part of one (the movies of a static).\n");
   out.push("| what | dialogs | times |\n|---|---:|---:|");
   for (const [k, e] of [...undrawn].sort((a, b) => b[1].count - a[1].count)) out.push(`| \`${k}\` | ${n(e.dialogs)} | ${n(e.count)} |`);
   out.push("");
@@ -268,10 +295,10 @@ function markdown(rows: Row[]): string {
   } else out.push("None.");
   out.push("");
 
-  const empty = ok.filter((r) => r.quads === 0);
+  const empty = ok.filter((r) => !drew(r));
   const why = new Map<string, number>();
   for (const r of empty) why.set(reasonOf(r), (why.get(reasonOf(r)) ?? 0) + 1);
-  out.push("## Dialogs that draw no quad\n");
+  out.push("## Dialogs that draw nothing\n");
   out.push("| why | dialogs |\n|---|---:|");
   for (const [k, c] of [...why].sort((a, b) => b[1] - a[1])) out.push(`| ${k} | ${n(c)} |`);
   out.push("");
@@ -283,12 +310,12 @@ function markdown(rows: Row[]): string {
 }
 
 function tsv(rows: Row[]): string {
-  const head = ["name", "opened", "retried", "controls", "shown", "quads", "bars", "flat", "odd", "covered", "max", "over", "log", "stack", "classes", "undrawn", "frame_error", "error"];
+  const head = ["name", "opened", "retried", "controls", "shown", "quads", "bars", "flat", "text", "glyphs", "odd", "covered", "max", "over", "log", "stack", "classes", "undrawn", "frame_error", "error"];
   const lines = [head.join("\t")];
   for (const r of rows) {
     lines.push(
       [
-        r.name, r.opened ? 1 : 0, r.retried ? 1 : 0, r.controls, r.shown, r.quads, r.bars, r.flat, r.odd, r.covered, r.max, r.over, r.log, r.stack,
+        r.name, r.opened ? 1 : 0, r.retried ? 1 : 0, r.controls, r.shown, r.quads, r.bars, r.flat, r.text, r.glyphs, r.odd, r.covered, r.max, r.over, r.log, r.stack,
         Object.entries(r.classes).map(([k, c]) => `${k}=${c}`).join(" "),
         Object.entries(r.undrawn).map(([k, c]) => `${k}=${c}`).join("; "),
         r.frameError ?? "",
@@ -314,7 +341,7 @@ if (import.meta.main) {
   const world = await newWorld();
   const rows: Row[] = [];
   const report = (k: number, total: number, row: Row, t: number, retry: boolean): void => {
-    const bits = [`${row.quads} quads`, `${row.bars} bars`, `max ${row.max}`, `over ${row.over}`, `covered ${row.covered}`];
+    const bits = [`${row.quads} quads`, `${row.bars} bars`, `${row.glyphs} glyphs in ${row.text} flushes`, `max ${row.max}`, `over ${row.over}`, `covered ${row.covered}`];
     if (row.flat) bits.push(`flat ${row.flat}`);
     if (row.odd) bits.push(`ODD ${row.odd}`);
     if (!row.opened && !row.error) bits.push("script did not run");

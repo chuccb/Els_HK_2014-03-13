@@ -16,11 +16,10 @@ import { join } from "node:path";
 import type { Direct3DTexture9 } from "@els/d3d9";
 import { FONT_STYLE } from "../src/index.ts";
 import type { UKFont, UIWorld } from "../src/index.ts";
-import type { CKTDGDynamicTexture } from "../src/dynamictexture.ts";
 import { gpuAvailable } from "../../d3d9/test/gpu-helper.ts";
 import { compareImages } from "./reference.ts";
 import type { Difference, RefImage } from "./reference.ts";
-import { CLEAR, TOLERANCE, drawScene, newWorld, releaseDrawn } from "./draw.ts";
+import { CLEAR, TOLERANCE, drawScene, newWorld, pageSnapshot, releaseDrawn } from "./draw.ts";
 import type { Draw, Scene } from "./draw.ts";
 
 const dataDir = join(import.meta.dir, "..", "..", "..", "data");
@@ -32,42 +31,6 @@ const WHITE = 0xffffffff;
 
 function report(name: string, d: Difference): string {
   return `${name}: ${d.over} of ${d.pixels} pixels differ by more than ${TOLERANCE}, the largest difference ${d.max}, the mean ${d.mean.toFixed(4)}, first at ${JSON.stringify(d.firstOver)}`;
-}
-
-/** the pixels of a glyph page as the texture holds them: A8R8G8B8 (the glyph cache writes `coverage << 24 | 0xFFFFFF`), as R G B A bytes */
-function pageImage(page: CKTDGDynamicTexture): RefImage {
-  const px = page.pBits;
-  if (!px) throw new Error("a glyph page that is not locked has no pixels to copy");
-  const rgba = new Uint8Array(px.length * 4);
-  for (let i = 0; i < px.length; i++) {
-    const v = px[i]!;
-    rgba[4 * i] = (v >>> 16) & 255;
-    rgba[4 * i + 1] = (v >>> 8) & 255;
-    rgba[4 * i + 2] = v & 255;
-    rgba[4 * i + 3] = v >>> 24;
-  }
-  return { width: page.m_dwWidth, height: page.m_dwHeight, rgba };
-}
-
-/** every glyph page (main and outline) of every font of the world, by the Direct3D texture it is drawn through */
-function glyphPages(w: UIWorld): Map<Direct3DTexture9, CKTDGDynamicTexture> {
-  const pages = new Map<Direct3DTexture9, CKTDGDynamicTexture>();
-  for (const font of w.fonts.m_mapUKFontList.values()) {
-    const ft = font?.m_pUKFont;
-    if (!ft) continue;
-    for (const p of [...ft.m_pTexture, ...ft.m_pTextureOutLine]) if (p?.m_pTextureVid) pages.set(p.m_pTextureVid, p);
-  }
-  return pages;
-}
-
-/** the snapshot of a recording: the glyph page that is on stage 0 (a text draw without one is a failure) */
-function snapshotOf(w: UIWorld): (texture: Direct3DTexture9 | null) => RefImage | null {
-  const pages = glyphPages(w);
-  return (texture) => {
-    const page = texture ? pages.get(texture) : undefined;
-    if (!page) throw new Error("a draw whose texture on stage 0 is no glyph page");
-    return pageImage(page);
-  };
 }
 
 /** a world with the client's fonts: the seven UK fonts, in the order outline first, then by size */
@@ -162,7 +125,7 @@ suite("text drawn through @els/d3d9 by the ported fonts", () => {
 
       const scene = await drawScene(w, () => {
         for (const r of rows) r.font.OutTextXY(r.x, r.y, r.text, r.color, FONT_STYLE.FS_SHELL, BLACK, null, 0, -1, 1, 1);
-      }, { snapshot: snapshotOf(w), savedAs: "ui-text-fonts" });
+      }, { snapshot: pageSnapshot(w, true), savedAs: "ui-text-fonts" });
 
       expectTextDraws(scene.draws);
       expectSameAsDirect3D("text of the seven fonts", scene);
@@ -208,7 +171,7 @@ suite("text drawn through @els/d3d9 by the ported fonts", () => {
         big.OutTextXY(0, 90, RIGHT, 0xff80e0ff, FONT_STYLE.FS_SHELL, BLACK, box, 2, -1, 1, 1);
         small.OutTextXY(20, 300, "scaled 2 x 3", WHITE, FONT_STYLE.FS_SHELL, BLACK, null, 0, -1, 2, 3);
         small.OutTextMultiline(20, 420, "two\nlines\nscaled", WHITE, FONT_STYLE.FS_SHELL, BLACK, 1, null, 0, -1, 1.5, 1.5);
-      }, { snapshot: snapshotOf(w), savedAs: "ui-text-multiline" });
+      }, { snapshot: pageSnapshot(w, true), savedAs: "ui-text-multiline" });
 
       expectTextDraws(scene.draws);
       expectSameAsDirect3D("multi-line text", scene);
@@ -252,7 +215,7 @@ suite("text drawn through @els/d3d9 by the ported fonts", () => {
       const scene = await drawScene(w, () => {
         A.forEach((text, k) => font.OutTextXY(2, 4 + 16 * k, text, WHITE, FONT_STYLE.FS_NONE, 0, null, 0, -1, 1, 1));
         B.forEach((text, k) => font.OutTextXY(2, 44 + 16 * k, text, 0xffffe060, FONT_STYLE.FS_NONE, 0, null, 0, -1, 1, 1));
-      }, { snapshot: snapshotOf(w), savedAs: "ui-text-evicted" });
+      }, { snapshot: pageSnapshot(w, true), savedAs: "ui-text-evicted" });
 
       expect([ft.m_iSizeArray, ft.hashCell[0x4e00]!, ft.hashCell[0x4e00 + 43]!, ft.hashCell[0x4e00 + 44]! >= 0, ft.hashCell[0x5000 + 1099]! >= 0]).toEqual([1156, -1, -1, true, true]);
       expectTextDraws(scene.draws);

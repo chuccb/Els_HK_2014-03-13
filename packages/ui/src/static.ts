@@ -11,6 +11,7 @@ import type { DeviceTexture } from "./device.ts";
 import type { CMovieData } from "./movie.ts";
 import { VertexUI4 } from "./render.ts";
 import { ftoi } from "./rect.ts";
+import { draw2DString, drawUKString, spreadText } from "./stringdraw.ts";
 import type { CKTDGUIItem_Methods, CKTDGUIStatic_Methods } from "@els/host";
 
 const f = Math.fround;
@@ -59,9 +60,10 @@ export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStat
   /**
    * `OnFrameRender` (3292A2B0): a shown static draws its pictures, then its strings, then its movies.  A picture is drawn when it is shown
    * and has a point and a loaded texture: the edge (when `m_EdgeWidth` is not 0), the quad (`UpdateVertex`, the picture's two blend
-   * states pushed around `RenderVertex(..., m_iDrawCount)`), the edge again (both times with the picture's own `m_bDrawEdgeOut`).  The
-   * strings (the UK font's `OutTextMultiline` / `Draw2DText`) and the movies (`CMovieData::OnFrameRender` 32925150) are not ported: they
-   * are counted in `render.undrawn`.
+   * states pushed around `RenderVertex(..., m_iDrawCount)`), the edge again (both times with the picture's own `m_bDrawEdgeOut`).  Then
+   * every string that has text is drawn, in order (stringdraw.ts: the UK font's `OutTextMultiline`, or `Draw2DText` for a string that
+   * does not use a UK font; a string that spreads shows `iSpreadCount` characters).  The movies (`CMovieData::OnFrameRender` 32925150)
+   * are not ported: they are counted in `render.undrawn`.
    */
   override onFrameRender(): number {
     if (!this.m_bShow) return 0;
@@ -79,7 +81,12 @@ export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStat
       render?.states.popTo(top);
       if (picture.m_EdgeWidth !== 0) this.drawEdge(picture.m_bDrawEdgeOut, picture.m_EdgeWidth, picture.m_EdgeColor, point);
     }
-    for (const text of this.m_StringDataList) if (text.msg.length !== 0) render?.noteUndrawn("CKTDGUIStatic string");
+    for (const data of this.m_StringDataList) {
+      if (data.msg.length === 0) continue;
+      const text = data.bSpread ? spreadText(data) : data.msg;
+      if (data.bUseUkFont) drawUKString(this.ctx, this, data, text);
+      else draw2DString(this.ctx, this, data, text);
+    }
     for (let i = 0; i < this.m_MovieDataList.length; i++) render?.noteUndrawn("CMovieData::OnFrameRender");
     return 0;
   }

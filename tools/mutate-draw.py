@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Mutation check of the UI drawing classes (CKTDXDeviceTexture::Draw, the edges of the static / button / radio button, and the
-OnFrameRender of the radio button, check box, slider, navigation, control list and scroll bar): apply one small change at a time to a
-source file of packages/ui/src, run packages/ui/test/controldraw.test.ts and render.test.ts and report whether a test notices (killed) or
-not (SURVIVED).  The last mutants are of the CPU reference of the GPU test (packages/ui/test-gpu/reference.ts: corners, culling, alpha
+"""Mutation check of the UI drawing classes (CKTDXDeviceTexture::Draw, the edges of the static / button / radio button, the
+OnFrameRender of the radio button, check box, slider, navigation, control list and scroll bar, and the strings the static, button and
+radio button draw: stringdraw.ts): apply one small change at a time to a source file of packages/ui/src, run
+packages/ui/test/controldraw.test.ts, render.test.ts and stringdraw.test.ts and report whether a test notices (killed) or not
+(SURVIVED).  The last mutants are of the CPU reference of the GPU test (packages/ui/test-gpu/reference.ts: corners, culling, alpha
 test), which packages/ui/test/reference.test.ts must pin.
 
     python3 tools/mutate-draw.py [--list] [substring of a mutant name ...]
@@ -15,7 +16,7 @@ import os, resource, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUN = os.path.join(ROOT, 'node_modules/.bin/bun')
-TESTS = [os.path.join(ROOT, 'packages/ui/test/controldraw.test.ts'), os.path.join(ROOT, 'packages/ui/test/render.test.ts')]
+TESTS = [os.path.join(ROOT, 'packages/ui/test/controldraw.test.ts'), os.path.join(ROOT, 'packages/ui/test/render.test.ts'), os.path.join(ROOT, 'packages/ui/test/stringdraw.test.ts')]
 SRC = 'packages/ui/src/'
 REFERENCE = 'packages/ui/test-gpu/reference.ts'
 REFERENCE_TESTS = [os.path.join(ROOT, 'packages/ui/test/reference.test.ts')]
@@ -94,7 +95,6 @@ M = [
  ('radiobutton.ts', 'radio: the height is the right-top corner\'s', r'const nHeight = ftoi(f(p.rightBottomPoint.y - p.leftTopPoint.y));', r'const nHeight = ftoi(f(p.rightTopPoint.y - p.leftTopPoint.y));', ''),
  ('radiobutton.ts', 'radio: a width of 0 draws bars', r'if (this.m_CheckedEdgeWidth === 0 || !texture) return;', r'if (!texture) return;', ''),
  ('radiobutton.ts', 'radio: the edge is of the check point', "const p = this.m_MyNowPoint;\n    const nWidth", "const p = this.m_pCheckedPoint ?? this.m_MyNowPoint;\n    const nWidth", ''),
- ('radiobutton.ts', 'radio: a string is not counted', r'if (this.m_pStringData) this.ctx.render?.noteUndrawn("CKTDGUIRadioButton string");', r'', ''),
  # ---- checkbox.ts
  ('checkbox.ts', 'checkbox: the background is empty for either flag', r'if (!(this.m_bEmptyBGWhenChecked && this.m_bChecked)) {', r'if (!(this.m_bEmptyBGWhenChecked || this.m_bChecked)) {', ''),
  ('checkbox.ts', 'checkbox: the check point is always drawn', "if (this.m_bChecked) {\n      const point = this.m_pCheckedPoint;", "if (true) {\n      const point = this.m_pCheckedPoint;", ''),
@@ -170,6 +170,81 @@ M = [
  (REFERENCE, 'reference: a quad of no width is the only one without area', r'if (xl === xr || yt === yb) return;', r'if (xl === xr) return;', ''),
  (REFERENCE, 'reference: a quad of no height is the only one without area', r'if (xl === xr || yt === yb) return;', r'if (yt === yb) return;', ''),
  (REFERENCE, 'reference: two vertices may share a corner', r'if (new Set(cornerOf).size !== 4) throw new Error(upright);', r'', ''),
+]
+
+
+# ---- stringdraw.ts and the strings of the static, button and radio button (the colour and the place of a string, the call of the font)
+S = 'stringdraw.ts'
+_NEXT = {'a': 'r', 'r': 'g', 'g': 'b', 'b': 'a'}
+for _role, _v in (('colour', 's'), ('outline', 'o')):
+    for _c in 'argb':
+        _orig = f'{_c}: channel(d.{_c}, {_v}.{_c}, c.{_c})'
+        _n = _NEXT[_c]
+        M += [
+            (S, f'string {_role}: {_c} ignores the dialog', _orig, f'{_c}: channel(1, {_v}.{_c}, c.{_c})', ''),
+            (S, f'string {_role}: {_c} ignores the string', _orig, f'{_c}: channel(d.{_c}, 1, c.{_c})', ''),
+            (S, f'string {_role}: {_c} ignores the control', _orig, f'{_c}: channel(d.{_c}, {_v}.{_c}, 1)', ''),
+            (S, f"string {_role}: {_c} takes the dialog's {_n}", _orig, f'{_c}: channel(d.{_n}, {_v}.{_c}, c.{_c})', ''),
+            (S, f"string {_role}: {_c} takes the string's {_n}", _orig, f'{_c}: channel(d.{_c}, {_v}.{_n}, c.{_c})', ''),
+            (S, f"string {_role}: {_c} takes the control's {_n}", _orig, f'{_c}: channel(d.{_c}, {_v}.{_c}, c.{_n})', ''),
+        ]
+M += [
+ (S, 'string colour: the product of the dialog and the string is not rounded to a float', r'f(f(dialog * string) * control)', r'f(dialog * string * control)', ''),
+ (S, 'string colour: the string and the control are multiplied first', r'f(f(dialog * string) * control)', r'f(dialog * f(string * control))', ''),
+ (S, 'string colour: the channel is not rounded to a float at all', r'=> f(f(dialog * string) * control);', r'=> dialog * string * control;', ''),
+]
+for _a in 'xy':
+    _orig = f'{_a}: f(f(dialog.m_Pos.{_a} + data.pos.{_a}) + control.m_OffsetPos.{_a}),'
+    _o = 'y' if _a == 'x' else 'x'
+    M += [
+        (S, f'string place: {_a} ignores the dialog', _orig, f'{_a}: f(data.pos.{_a} + control.m_OffsetPos.{_a}),', ''),
+        (S, f'string place: {_a} ignores the string', _orig, f'{_a}: f(dialog.m_Pos.{_a} + control.m_OffsetPos.{_a}),', ''),
+        (S, f'string place: {_a} ignores the offset', _orig, f'{_a}: f(dialog.m_Pos.{_a} + data.pos.{_a}),', ''),
+        (S, f"string place: {_a} takes the dialog's {_o}", _orig, f'{_a}: f(f(dialog.m_Pos.{_o} + data.pos.{_a}) + control.m_OffsetPos.{_a}),', ''),
+        (S, f"string place: {_a} takes the string's {_o}", _orig, f'{_a}: f(f(dialog.m_Pos.{_a} + data.pos.{_o}) + control.m_OffsetPos.{_a}),', ''),
+        (S, f"string place: {_a} takes the offset's {_o}", _orig, f'{_a}: f(f(dialog.m_Pos.{_a} + data.pos.{_a}) + control.m_OffsetPos.{_o}),', ''),
+        (S, f'string place: {_a} is the sum of three, rounded once', _orig, f'{_a}: f(dialog.m_Pos.{_a} + data.pos.{_a} + control.m_OffsetPos.{_a}),', ''),
+    ]
+M += [
+ (S, 'string: a control in no dialog is drawn (the exe uses a null object)', r'if (!dialog) throw new Error("CKTDGUIDialogHandle::operator->', r'if (false) throw new Error("CKTDGUIDialogHandle::operator->', ''),
+ (S, 'string: a null font is called', r'if (!font) throw new Error(`CUKFont::${method}', r'if (false) throw new Error(`CUKFont::${method}', ''),
+ (S, 'string: the dialog is looked up before the UK font', "const font = ctx.fonts.getUKFont(data.fontIndex);\n  const dialog = dialogOf(control);", "const dialog = dialogOf(control);\n  const font = ctx.fonts.getUKFont(data.fontIndex);", ''),
+ (S, 'string: the dialog is looked up before the font of the map', "const font = ctx.fonts.getMappedUKFont(data.fontIndex);\n  const dialog = dialogOf(control);", "const dialog = dialogOf(control);\n  const font = ctx.fonts.getMappedUKFont(data.fontIndex);", ''),
+ (S, 'string: x and y are swapped in OutTextMultiline', r'OutTextMultiline(ftoi(x), ftoi(y), text,', r'OutTextMultiline(ftoi(y), ftoi(x), text,', ''),
+ (S, 'string: the place is rounded, not cut', r'OutTextMultiline(ftoi(x), ftoi(y), text,', r'OutTextMultiline(Math.round(x), Math.round(y), text,', ''),
+ (S, 'string: the place is rounded up', r'OutTextMultiline(ftoi(x), ftoi(y), text,', r'OutTextMultiline(Math.ceil(x), Math.ceil(y), text,', ''),
+ (S, 'string: the colours are swapped in OutTextMultiline', r'text, packColor(color), data.fontStyle, packColor(outline), 1, null,', r'text, packColor(outline), data.fontStyle, packColor(color), 1, null,', ''),
+ (S, 'string: the font style is not passed on', r'packColor(color), data.fontStyle, packColor(outline), 1, null,', r'packColor(color), 0, packColor(outline), 1, null,', ''),
+ (S, 'string: the line space is 2', r'packColor(outline), 1, null, data.sortFlag, -1, 1, 1);', r'packColor(outline), 2, null, data.sortFlag, -1, 1, 1);', ''),
+ (S, 'string: the sort flag is not passed on', r'packColor(outline), 1, null, data.sortFlag, -1, 1, 1);', r'packColor(outline), 1, null, 0, -1, 1, 1);', ''),
+ (S, 'string: only one character is drawn', r'packColor(outline), 1, null, data.sortFlag, -1, 1, 1);', r'packColor(outline), 1, null, data.sortFlag, 1, 1, 1);', ''),
+ (S, 'string: the x scale is 2', r'packColor(outline), 1, null, data.sortFlag, -1, 1, 1);', r'packColor(outline), 1, null, data.sortFlag, -1, 2, 1);', ''),
+ (S, 'string: the y scale is 2', r'packColor(outline), 1, null, data.sortFlag, -1, 1, 1);', r'packColor(outline), 1, null, data.sortFlag, -1, 1, 2);', ''),
+ (S, 'string: the font of the map is the UK font list', r'const font = ctx.fonts.getMappedUKFont(data.fontIndex);', r'const font = ctx.fonts.getUKFont(data.fontIndex);', ''),
+ (S, 'string: Draw2DText counts the whole message, not the part shown', r'data.fontStyle, text.length);', r'data.fontStyle, data.msg.length);', ''),
+ (S, 'string: Draw2DText takes the colours swapped', r'.Draw2DText(text, ftoi(x), ftoi(y), color, outline,', r'.Draw2DText(text, ftoi(x), ftoi(y), outline, color,', ''),
+ (S, 'string: Draw2DText takes the flag and the style swapped', r'outline, data.sortFlag, data.fontStyle, text.length);', r'outline, data.fontStyle, data.sortFlag, text.length);', ''),
+ (S, 'string: Draw2DText has x and y swapped', r'.Draw2DText(text, ftoi(x), ftoi(y),', r'.Draw2DText(text, ftoi(y), ftoi(x),', ''),
+ (S, 'string: Draw2DText cuts the place by rounding', r'.Draw2DText(text, ftoi(x), ftoi(y),', r'.Draw2DText(text, Math.round(x), Math.round(y),', ''),
+ (S, 'spread: the longer of the count and the length is shown', r'Math.min(data.iSpreadCount, data.msg.length)', r'Math.max(data.iSpreadCount, data.msg.length)', ''),
+ (S, 'spread: a count of 0 is refused', r'if (count < 0) throw', r'if (count <= 0) throw', ''),
+ (S, 'spread: a negative count is not refused', r'if (count < 0) throw', r'if (false) throw', ''),
+ (S, 'spread: one character too many', r'return data.msg.slice(0, count);', r'return data.msg.slice(0, count + 1);', ''),
+ (S, 'spread: the first character is left out', r'return data.msg.slice(0, count);', r'return data.msg.slice(1, count);', ''),
+ ('static.ts', 'static: a string without text is drawn', r'if (data.msg.length === 0) continue;', r'', ''),
+ ('static.ts', 'static: a string with one character is not drawn', r'if (data.msg.length === 0) continue;', r'if (data.msg.length <= 1) continue;', ''),
+ ('static.ts', 'static: a string spreads whether it spreads or not', r'const text = data.bSpread ? spreadText(data) : data.msg;', r'const text = spreadText(data);', ''),
+ ('static.ts', 'static: a spreading string is shown whole', r'const text = data.bSpread ? spreadText(data) : data.msg;', r'const text = data.msg;', ''),
+ ('static.ts', 'static: USE_UK_FONT is ignored: every string goes to the UK font', r'if (data.bUseUkFont) drawUKString(this.ctx, this, data, text);', r'if (true) drawUKString(this.ctx, this, data, text);', ''),
+ ('static.ts', 'static: USE_UK_FONT is turned round', r'if (data.bUseUkFont) drawUKString(this.ctx, this, data, text);', r'if (!data.bUseUkFont) drawUKString(this.ctx, this, data, text);', ''),
+ ('static.ts', 'static: only the first string is drawn', r'if (data.msg.length === 0) continue;', r'if (data.msg.length === 0 || data !== this.m_StringDataList[0]) continue;', ''),
+ ('static.ts', 'static: the strings are drawn before the pictures are done: after the first picture only', "    for (const data of this.m_StringDataList) {\n      if (data.msg.length === 0) continue;", "    if (this.m_PictureDataList.length > 0) for (const data of this.m_StringDataList) {\n      if (data.msg.length === 0) continue;", ''),
+ ('button.ts', 'button: an empty message is not drawn', r'if (this.m_pStringData) drawUKString(this.ctx, this, this.m_pStringData, this.m_pStringData.msg);', r'if (this.m_pStringData && this.m_pStringData.msg.length !== 0) drawUKString(this.ctx, this, this.m_pStringData, this.m_pStringData.msg);', ''),
+ ('button.ts', 'button: the string is drawn before the edge on the quad', "if (edge) this.drawEdge(false);\n    if (this.m_pStringData) drawUKString(this.ctx, this, this.m_pStringData, this.m_pStringData.msg);", "if (this.m_pStringData) drawUKString(this.ctx, this, this.m_pStringData, this.m_pStringData.msg);\n    if (edge) this.drawEdge(false);", ''),
+ ('button.ts', 'button: the string is drawn before the quad', "    this.renderVertex(this.m_Vertex, this.m_NowPoint, 1);\n    if (edge) this.drawEdge(false);\n    if (this.m_pStringData) drawUKString(this.ctx, this, this.m_pStringData, this.m_pStringData.msg);", "    if (this.m_pStringData) drawUKString(this.ctx, this, this.m_pStringData, this.m_pStringData.msg);\n    this.renderVertex(this.m_Vertex, this.m_NowPoint, 1);\n    if (edge) this.drawEdge(false);", ''),
+ ('radiobutton.ts', 'radio button: an empty message is not drawn', r'if (this.m_pStringData) drawUKString(this.ctx, this, this.m_pStringData, this.m_pStringData.msg);', r'if (this.m_pStringData && this.m_pStringData.msg.length !== 0) drawUKString(this.ctx, this, this.m_pStringData, this.m_pStringData.msg);', ''),
+ ('radiobutton.ts', 'radio button: the string is drawn after the check point', "    if (this.m_pStringData) drawUKString(this.ctx, this, this.m_pStringData, this.m_pStringData.msg);\n    if (this.m_bChecked) {\n      const point = this.m_pCheckedPoint;", "    if (this.m_bChecked) {\n      const point = this.m_pCheckedPoint;", ''),
+ ('radiobutton.ts', 'radio button: the string is drawn before the background', "    if (this.m_bChecked) this.drawCheckedEdge(false);\n    if (this.m_pStringData) drawUKString(this.ctx, this, this.m_pStringData, this.m_pStringData.msg);", "    if (this.m_pStringData) drawUKString(this.ctx, this, this.m_pStringData, this.m_pStringData.msg);\n    if (this.m_bChecked) this.drawCheckedEdge(false);", ''),
 ]
 
 

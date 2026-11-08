@@ -370,12 +370,8 @@ describe("CKTDGUIRadioButton.onFrameRender (3294AE80) and drawCheckedEdge (32949
     expect(drawBox(quadsOf(dev, 4)[1]!)).toEqual([29.5, 137.5, 150, 144]);
   });
 
-  test("a string is not ported (counted); a hidden button draws nothing; a checked one without a check point is the exe's null dereference", () => {
-    const { r, dev, w } = scene();
-    r.m_pStringData = { msg: "Hi" } as never;
-    r.onFrameRender();
-    expect([...w.render!.undrawn]).toEqual([["CKTDGUIRadioButton string", 1]]);
-    dev.log.length = 0;
+  test("a hidden button draws nothing; a checked one without a check point is the exe's null dereference (the string is stringdraw.test.ts)", () => {
+    const { r, dev } = scene();
     r.m_bShow = false;
     r.onFrameRender();
     expect(dev.log).toEqual([]);

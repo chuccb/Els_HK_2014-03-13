@@ -1,6 +1,7 @@
 export * from "./device.ts";
 export * from "./control.ts";
 export * from "./static.ts";
+export * from "./stringdraw.ts";
 export * from "./button.ts";
 export * from "./radiobutton.ts";
 export * from "./checkbox.ts";
