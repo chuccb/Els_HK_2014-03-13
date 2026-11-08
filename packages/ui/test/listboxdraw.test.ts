@@ -236,6 +236,13 @@ describe("OnFrameRender: the first list box that is drawn gives its scroll bar i
     expect(names(calls)).toEqual(Array.from({ length: 12 }, (_, k) => `Row${18 + k}`));
   });
 
+  test("the page is cut, not rounded: a text rectangle of 104 over rows of 9 is 11 (11.56)", () => {
+    const t = withBar();
+    t.box.m_rcText.bottom = 160;
+    t.box.onFrameRender();
+    expect(t.b.m_nPageSize).toBe(11);
+  });
+
   test("a static box has m_nTextHeight (20) for the row height: 108 / 20 = 5 rows to a page; with a height of 0 the page is the whole height (no thumb)", () => {
     const t = withBar();
     t.box.m_bIsStaticListBox = true;
@@ -324,12 +331,22 @@ describe("OnFrameRender: which rows are drawn", () => {
     expect(t.calls).toEqual([]);
   });
 
-  test("a position below 0 is set to 0 first (SetTrackPos)", () => {
+  test("a position below 0 is set to 0 first (SetTrackPos, which makes the thumb again); a position of 0 is left alone", () => {
+    // the track is given after the rows, so the thumb the rows made (the least, 8, in a track of no height) is out of date: the track is
+    // (20, 120) and a thumb of 4 rows to a page of 1 would be 1 * 100 / 4 = 25 high at the top
     const t = fixed(4);
+    t.b.m_rcTrack.top = 20;
+    t.b.m_rcTrack.bottom = 120;
     t.b.m_nPosition = -3;
     t.box.onFrameRender();
     expect(t.b.m_nPosition).toBe(0);
+    expect([t.b.m_rcThumb.top, t.b.m_rcThumb.bottom]).toEqual([20, 45]);
     expect(names(t.calls)).toEqual(["Row0", "Row1", "Row2", "Row3"]);
+    const u = fixed(4);
+    u.b.m_rcTrack.top = 20;
+    u.b.m_rcTrack.bottom = 120;
+    u.box.onFrameRender();
+    expect([u.b.m_nPosition, u.b.m_rcThumb.top, u.b.m_rcThumb.bottom]).toEqual([0, 0, 8]);
   });
 });
 
@@ -402,17 +419,34 @@ describe("OnFrameRender: the highlight of a row (not a multi selection)", () => 
     expect(t.calls.map((c) => draws(t.dev, c.log))).toEqual([1, 2, 2, 3, 3, 3]);
   });
 
-  test("a NOT_ENABLE row has a quad, a group row or a row of any larger type has none", () => {
+  test("what is added to the right edge is the bar's own width (21 here), not the box's m_nSBWidth (16)", () => {
+    const t = six();
+    t.b.m_width = 21;
+    t.box.m_Items[1]!.m_bMegaOver = true;
+    t.box.m_nSelected = 3;
+    t.box.onFrameRender();
+    // 278 + 21 + 21 + 11 for the second highlighted row
+    expect(drawnQuads(t.dev).map((q) => q.rect[2])).toEqual([311, 311, 331]);
+    const u = six();
+    u.b.m_width = 21;
+    u.box.m_nSelected = 3;
+    u.box.onFrameRender();
+    expect(drawnQuads(u.dev)[1]!.rect).toEqual(hl(3, 310));
+  });
+
+  test("a NOT_ENABLE row has a quad, a group row or a row of any larger type (an unsigned compare: -1 is the largest) has none", () => {
     const t = six();
     t.box.m_Items[1]!.itemType = LBIT.NOT_ENABLE;
     t.box.m_Items[2]!.itemType = LBIT.GROUP_PLUS;
     t.box.m_Items[3]!.itemType = 7;
-    for (const k of [1, 2, 3]) t.box.m_Items[k]!.m_bMegaSelect = true;
+    t.box.m_Items[4]!.itemType = -1;
+    t.box.m_Items[5]!.itemType = -2; // not highlighted
+    for (const k of [1, 2, 3, 4]) t.box.m_Items[k]!.m_bMegaSelect = true;
     t.box.m_pGroupMark.onFrameRender = () => 0;
     t.box.onFrameRender();
     expect(drawnQuads(t.dev)).toEqual([{ texture: "BOX.TGA", rect: BOX }, { texture: "TEXT.TGA", rect: hl(1, 311) }]);
-    // Row0, Row1 (NOT_ENABLE), Row4, Row5 by the text font; the group row (2) by the group font; row 3 (type 7) by nobody
-    expect(names(t.calls)).toEqual(["Row0", "Row1", "Row4", "Row5"]);
+    // Row0, Row1 (NOT_ENABLE) by the text font; the group row (2) by the group font; rows 3, 4 and 5 (types 7, -1, -2) by nobody
+    expect(names(t.calls)).toEqual(["Row0", "Row1"]);
     expect(names(t.groupCalls)).toEqual(["Row2"]);
   });
 });
@@ -639,6 +673,7 @@ describe("OnFrameRender: a static box (m_bIsStaticListBox) draws the controls of
 
   test("each row's control is put at the corner of the text rectangle, 20 (m_nTextHeight) a row, as many as fit: 5; nothing else is drawn, the bounding box first", () => {
     const t = statics(7);
+    t.box.m_rcText.bottom = 170; // a sixth row ends at 176: it would end at 165 if the rows were the font's 9 high
     t.box.onFrameRender();
     expect(t.probes.map((p) => p.seen)).toEqual([[[111, 56]], [[111, 76]], [[111, 96]], [[111, 116]], [[111, 136]], [], []]);
     expect(t.probes.slice(0, 5).map((p) => p.after)).toEqual([[1], [1], [1], [1], [1]]);
@@ -701,6 +736,14 @@ describe("OnFrameRender: the mouse over a row of a message list (the rows with a
     expect(drawnQuads(t.dev, from)).toEqual([{ texture: "BOX.TGA", rect: BOX }, { texture: "OVER.TGA", rect: hl(2, 311) }]);
   });
 
+  test("the pass runs before the rows are drawn: the first frame already draws the hovered row's highlight", () => {
+    const t = mouse([10, 10, 11, 12, 10], [4]);
+    t.w.mouse.m_XPos = 150;
+    t.w.mouse.m_YPos = 96;
+    t.box.onFrameRender();
+    expect(drawnQuads(t.dev)).toEqual([{ texture: "BOX.TGA", rect: BOX }, { texture: "OVER.TGA", rect: hl(2, 311) }]);
+  });
+
   test("the row's rectangle is from the selection's left (106) to the box's x + width (300), the row's top and bottom, all four sides left out (the mouse is a whole pixel, the layout 10.25 and 20.5 off)", () => {
     const t = mouse([20, 21, 22, 23, 24]);
     const none = [false, false, false, false, false];
@@ -722,6 +765,46 @@ describe("OnFrameRender: the mouse over a row of a message list (the rows with a
     expect(t.hover(150, 122)).toEqual(none);
   });
 
+  test("the four sides are strict to the exact pixel: with the dialog at (10, 20) the layout is (106, 56) at the mouse (116, 76) and (300, 65) at (310, 85)", () => {
+    const t = mouse([20, 21, 22]);
+    t.dialog.m_Pos.set(10, 20);
+    const none = [false, false, false];
+    expect(t.hover(116, 90)).toEqual(none); // x = 106: not over the left side
+    expect(t.hover(117, 90)).toEqual(only(3, 1));
+    expect(t.hover(309, 90)).toEqual(only(3, 1)); // 299
+    expect(t.hover(310, 90)).toEqual(none); // 300: not over the right side
+    expect(t.hover(150, 76)).toEqual(none); // y = 56, the top of row 0
+    expect(t.hover(150, 77)).toEqual(only(3, 0));
+    expect(t.hover(150, 84)).toEqual(only(3, 0)); // 64
+    expect(t.hover(150, 85)).toEqual(none); // 65: the bottom of row 0 and the top of row 1
+    expect(t.hover(150, 86)).toEqual(only(3, 1));
+  });
+
+  test("the pass visits the rows as far as they fit: the twelfth (it ends at 164, the text rectangle's bottom) can be hit, a thirteenth would not fit", () => {
+    const t = mouse(Array.from({ length: 14 }, (_, k) => 30 + k));
+    expect(t.hover(150, 176)).toEqual(only(14, 11)); // row 11 is (155, 164): 155.5
+    expect(t.hover(150, 184)).toEqual(only(14, 11)); // 163.5
+    expect(t.hover(150, 185)).toEqual(only(14, 14)); // 164.5: no row
+  });
+
+  test("a static box's rows are m_nTextHeight (20) high for the mouse too", () => {
+    const t = mouse([20, 21, 22, 23]);
+    t.box.m_bIsStaticListBox = true;
+    t.box.m_nTextHeight = 20;
+    // row 0 is (56, 76), row 1 (76, 96), row 2 (96, 116)
+    expect(t.hover(150, 90)).toEqual(only(4, 0)); // 69.5
+    expect(t.hover(150, 97)).toEqual(only(4, 1)); // 76.5
+    expect(t.hover(150, 116)).toEqual(only(4, 1)); // 95.5
+    expect(t.hover(150, 117)).toEqual(only(4, 2)); // 96.5
+  });
+
+  test("without a device there is no resolution scale: the mouse is taken as it is, in x and y", () => {
+    const t = mouse([10, 10, 11], [], { width: 1536, height: 1536 });
+    (t.w as unknown as { render: null }).render = null;
+    // row 2 is (74, 83): the mouse (150, 100) is (139.75, 79.5) there, scaled by (1.5, 2) it would be (89.75, 29.5)
+    expect(t.hover(150, 100)).toEqual(only(3, 2));
+  });
+
   test("the right side is the box's GetPos().x + m_width: at x 90 and 200 wide it is 290", () => {
     const t = mouse([20, 21, 22]);
     t.box.m_x = 90;
@@ -739,17 +822,21 @@ describe("OnFrameRender: the mouse over a row of a message list (the rows with a
     expect(t.hover(150, 96)).toEqual([false, false, false, false, false]); // (89.75, 27.5)
   });
 
-  test("a row that is hidden, has no message id (-1) or belongs to a multi selection is not visited: it keeps its flag; a row that is visited and not hit loses it", () => {
-    const t = mouse([10, 10, -1, 10]);
+  test("a row that is hidden, has no message id (-1) or belongs to a multi selection is not visited: it keeps its flag; a row that is visited and not hit loses it (0 is a message id)", () => {
+    const t = mouse([0, 10, -1, 10]);
     t.box.m_Items[1]!.m_bShow = false;
     for (const i of t.box.m_Items) i.m_bMegaOver = true;
     expect(t.hover(5, 5)).toEqual([false, true, true, false]);
-    // a hit sets every row from the bar's position, hidden or not: rows with its message id, 10, and not the sender's own
-    expect(t.hover(150, 78)).toEqual([true, true, false, true]);
+    // the hit row's message id is 0: the rows with it
+    expect(t.hover(150, 78)).toEqual([true, false, false, false]);
+    // a hit sets every row from the bar's position, hidden or not: the rows with its message id, 10, and not the sender's own
+    const u = mouse([10, 10, -1, 10]);
+    u.box.m_Items[1]!.m_bShow = false;
+    expect(u.hover(150, 78)).toEqual([true, true, false, true]);
     // a multi selection is not visited at all
-    t.box.m_dwStyle = 1;
-    for (const i of t.box.m_Items) i.m_bMegaOver = true;
-    expect(t.hover(5, 5)).toEqual([true, true, true, true]);
+    u.box.m_dwStyle = 1;
+    for (const i of u.box.m_Items) i.m_bMegaOver = true;
+    expect(u.hover(5, 5)).toEqual([true, true, true, true]);
   });
 
   test("the pass starts at the bar's position and a hit changes the rows from there on only, those below the text rectangle too; with no hit those below it keep their flag", () => {

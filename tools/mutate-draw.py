@@ -16,7 +16,7 @@ import os, resource, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUN = os.path.join(ROOT, 'node_modules/.bin/bun')
-TESTS = [os.path.join(ROOT, 'packages/ui/test/controldraw.test.ts'), os.path.join(ROOT, 'packages/ui/test/render.test.ts'), os.path.join(ROOT, 'packages/ui/test/stringdraw.test.ts'), os.path.join(ROOT, 'packages/ui/test/comboboxdraw.test.ts')]
+TESTS = [os.path.join(ROOT, 'packages/ui/test/controldraw.test.ts'), os.path.join(ROOT, 'packages/ui/test/render.test.ts'), os.path.join(ROOT, 'packages/ui/test/stringdraw.test.ts'), os.path.join(ROOT, 'packages/ui/test/comboboxdraw.test.ts'), os.path.join(ROOT, 'packages/ui/test/listboxdraw.test.ts')]
 SRC = 'packages/ui/src/'
 REFERENCE = 'packages/ui/test-gpu/reference.ts'
 REFERENCE_TESTS = [os.path.join(ROOT, 'packages/ui/test/reference.test.ts')]
@@ -406,6 +406,338 @@ M += [
  (S, 'string place: the place of the control is ignored (the string data\'s)', 'stringPosition(dialog, control, data, at);', 'stringPosition(dialog, control, data);', ''),
  (S, "string place: the default is the origin", 'at: StringPlace = data.pos): { x: number; y: number } {', 'at: StringPlace = { x: 0, y: 0 }): { x: number; y: number } {', ''),
 ]
+
+
+# ---- listbox.ts: OnFrameRender (32943BA0): the bounding box, the page size of the bar, the mouse pass, the rows and their strings; input.ts: UIMouse
+L = 'listbox.ts'
+_PASS = '    if (item.m_bShow && (this.m_dwStyle & 1) === 0 && item.m_iMessageID > -1) {'
+_ROWS_HEAD = '    let i = bar.m_nPosition;\n    if (i >= size) return;\n    while (rc.bottom <= this.m_rcText.bottom) {\n      const item = this.m_Items[i]!;\n'
+_X = 'f(f(f(mouse.GetXPos()) / (scale ? scale.x : 1)) - dialog.m_Pos.x)'
+_Y = 'f(f(f(mouse.GetYPos()) / (scale ? scale.y : 1)) - dialog.m_Pos.y)'
+_HIT = 'if (x > f(this.m_rcSelection.left) && right > x && y > f(rc.top) && f(rc.bottom) > y) {'
+_HL = 'item.m_bMegaSelect || item.m_bMegaOver || i === this.m_nSelected'
+_BOX = 'this.setCorners(bb.left, bb.top, bb.right, bb.bottom);\n    if (this.m_pBoudingBoxTex)'
+_FONT = 'const font = this.ctx.fonts.getUKFont(data.fontIndex);\n    if (!font) {\n      this.ctx.messageBox(this.ctx.strings.get(954), this.ctx.strings.get(955));\n      return 0;\n    }'
+_PAGE = '        bar.cap();\n        bar.updateThumbRect();\n      }\n      statics.bSBInit_0 = true;'
+M += [
+ # ---- OnFrameRender
+ (L, 'listbox: a hidden box is drawn', '    if (!this.m_bShow) return 0;\n    const data = this.m_pStringData;\n    if (!data) throw', '    const data = this.m_pStringData;\n    if (!data) throw', ''),
+ (L, 'listbox: a box without string data goes on', 'if (!data) throw new Error("CKTDGUIListBox::OnFrameRender: no string data (SetString was not called); the exe dereferences null");', 'if (!data) return 0;', ''),
+ (L, 'listbox: the font is the first one', _FONT, _FONT.replace('getUKFont(data.fontIndex)', 'getUKFont(0)'), ''),
+ (L, 'listbox: the message box has the caption first', _FONT, _FONT.replace('get(954), this.ctx.strings.get(955)', 'get(955), this.ctx.strings.get(954)'), ''),
+ (L, 'listbox: a missing font goes on drawing', _FONT, _FONT.replace('      return 0;\n', ''), ''),
+ (L, 'listbox: a missing font gives no message box', _FONT, _FONT.replace('      this.ctx.messageBox(this.ctx.strings.get(954), this.ctx.strings.get(955));\n', ''), ''),
+ (L, 'listbox: the bounding box starts at its right edge', _BOX, _BOX.replace('(bb.left, bb.top,', '(bb.right, bb.top,'), ''),
+ (L, 'listbox: the bounding box starts at its bottom edge', _BOX, _BOX.replace('(bb.left, bb.top,', '(bb.left, bb.bottom,'), ''),
+ (L, 'listbox: the bounding box ends at its left edge', _BOX, _BOX.replace(', bb.right, bb.bottom)', ', bb.left, bb.bottom)'), ''),
+ (L, 'listbox: the bounding box ends at its top edge', _BOX, _BOX.replace(', bb.right, bb.bottom)', ', bb.right, bb.top)'), ''),
+ (L, 'listbox: the bounding box has no texture of its own', 'if (this.m_pBoudingBoxTex) point.pUITextureData = this.m_pBoudingBoxTex;', 'point.pUITextureData = null;', ''),
+ (L, 'listbox: a box without a bounding box texture loses the texture of the point', 'if (this.m_pBoudingBoxTex) point.pUITextureData = this.m_pBoudingBoxTex;', 'point.pUITextureData = this.m_pBoudingBoxTex;', ''),
+ (L, 'listbox: the bounding box is not drawn', '    this.drawTempPoint();\n    if (this.m_Items.length > 0) this.drawItems(font);', '    if (this.m_Items.length > 0) this.drawItems(font);', ''),
+ (L, 'listbox: the quad is drawn twice', 'this.renderVertex(this.m_Vertex, this.m_TempPoint, 1);', 'this.renderVertex(this.m_Vertex, this.m_TempPoint, 2);', ''),
+ (L, 'listbox: the quad is not rendered', 'this.renderVertex(this.m_Vertex, this.m_TempPoint, 1);', 'this.renderVertex(this.m_Vertex, this.m_TempPoint, 0);', ''),
+ (L, 'listbox: the quad is not updated', '    this.updateVertex(this.m_Vertex, this.m_TempPoint);\n', '', ''),
+ (L, 'listbox: an empty box draws rows', 'if (this.m_Items.length > 0) this.drawItems(font);', 'if (this.m_Items.length >= 0) this.drawItems(font);', ''),
+ (L, 'listbox: a box of one row draws none', 'if (this.m_Items.length > 0) this.drawItems(font);', 'if (this.m_Items.length > 1) this.drawItems(font);', ''),
+ (L, 'listbox: the bar is drawn before the rows', '    if (this.m_Items.length > 0) this.drawItems(font);\n    this.m_pScrollBar?.onFrameRender();', '    this.m_pScrollBar?.onFrameRender();\n    if (this.m_Items.length > 0) this.drawItems(font);', ''),
+ (L, 'listbox: the bar is drawn with rows only', '    if (this.m_Items.length > 0) this.drawItems(font);\n    this.m_pScrollBar?.onFrameRender();', '    if (this.m_Items.length > 0) { this.drawItems(font); this.m_pScrollBar?.onFrameRender(); }', ''),
+ (L, 'listbox: the bar is not drawn', '    this.m_pScrollBar?.onFrameRender();\n    return 0;', '    return 0;', ''),
+ # ---- drawItems: the row height, the page size of the bar (once), the position, the two passes
+ (L, 'list items: a static box is taken for a text box', 'if (!this.m_bIsStaticListBox) {\n      rc.bottom = (rc.top + font.lineHeight()) | 0;', 'if (this.m_bIsStaticListBox) {\n      rc.bottom = (rc.top + font.lineHeight()) | 0;', ''),
+ (L, 'list items: the row height is not kept', '      this.m_nTextHeight = (rc.bottom - rc.top) | 0;\n', '', ''),
+ (L, 'list items: the row height is the line of the box font', 'rc.bottom = (rc.top + font.lineHeight()) | 0;\n      this.m_nTextHeight', 'rc.bottom = (rc.top + (this.m_pUKFont ? this.m_pUKFont.lineHeight() : 1)) | 0;\n      this.m_nTextHeight', ''),
+ (L, 'list items: the row height has an extra pixel', 'rc.bottom = (rc.top + font.lineHeight()) | 0;\n      this.m_nTextHeight', 'rc.bottom = (rc.top + font.lineHeight() + 1) | 0;\n      this.m_nTextHeight', ''),
+ (L, 'list items: a static box has the line of the font', '    } else {\n      rc.bottom = (rc.top + this.m_nTextHeight) | 0;\n    }', '    } else {\n      rc.bottom = (rc.top + font.lineHeight()) | 0;\n    }', ''),
+ (L, 'list items: the page size is made for every box', 'if (!statics.bSBInit_0) {\n      if (bar) {', 'if (true) {\n      if (bar) {', ''),
+ (L, 'list items: the page size is never made', 'if (!statics.bSBInit_0) {\n      if (bar) {', 'if (false) {\n      if (bar) {', ''),
+ (L, 'list items: the page size is made by the second box', 'if (!statics.bSBInit_0) {\n      if (bar) {', 'if (statics.bSBInit_0) {\n      if (bar) {', ''),
+ (L, 'list items: the first-box rule is not used up', '      statics.bSBInit_0 = true;\n    }\n    if (!bar) return;', '    }\n    if (!bar) return;', ''),
+ (L, 'list items: only a box with a bar uses the rule up', '        bar.updateThumbRect();\n      }\n      statics.bSBInit_0 = true;', '        bar.updateThumbRect();\n        statics.bSBInit_0 = true;\n      }', ''),
+ (L, 'list items: the height of the page is counted from the origin', 'const height = (text.bottom - text.top) | 0;', 'const height = text.bottom | 0;', ''),
+ (L, 'list items: the height of the page is the box height', 'const height = (text.bottom - text.top) | 0;', 'const height = this.m_height | 0;', ''),
+ (L, 'list items: the page is the row height over the height', 'idiv(height, this.m_nTextHeight)', 'idiv(this.m_nTextHeight, height)', ''),
+ (L, 'list items: the page is rounded', 'idiv(height, this.m_nTextHeight)', 'Math.round(height / this.m_nTextHeight)', ''),
+ (L, 'list items: the page is rounded up', 'idiv(height, this.m_nTextHeight)', 'Math.ceil(height / this.m_nTextHeight)', ''),
+ (L, 'list items: a row height of 0 is taken as a height', 'this.m_nTextHeight !== 0 ? idiv(height, this.m_nTextHeight) : height', 'this.m_nTextHeight === 0 ? idiv(height, this.m_nTextHeight) : height', ''),
+ (L, 'list items: a row height of 0 gives a page of 1', ': height;\n        bar.cap();', ': 1;\n        bar.cap();', ''),
+ (L, 'list items: the page is not capped', _PAGE, _PAGE.replace('        bar.cap();\n', ''), ''),
+ (L, 'list items: the thumb is not made after the page', _PAGE, _PAGE.replace('        bar.updateThumbRect();\n', ''), ''),
+ (L, 'list items: a box without a bar goes on', '    if (!bar) return;\n    if (bar.m_nPosition < 0)', '    if (bar.m_nPosition < 0)', ''),
+ (L, 'list items: a position of 0 is set again', 'if (bar.m_nPosition < 0) bar.setTrackPos(0);', 'if (bar.m_nPosition <= 0) bar.setTrackPos(0);', ''),
+ (L, 'list items: a position of -1 is left', 'if (bar.m_nPosition < 0) bar.setTrackPos(0);', 'if (bar.m_nPosition < -1) bar.setTrackPos(0);', ''),
+ (L, 'list items: a negative position is not set', 'if (bar.m_nPosition < 0) bar.setTrackPos(0);', '', ''),
+ (L, 'list items: a negative position is set without the thumb', 'bar.setTrackPos(0);', 'bar.m_nPosition = 0;', ''),
+ (L, 'list items: a negative position is set to 1', 'bar.setTrackPos(0);', 'bar.setTrackPos(1);', ''),
+ (L, 'list items: the mouse pass is skipped', '    this.updateMegaOver(bar, rectOf(rc));\n', '', ''),
+ (L, 'list items: the mouse pass is after the rows', '    this.updateMegaOver(bar, rectOf(rc));\n    this.drawRows(bar, rectOf(text), font);', '    this.drawRows(bar, rectOf(text), font);\n    this.updateMegaOver(bar, rectOf(rc));', ''),
+ (L, 'list items: the rows are not drawn', '    this.drawRows(bar, rectOf(text), font);\n', '', ''),
+ (L, 'list items: the rows move the text rectangle', 'this.drawRows(bar, rectOf(text), font);', 'this.drawRows(bar, text, font);', ''),
+ (L, 'list items: the mouse pass keeps its rectangle', 'this.updateMegaOver(bar, rectOf(rc));', 'this.updateMegaOver(bar, rc);', 'rc is not used after the pass'),
+ # ---- updateMegaOver: the mouse over a row with a message id
+ (L, 'list mouse: a position past the rows is visited', _ROWS_HEAD + '      if (item.m_bShow && (this.m_dwStyle', _ROWS_HEAD.replace('    if (i >= size) return;\n', '') + '      if (item.m_bShow && (this.m_dwStyle', ''),
+ (L, 'list mouse: the pass stops at a row that ends at the text bottom', 'while (rc.bottom <= this.m_rcText.bottom) {\n      const item = this.m_Items[i]!;\n      if (item.m_bShow && (this.m_dwStyle', 'while (rc.bottom < this.m_rcText.bottom) {\n      const item = this.m_Items[i]!;\n      if (item.m_bShow && (this.m_dwStyle', ''),
+ (L, 'list mouse: a hidden row is visited', _PASS, _PASS.replace('item.m_bShow && ', ''), ''),
+ (L, 'list mouse: a multi selection is visited', _PASS, _PASS.replace(' && (this.m_dwStyle & 1) === 0', ''), ''),
+ (L, 'list mouse: only a multi selection is visited', _PASS, _PASS.replace('=== 0', '!== 0'), ''),
+ (L, 'list mouse: a row without a message id is visited', _PASS, _PASS.replace(' && item.m_iMessageID > -1', ''), ''),
+ (L, 'list mouse: the message id 0 is none', _PASS, _PASS.replace('> -1', '> 0'), ''),
+ (L, 'list mouse: the message id -1 is one', _PASS, _PASS.replace('> -1', '> -2'), ''),
+ (L, 'list mouse: x is not divided by the scale', _X, 'f(f(f(mouse.GetXPos())) - dialog.m_Pos.x)', ''),
+ (L, 'list mouse: x is divided by the y scale', _X, _X.replace('scale.x', 'scale.y'), ''),
+ (L, 'list mouse: x is the y of the mouse', _X, _X.replace('GetXPos', 'GetYPos'), ''),
+ (L, 'list mouse: the dialog is not taken off x', _X, 'f(f(f(mouse.GetXPos()) / (scale ? scale.x : 1)))', ''),
+ (L, 'list mouse: the dialog y is taken off x', _X, _X.replace('m_Pos.x', 'm_Pos.y'), ''),
+ (L, 'list mouse: without a device x is scaled by 0', _X, _X.replace(': 1)', ': 0)'), ''),
+ (L, 'list mouse: y is not divided by the scale', _Y, 'f(f(f(mouse.GetYPos())) - dialog.m_Pos.y)', ''),
+ (L, 'list mouse: y is divided by the x scale', _Y, _Y.replace('scale.y', 'scale.x'), ''),
+ (L, 'list mouse: y is the x of the mouse', _Y, _Y.replace('GetYPos', 'GetXPos'), ''),
+ (L, 'list mouse: the dialog is not taken off y', _Y, 'f(f(f(mouse.GetYPos()) / (scale ? scale.y : 1)))', ''),
+ (L, 'list mouse: the dialog x is taken off y', _Y, _Y.replace('m_Pos.y', 'm_Pos.x'), ''),
+ (L, 'list mouse: without a device y is scaled by 0', _Y, _Y.replace(': 1)', ': 0)'), ''),
+ (L, 'list mouse: the right side is the width alone', 'const right = f(f(this.m_width) + this.getPos().x);\n        if (x > f', 'const right = f(this.m_width);\n        if (x > f', ''),
+ (L, 'list mouse: the right side is the width and y', 'const right = f(f(this.m_width) + this.getPos().x);\n        if (x > f', 'const right = f(f(this.m_width) + this.getPos().y);\n        if (x > f', ''),
+ (L, 'list mouse: the right side is the height', 'const right = f(f(this.m_width) + this.getPos().x);\n        if (x > f', 'const right = f(f(this.m_height) + this.getPos().x);\n        if (x > f', ''),
+ (L, 'list mouse: the left side is the box edge', _HIT, _HIT.replace('this.m_rcSelection.left', 'this.m_rcText.left'), ''),
+ (L, 'list mouse: the left side is the selection right', _HIT, _HIT.replace('this.m_rcSelection.left', 'this.m_rcSelection.right'), ''),
+ (L, 'list mouse: the left side counts', _HIT, _HIT.replace('x > f(', 'x >= f('), ''),
+ (L, 'list mouse: the right side counts', _HIT, _HIT.replace('right > x', 'right >= x'), ''),
+ (L, 'list mouse: the top counts', _HIT, _HIT.replace('y > f(rc.top)', 'y >= f(rc.top)'), ''),
+ (L, 'list mouse: the bottom counts', _HIT, _HIT.replace('f(rc.bottom) > y', 'f(rc.bottom) >= y'), ''),
+ (L, 'list mouse: the left side is not tested', _HIT, _HIT.replace('x > f(this.m_rcSelection.left) && ', ''), ''),
+ (L, 'list mouse: the right side is not tested', _HIT, _HIT.replace('right > x && ', ''), ''),
+ (L, 'list mouse: the top is not tested', _HIT, _HIT.replace('y > f(rc.top) && ', ''), ''),
+ (L, 'list mouse: the bottom is not tested', _HIT, _HIT.replace(' && f(rc.bottom) > y', ''), ''),
+ (L, 'list mouse: the hit starts at the first row', 'for (let j = bar.m_nPosition; j < this.m_Items.length; j++) {', 'for (let j = 0; j < this.m_Items.length; j++) {', ''),
+ (L, 'list mouse: the hit stops one row early', 'for (let j = bar.m_nPosition; j < this.m_Items.length; j++) {', 'for (let j = bar.m_nPosition; j < this.m_Items.length - 1; j++) {', ''),
+ (L, 'list mouse: the hit takes the sender own rows', 'other.m_bMegaOver = id === other.m_iMessageID && !other.m_bMyMessage;', 'other.m_bMegaOver = id === other.m_iMessageID;', ''),
+ (L, 'list mouse: the hit takes only the sender own rows', 'other.m_bMegaOver = id === other.m_iMessageID && !other.m_bMyMessage;', 'other.m_bMegaOver = id === other.m_iMessageID && other.m_bMyMessage;', ''),
+ (L, 'list mouse: the hit takes the rows of other ids', 'other.m_bMegaOver = id === other.m_iMessageID && !other.m_bMyMessage;', 'other.m_bMegaOver = id !== other.m_iMessageID && !other.m_bMyMessage;', ''),
+ (L, 'list mouse: the hit takes every row', 'other.m_bMegaOver = id === other.m_iMessageID && !other.m_bMyMessage;', 'other.m_bMegaOver = !other.m_bMyMessage;', ''),
+ (L, 'list mouse: the hit does not end the pass', '          break;\n        }\n        item.m_bMegaOver = false;', '        } else {\n        item.m_bMegaOver = false;\n        }', ''),
+ (L, 'list mouse: a row that is not hit keeps the flag', '        item.m_bMegaOver = false;\n      }\n      offsetRect(rc, 0, this.m_nTextHeight);', '      }\n      offsetRect(rc, 0, this.m_nTextHeight);', ''),
+ (L, 'list mouse: a row that is not hit gets the flag', '        item.m_bMegaOver = false;\n      }\n      offsetRect(rc, 0, this.m_nTextHeight);', '        item.m_bMegaOver = true;\n      }\n      offsetRect(rc, 0, this.m_nTextHeight);', ''),
+ (L, 'list mouse: the next row is a pixel lower', '        item.m_bMegaOver = false;\n      }\n      offsetRect(rc, 0, this.m_nTextHeight);', '        item.m_bMegaOver = false;\n      }\n      offsetRect(rc, 0, this.m_nTextHeight + 1);', ''),
+ (L, 'list mouse: the next row is at the side', '        item.m_bMegaOver = false;\n      }\n      offsetRect(rc, 0, this.m_nTextHeight);', '        item.m_bMegaOver = false;\n      }\n      offsetRect(rc, this.m_nTextHeight, 0);', ''),
+ (L, 'list mouse: the pass goes past the last row', '        item.m_bMegaOver = false;\n      }\n      offsetRect(rc, 0, this.m_nTextHeight);\n      if (++i >= size) break;', '        item.m_bMegaOver = false;\n      }\n      offsetRect(rc, 0, this.m_nTextHeight);\n      if (++i > size) break;', ''),
+ (L, 'list mouse: the pass has no end but the rectangle', '        item.m_bMegaOver = false;\n      }\n      offsetRect(rc, 0, this.m_nTextHeight);\n      if (++i >= size) break;', '        item.m_bMegaOver = false;\n      }\n      offsetRect(rc, 0, this.m_nTextHeight);\n      ++i;', ''),
+]
+_DRAW_HEAD = '    let i = bar.m_nPosition;\n    if (i >= size) return;\n    while (rc.bottom <= this.m_rcText.bottom) {\n      const item = this.m_Items[i]!;\n      if (item.m_bShow) {\n'
+_HLINE = '(this.m_dwStyle & 1) === 0 ? item.m_bMegaSelect || item.m_bMegaOver || i === this.m_nSelected : this.multiSelected(i, item);'
+_CORNERS = 'this.setCorners(left, rc.top, selectionRight, rc.bottom)'
+_MEGA = 'if (item.m_bMegaSelect || item.m_bMegaOver) {\n                const right = f(f(this.m_width) + this.getPos().x);\n'
+_OVER = 'if (this.m_pButtonMouseOverTex && item.m_bMegaOver && !item.m_bMegaSelect) point.pUITextureData = this.m_pButtonMouseOverTex;'
+_ADV = '        }\n      }\n      offsetRect(rc, 0, this.m_nTextHeight);\n      if (++i >= size) break;'
+M += [
+ # ---- drawRows
+ (L, 'list rows: a static box has the line of the font', 'rc.bottom = this.m_bIsStaticListBox ? (rc.top + this.m_nTextHeight) | 0 : (rc.top + font.lineHeight()) | 0;', 'rc.bottom = (rc.top + font.lineHeight()) | 0;', ''),
+ (L, 'list rows: a text box has the row height of the box', 'rc.bottom = this.m_bIsStaticListBox ? (rc.top + this.m_nTextHeight) | 0 : (rc.top + font.lineHeight()) | 0;', 'rc.bottom = (rc.top + this.m_nTextHeight) | 0;', 'drawItems has just set m_nTextHeight to the line of the font for a box that is not static'),
+ (L, 'list rows: a position past the rows draws a row', _DRAW_HEAD, _DRAW_HEAD.replace('    if (i >= size) return;\n', ''), ''),
+ (L, 'list rows: a row that ends at the text bottom is not drawn', _DRAW_HEAD, _DRAW_HEAD.replace('rc.bottom <= this', 'rc.bottom < this'), ''),
+ (L, 'list rows: a hidden row is drawn', _DRAW_HEAD, _DRAW_HEAD.replace('if (item.m_bShow) {', 'if (true) {'), ''),
+ (L, 'list rows: a shown row is not drawn', _DRAW_HEAD, _DRAW_HEAD.replace('if (item.m_bShow) {', 'if (!item.m_bShow) {'), ''),
+ (L, 'list rows: a multi selection is highlighted as a single box', _HLINE, _HLINE.replace(': this.multiSelected(i, item);', ': ' + _HL + ';'), ''),
+ (L, 'list rows: a single box is highlighted as a multi selection', _HLINE, _HLINE.replace('=== 0 ?', '!== 0 ?'), ''),
+ (L, 'list rows: m_bMegaSelect does not highlight', _HLINE, _HLINE.replace('item.m_bMegaSelect || ', ''), ''),
+ (L, 'list rows: m_bMegaOver does not highlight', _HLINE, _HLINE.replace('item.m_bMegaOver || ', ''), ''),
+ (L, 'list rows: the selected row is not highlighted', _HLINE, _HLINE.replace(' || i === this.m_nSelected', ''), ''),
+ (L, 'list rows: the rows but the selected are highlighted', _HLINE, _HLINE.replace('i === this.m_nSelected', 'i !== this.m_nSelected'), ''),
+ (L, 'list rows: the row above the selected is highlighted', _HLINE, _HLINE.replace('i === this.m_nSelected', 'i === this.m_nSelected - 1'), ''),
+ (L, 'list rows: a plain static row is at the selection left', 'if (this.m_bIsStaticListBox) this.drawRowControl(item, rc.left, rc.top);', 'if (this.m_bIsStaticListBox) this.drawRowControl(item, left, rc.top);', ''),
+ (L, 'list rows: a plain static row is at the row bottom', 'if (this.m_bIsStaticListBox) this.drawRowControl(item, rc.left, rc.top);', 'if (this.m_bIsStaticListBox) this.drawRowControl(item, rc.left, rc.bottom);', ''),
+ (L, 'list rows: a plain static row is at the text top', 'if (this.m_bIsStaticListBox) this.drawRowControl(item, rc.left, rc.top);', 'if (this.m_bIsStaticListBox) this.drawRowControl(item, rc.left, this.m_rcText.top);', ''),
+ (L, 'list rows: a plain static row draws its text too', 'if (this.m_bIsStaticListBox) this.drawRowControl(item, rc.left, rc.top);\n          else if', 'if (this.m_bIsStaticListBox) this.drawRowControl(item, rc.left, rc.top);\n          if', ''),
+ (L, 'list rows: a plain text row is a static row', 'if (this.m_bIsStaticListBox) this.drawRowControl(item, rc.left, rc.top);', 'if (false) this.drawRowControl(item, rc.left, rc.top);', ''),
+ (L, 'list rows: the right edge is not widened', '          selectionRight = (selectionRight + bar.m_width) | 0;', '          selectionRight = selectionRight | 0;', ''),
+ (L, 'list rows: the right edge is widened by the width of the box bar', 'selectionRight = (selectionRight + bar.m_width) | 0;', 'selectionRight = (selectionRight + this.m_nSBWidth) | 0;', ''),
+ (L, 'list rows: the right edge is widened from the selection right', 'selectionRight = (selectionRight + bar.m_width) | 0;', 'selectionRight = (this.m_rcSelection.right + bar.m_width) | 0;', ''),
+ (L, 'list rows: the right edge is widened by a pixel too much', 'selectionRight = (selectionRight + bar.m_width) | 0;', 'selectionRight = (selectionRight + bar.m_width + 1) | 0;', ''),
+ (L, 'list rows: a plain row widens the right edge', '        if (!highlighted) {\n          if (this.m_bIsStaticListBox)', '        if (!highlighted) {\n          selectionRight = (selectionRight + bar.m_width) | 0;\n          if (this.m_bIsStaticListBox)', ''),
+ (L, 'list rows: a highlighted static row is at the row left', 'this.drawRowControl(item, left, rc.top);', 'this.drawRowControl(item, rc.left, rc.top);', ''),
+ (L, 'list rows: a highlighted static row is at the selection top', 'this.drawRowControl(item, left, rc.top);', 'this.drawRowControl(item, left, this.m_rcSelection.top);', ''),
+ (L, 'list rows: a highlighted static row has a quad', '          if (this.m_bIsStaticListBox) {\n            this.drawRowControl(item, left, rc.top);\n          } else {', '          if (this.m_bIsStaticListBox) {\n            this.drawRowControl(item, left, rc.top);\n          }\n          {', ''),
+ (L, 'list rows: the type is compared as a signed number', 'item.itemType >>> 0 <= LBIT.NOT_ENABLE', 'item.itemType <= LBIT.NOT_ENABLE', ''),
+ (L, 'list rows: a NOT_ENABLE row has no quad', 'item.itemType >>> 0 <= LBIT.NOT_ENABLE', 'item.itemType >>> 0 < LBIT.NOT_ENABLE', ''),
+ (L, 'list rows: a group row has a quad', 'item.itemType >>> 0 <= LBIT.NOT_ENABLE', 'item.itemType >>> 0 <= LBIT.GROUP_PLUS', ''),
+ (L, 'list rows: a DEFAULT row has the quad of the group', 'item.itemType >>> 0 <= LBIT.NOT_ENABLE', 'item.itemType >>> 0 === LBIT.NOT_ENABLE', ''),
+ (L, 'list rows: the quad is drawn without m_bShowTextTex', ' && this.m_bShowTextTex) {', ') {', ''),
+ (L, 'list rows: the quad is drawn only without m_bShowTextTex', ' && this.m_bShowTextTex) {', ' && !this.m_bShowTextTex) {', ''),
+ (L, 'list rows: the quad starts at the row left', _CORNERS, _CORNERS.replace('(left,', '(rc.left,'), ''),
+ (L, 'list rows: the quad starts at the text top', _CORNERS, _CORNERS.replace('rc.top,', 'this.m_rcText.top,'), ''),
+ (L, 'list rows: the quad starts at the row bottom', _CORNERS, _CORNERS.replace('rc.top,', 'rc.bottom,'), ''),
+ (L, 'list rows: the quad ends at the text bottom', _CORNERS, _CORNERS.replace(', rc.bottom)', ', this.m_rcText.bottom)'), ''),
+ (L, 'list rows: the quad ends at the row top', _CORNERS, _CORNERS.replace(', rc.bottom)', ', rc.top)'), ''),
+ (L, 'list rows: the quad ends at the selection right', _CORNERS, _CORNERS.replace('selectionRight', 'this.m_rcSelection.right'), ''),
+ (L, 'list rows: a mega row does not reach the box right', _MEGA, _MEGA.replace('if (item.m_bMegaSelect || item.m_bMegaOver) {', 'if (false) {'), ''),
+ (L, 'list rows: a megaSelect row does not reach the box right', _MEGA, _MEGA.replace('item.m_bMegaSelect || ', ''), ''),
+ (L, 'list rows: a megaOver row does not reach the box right', _MEGA, _MEGA.replace(' || item.m_bMegaOver', ''), ''),
+ (L, 'list rows: the box right is the width alone', _MEGA, _MEGA.replace('f(f(this.m_width) + this.getPos().x)', 'f(this.m_width)'), ''),
+ (L, 'list rows: the box right is counted from y', _MEGA, _MEGA.replace('getPos().x', 'getPos().y'), ''),
+ (L, 'list rows: the right top corner stays', '                point.rightTopPoint.x = right;\n', '', ''),
+ (L, 'list rows: the right bottom corner stays', '                point.rightBottomPoint.x = right;\n', '', ''),
+ (L, 'list rows: the right top corner is moved down', '                point.rightTopPoint.x = right;\n', '                point.rightTopPoint.y = right;\n', ''),
+ (L, 'list rows: the quad keeps the texture of the last', 'if (this.m_pTextTex) point.pUITextureData = this.m_pTextTex;', 'point.pUITextureData = this.m_pTextTex;', ''),
+ (L, 'list rows: the quad has no text texture', 'if (this.m_pTextTex) point.pUITextureData = this.m_pTextTex;', '', ''),
+ (L, 'list rows: the over texture is for a row that is selected too', _OVER, _OVER.replace(' && !item.m_bMegaSelect', ''), ''),
+ (L, 'list rows: the over texture is for a row that is not over', _OVER, _OVER.replace(' && item.m_bMegaOver', ''), ''),
+ (L, 'list rows: the over texture is for a row that is only selected', _OVER, _OVER.replace('item.m_bMegaOver && !item.m_bMegaSelect', 'item.m_bMegaSelect'), ''),
+ (L, 'list rows: the over texture is set when there is none', _OVER, _OVER.replace('this.m_pButtonMouseOverTex && ', ''), ''),
+ (L, 'list rows: the quad is not drawn', '              this.drawTempPoint();\n            }\n            if (this.m_pStringData) this.drawRowString(item, rc);', '            }\n            if (this.m_pStringData) this.drawRowString(item, rc);', ''),
+ (L, 'list rows: the text is drawn before the quad', '              this.drawTempPoint();\n            }\n            if (this.m_pStringData) this.drawRowString(item, rc);', '              if (this.m_pStringData) this.drawRowString(item, rc);\n              this.drawTempPoint();\n            }', ''),
+ (L, 'list rows: the text of a highlighted row is not drawn', '            }\n            if (this.m_pStringData) this.drawRowString(item, rc);\n          }', '            }\n          }', ''),
+ (L, 'list rows: the text of a plain row is not drawn', 'else if (this.m_pStringData) this.drawRowString(item, rc);', '', ''),
+ (L, 'list rows: a plain row draws its text without string data', 'else if (this.m_pStringData) this.drawRowString(item, rc);', 'else this.drawRowString(item, rc);', 'm_pStringData is dereferenced at the top of OnFrameRender (a box without it throws), so the check is always true'),
+ (L, 'list rows: a highlighted row draws its text without string data', '            if (this.m_pStringData) this.drawRowString(item, rc);\n          }\n        }', '            this.drawRowString(item, rc);\n          }\n        }', 'm_pStringData is dereferenced at the top of OnFrameRender (a box without it throws), so the check is always true'),
+ (L, 'list rows: the next row is a pixel lower', _ADV, _ADV.replace('this.m_nTextHeight)', 'this.m_nTextHeight + 1)'), ''),
+ (L, 'list rows: the next row is at the side', _ADV, _ADV.replace('(rc, 0, this.m_nTextHeight)', '(rc, this.m_nTextHeight, 0)'), ''),
+ (L, 'list rows: the next row is the height of the font', _ADV, _ADV.replace('this.m_nTextHeight)', 'font.lineHeight())'), ''),
+ (L, 'list rows: the rows go past the last', _ADV, _ADV.replace('++i >= size', '++i > size'), ''),
+ (L, 'list rows: the rows end at the rectangle only', _ADV, _ADV.replace('if (++i >= size) break;', '++i;'), ''),
+ # ---- a row of a static box
+ (L, 'list control: a row without a control is drawn', 'if (!control) return;\n    control.setOffsetPos', 'control.setOffsetPos', ''),
+ (L, 'list control: the control is put at y, x', 'control.setOffsetPos(new Vec2(x, y));', 'control.setOffsetPos(new Vec2(y, x));', ''),
+ (L, 'list control: the control is not put anywhere', '    control.setOffsetPos(new Vec2(x, y));\n', '', ''),
+ (L, 'list control: the control is not drawn', '    control.onFrameRender();\n  }', '  }', ''),
+ (L, 'list control: the control is drawn before it is put', '    control.setOffsetPos(new Vec2(x, y));\n    control.onFrameRender();', '    control.onFrameRender();\n    control.setOffsetPos(new Vec2(x, y));', ''),
+]
+_SPREAD = 'const text = item.bSpread ? item.strText.slice(0, (item.strText.length >>> 0) < (item.iSpreadCount >>> 0) ? item.strText.length : item.iSpreadCount) : item.strText;'
+_PLAIN_CALL = 'this.m_pUKFont?.OutTextMultiline((ftoi(x) + depth) | 0, ftoi(y), text, packColor(color), data.fontStyle, packColor(outline), LINE_SPACE, null, 0, -1, 1, 1);'
+_GROUP_CALL = 'this.m_pGroupUKFont?.OutTextMultiline((ftoi(x) + depth + this.m_BlankWidthToGroupMark) | 0, ftoi(y), text, packColor(color), g.fontStyle, packColor(outline), LINE_SPACE, null, 0, -1, 1, 1);'
+_OFFSET = 'mark.setOffsetPos(new Vec2(f(f(depth) + f(f(rc.left) + this.m_GroupMarkOffsetPos.x)), f(f(rc.top) + this.m_GroupMarkOffsetPos.y)));'
+_ALPHA = 'const alpha = f(f(type !== 0 ? f(f(s.a * 0.5) * d.a) : f(d.a * s.a)) * c.a);'
+M += [
+ # ---- the text of a row
+ (L, 'list string: the text is at the place of the string data', 'stringPosition(dialog, this, data, { x: rc.left, y: rc.top });', 'stringPosition(dialog, this, data);', ''),
+ (L, 'list string: the text is at the top and left of the row', '{ x: rc.left, y: rc.top }', '{ x: rc.top, y: rc.left }', ''),
+ (L, 'list string: the text is at the bottom of the row', '{ x: rc.left, y: rc.top }', '{ x: rc.left, y: rc.bottom }', ''),
+ (L, 'list string: the depth is added to the width', 'Math.imul(item.itemDepth, this.m_BlankWidthByDepth)', '(item.itemDepth + this.m_BlankWidthByDepth) | 0', ''),
+ (L, 'list string: the depth is counted by the width of the mark', 'Math.imul(item.itemDepth, this.m_BlankWidthByDepth)', 'Math.imul(item.itemDepth, this.m_BlankWidthToGroupMark)', ''),
+ (L, 'list string: the type is a signed number', 'const type = item.itemType >>> 0;', 'const type = item.itemType | 0;', ''),
+ (L, 'list string: a spreading row shows everything', _SPREAD, _SPREAD.replace('item.bSpread ?', 'false ?'), ''),
+ (L, 'list string: every row spreads', _SPREAD, _SPREAD.replace('item.bSpread ?', 'true ?'), ''),
+ (L, 'list string: the count is a signed number', _SPREAD, _SPREAD.replace('(item.iSpreadCount >>> 0)', 'item.iSpreadCount'), ''),
+ (L, 'list string: the length is a signed number', _SPREAD, _SPREAD.replace('(item.strText.length >>> 0)', 'item.strText.length'), ''),
+ (L, 'list string: a count above the length shows the count', _SPREAD, _SPREAD.replace('? item.strText.length : item.iSpreadCount', '? item.iSpreadCount : item.strText.length'), ''),
+ (L, 'list string: a count equal to the length is a count', _SPREAD, _SPREAD.replace(' < (item.iSpreadCount', ' <= (item.iSpreadCount'), 'both branches give the same number when the length and the count are equal'),
+ (L, 'list string: the count is compared the other way', _SPREAD, _SPREAD.replace(' < (item.iSpreadCount', ' > (item.iSpreadCount'), ''),
+ (L, 'list string: a group row is drawn as a plain row', 'if (type < 2) {', 'if (type <= 2) {', ''),
+ (L, 'list string: a NOT_ENABLE row is a group row', 'if (type < 2) {', 'if (type < 1) {', ''),
+ (L, 'list string: GROUP_MINUS is no group row', 'else if (type === 2 || type === 3) {', 'else if (type === 2) {', ''),
+ (L, 'list string: GROUP_PLUS is no group row', 'else if (type === 2 || type === 3) {', 'else if (type === 3) {', ''),
+ (L, 'list string: every larger type is a group row', 'else if (type === 2 || type === 3) {', 'else if (type >= 2) {', ''),
+ (L, 'list string: the alpha of NOT_ENABLE is not halved', _ALPHA, _ALPHA.replace('type !== 0 ? f(f(s.a * 0.5) * d.a) : ', ''), ''),
+ (L, 'list string: the alpha of DEFAULT is halved', _ALPHA, _ALPHA.replace('type !== 0 ?', 'true ?'), ''),
+ (L, 'list string: the alpha is a quarter for NOT_ENABLE', _ALPHA, _ALPHA.replace('s.a * 0.5', 's.a * 0.25'), ''),
+ (L, 'list string: the alpha of NOT_ENABLE ignores the dialog', _ALPHA, _ALPHA.replace('f(f(s.a * 0.5) * d.a)', 'f(s.a * 0.5)'), ''),
+ (L, 'list string: the alpha of DEFAULT ignores the dialog', _ALPHA, _ALPHA.replace('f(d.a * s.a)', 's.a'), ''),
+ (L, 'list string: the alpha of DEFAULT ignores the string', _ALPHA, _ALPHA.replace('f(d.a * s.a)', 'd.a'), ''),
+ (L, 'list string: the alpha ignores the box', _ALPHA, _ALPHA.replace('f(f(type', 'f(type').replace(') * c.a);', ');'), ''),
+ (L, 'list string: the alpha is the colour of the row', 'a: alpha,', 'a: own ? item.m_color.a : alpha,', ''),
+ (L, 'list string: the colour of the row is never used', 'const own = item.m_bColor;', 'const own = false;', ''),
+ (L, 'list string: the colour of the row is always used', 'const own = item.m_bColor;', 'const own = true;', ''),
+ (L, 'list string: the own red is the green', 'r: own ? item.m_color.r :', 'r: own ? item.m_color.g :', ''),
+ (L, 'list string: the own green is the blue', 'g: own ? item.m_color.g :', 'g: own ? item.m_color.b :', ''),
+ (L, 'list string: the own blue is the red', 'b: own ? item.m_color.b :', 'b: own ? item.m_color.r :', ''),
+ (L, 'list string: the call has the place of the string data', _PLAIN_CALL, _PLAIN_CALL.replace('(ftoi(x) + depth) | 0', 'ftoi(x) | 0'), ''),
+ (L, 'list string: the depth is taken off', _PLAIN_CALL, _PLAIN_CALL.replace('ftoi(x) + depth', 'ftoi(x) - depth'), ''),
+ (L, 'list string: y is not cut to a pixel', _PLAIN_CALL, _PLAIN_CALL.replace('ftoi(y)', 'y'), ''),
+ (L, 'list string: x is not cut to a pixel', _PLAIN_CALL, _PLAIN_CALL.replace('ftoi(x)', 'x'), ''),
+ (L, 'list string: the style is 0', _PLAIN_CALL, _PLAIN_CALL.replace('data.fontStyle', '0'), ''),
+ (L, 'list string: the colours are swapped', _PLAIN_CALL, _PLAIN_CALL.replace('packColor(color), data.fontStyle, packColor(outline)', 'packColor(outline), data.fontStyle, packColor(color)'), ''),
+ (L, 'list string: the line space is 1', _PLAIN_CALL, _PLAIN_CALL.replace('LINE_SPACE', '1'), ''),
+ (L, 'list string: the alignment is the one of the data', _PLAIN_CALL, _PLAIN_CALL.replace('null, 0, -1', 'null, data.sortFlag, -1'), ''),
+ (L, 'list string: the count of characters is 0', _PLAIN_CALL, _PLAIN_CALL.replace('0, -1, 1, 1', '0, 0, 1, 1'), ''),
+ (L, 'list string: the text is drawn by the group font', _PLAIN_CALL, _PLAIN_CALL.replace('this.m_pUKFont?.', 'this.m_pGroupUKFont?.'), ''),
+ (L, 'list string: the text of a plain row ignores the spread', _PLAIN_CALL, _PLAIN_CALL.replace(', text,', ', item.strText,'), ''),
+ # ---- a group row
+ (L, 'list group: a row without group string data goes on', 'if (!g) throw new Error("CKTDGUIListBox::OnFrameRender: a group row without group string data (SetGroupString was not called); the exe dereferences null");', 'if (!g) return;', ''),
+ (L, 'list group: the colour is the one of the plain string data', 'const s = g.color, o = g.outlineColor;', 'const s = data.color, o = data.outlineColor;', ''),
+ (L, 'list group: the plus mark is on the minus group', 'const plus = item.itemType === LBIT.GROUP_PLUS;', 'const plus = item.itemType === LBIT.GROUP_MINUS;', ''),
+ (L, 'list group: the plus picture is the minus', 'mark.GetPicture(0)!.bShow = plus;', 'mark.GetPicture(0)!.bShow = !plus;', ''),
+ (L, 'list group: the minus picture is the plus', 'mark.GetPicture(1)!.bShow = !plus;', 'mark.GetPicture(1)!.bShow = plus;', ''),
+ (L, 'list group: the plus picture is not shown', 'mark.GetPicture(0)!.bShow = plus;\n', '', ''),
+ (L, 'list group: the minus picture is not shown', 'mark.GetPicture(1)!.bShow = !plus;\n', '', ''),
+ (L, 'list group: the mark is at the depth in x only', _OFFSET, _OFFSET.replace('f(depth) + ', ''), ''),
+ (L, 'list group: the mark ignores the offset in x', _OFFSET, _OFFSET.replace('f(f(rc.left) + this.m_GroupMarkOffsetPos.x)', 'f(rc.left)'), ''),
+ (L, 'list group: the mark ignores the offset in y', _OFFSET, _OFFSET.replace('f(f(rc.top) + this.m_GroupMarkOffsetPos.y)', 'f(rc.top)'), ''),
+ (L, 'list group: the mark takes the y of the offset for x', _OFFSET, _OFFSET.replace('m_GroupMarkOffsetPos.x', 'm_GroupMarkOffsetPos.y'), ''),
+ (L, 'list group: the mark takes the x of the offset for y', _OFFSET, _OFFSET.replace('m_GroupMarkOffsetPos.y', 'm_GroupMarkOffsetPos.x'), ''),
+ (L, 'list group: the mark is at the top of the box', _OFFSET, _OFFSET.replace('f(rc.top)', 'f(this.m_rcText.top)'), ''),
+ (L, 'list group: the mark is at the left of the box', _OFFSET, _OFFSET.replace('f(rc.left)', 'f(this.m_rcText.left)'), ''),
+ (L, 'list group: the mark is at the bottom of the row', _OFFSET, _OFFSET.replace('f(rc.top)', 'f(rc.bottom)'), ''),
+ (L, 'list group: the mark is not drawn', '      mark.onFrameRender();\n', '', ''),
+ (L, 'list group: the mark is drawn after the text', '      mark.onFrameRender();\n      ' + _GROUP_CALL, '      ' + _GROUP_CALL + '\n      mark.onFrameRender();', ''),
+ (L, 'list group: the text is at the depth only', _GROUP_CALL, _GROUP_CALL.replace(' + this.m_BlankWidthToGroupMark', ''), ''),
+ (L, 'list group: the text is at the mark only', _GROUP_CALL, _GROUP_CALL.replace('ftoi(x) + depth + ', 'ftoi(x) + '), ''),
+ (L, 'list group: the text is at the mark by the depth blank', _GROUP_CALL, _GROUP_CALL.replace('m_BlankWidthToGroupMark', 'm_BlankWidthByDepth'), ''),
+ (L, 'list group: the text has the style of the plain data', _GROUP_CALL, _GROUP_CALL.replace('g.fontStyle', 'data.fontStyle'), ''),
+ (L, 'list group: the text is drawn by the font of the plain rows', _GROUP_CALL, _GROUP_CALL.replace('this.m_pGroupUKFont?.', 'this.m_pUKFont?.'), ''),
+ (L, 'list group: the text is not cut to pixels', _GROUP_CALL, _GROUP_CALL.replace('ftoi(y)', 'y'), ''),
+ (L, 'list group: the alignment is the one of the group data', _GROUP_CALL, _GROUP_CALL.replace('null, 0, -1', 'null, g.sortFlag, -1'), ''),
+ (L, 'list group: the line space is 1', _GROUP_CALL, _GROUP_CALL.replace('LINE_SPACE', '1'), ''),
+ # ---- a multi selection (multiSelected)
+ (L, 'list multi: a drag is not looked at', '    if (this.m_bDrag) {\n      let fromStart: boolean;', '    if (false) {\n      let fromStart: boolean;', ''),
+ (L, 'list multi: a drag is looked at without a drag', '    if (this.m_bDrag) {\n      let fromStart: boolean;', '    if (true) {\n      let fromStart: boolean;', ''),
+ (L, 'list multi: the rows before the far end include the start', 'if (i < this.m_nSelected) fromStart = i > this.m_nSelStart;', 'if (i < this.m_nSelected) fromStart = i >= this.m_nSelStart;', ''),
+ (L, 'list multi: the rows before the far end are from the start', 'if (i < this.m_nSelected) fromStart = i > this.m_nSelStart;', 'if (i < this.m_nSelected) fromStart = true;', ''),
+ (L, 'list multi: the rows before the far end are their own', 'if (i < this.m_nSelected) fromStart = i > this.m_nSelStart;', 'if (i < this.m_nSelected) fromStart = false;', ''),
+ (L, 'list multi: the first test includes the far end', 'if (i < this.m_nSelected) fromStart', 'if (i <= this.m_nSelected) fromStart', ''),
+ (L, 'list multi: the rows before the start are their own', 'else if (i < this.m_nSelStart) fromStart = true;', 'else if (i < this.m_nSelStart) fromStart = false;', ''),
+ (L, 'list multi: the start is before the start', 'else if (i < this.m_nSelStart) fromStart = true;', 'else if (i <= this.m_nSelStart) fromStart = true;', ''),
+ (L, 'list multi: the rows after the start are not tested', 'else if (i < this.m_nSelStart) fromStart = true;\n', '', ''),
+ (L, 'list multi: the last row of the range is not in', 'else if (i <= this.m_nSelected) fromStart = i > this.m_nSelStart;', 'else if (i < this.m_nSelected) fromStart = i > this.m_nSelStart;', ''),
+ (L, 'list multi: the last row of the range excludes the start', 'else if (i <= this.m_nSelected) fromStart = i > this.m_nSelStart;', 'else if (i <= this.m_nSelected) fromStart = i >= this.m_nSelStart;', ''),
+ (L, 'list multi: the last row of the range is from the start', 'else if (i <= this.m_nSelected) fromStart = i > this.m_nSelStart;', 'else if (i <= this.m_nSelected) fromStart = true;', ''),
+ (L, 'list multi: the rows after the range are from the start', 'else fromStart = false;\n      if (fromStart)', 'else fromStart = true;\n      if (fromStart)', ''),
+ (L, 'list multi: the range takes the state of the far end', 'if (fromStart) return this.m_Items[this.m_nSelStart]!.bSelected;', 'if (fromStart) return this.m_Items[this.m_nSelected]!.bSelected;', ''),
+ (L, 'list multi: the range takes its own state', 'if (fromStart) return this.m_Items[this.m_nSelStart]!.bSelected;', 'if (fromStart) return item.bSelected;', ''),
+ (L, 'list multi: the range takes the opposite of the start', 'if (fromStart) return this.m_Items[this.m_nSelStart]!.bSelected;', 'if (fromStart) return !this.m_Items[this.m_nSelStart]!.bSelected;', ''),
+ (L, 'list multi: a row outside the range is not selected', '    return item.bSelected;\n  }\n\n  /**\n   * The rows: from', '    return false;\n  }\n\n  /**\n   * The rows: from', ''),
+ # ---- input.ts: the mouse of the world
+ ('input.ts', 'mouse: GetXPos is the y', '    return this.m_XPos;', '    return this.m_YPos;', ''),
+ ('input.ts', 'mouse: GetYPos is the x', '    return this.m_YPos;', '    return this.m_XPos;', ''),
+ ('input.ts', 'mouse: x starts at 1', '  m_XPos = 0;', '  m_XPos = 1;', ''),
+ ('input.ts', 'mouse: y starts at 1', '  m_YPos = 0;', '  m_YPos = 1;', ''),
+]
+# the colour and the outline of the text of a plain row and of a group row: each channel from the right colours (the dialog, the string data, the box)
+_PLAIN_OUT = 'const outline: ColorF = { a: channel(d.a, o.a, c.a), r: channel(d.r, o.r, c.r), g: channel(d.g, o.g, c.g), b: channel(d.b, o.b, c.b) };\n      this.m_pUKFont?.'
+_GROUP_OUT = 'const outline: ColorF = { a: channel(d.a, o.a, c.a), r: channel(d.r, o.r, c.r), g: channel(d.g, o.g, c.g), b: channel(d.b, o.b, c.b) };\n      const mark'
+_PLAIN_COL = {c: f'{c}: own ? item.m_color.{c} : channel(d.{c}, s.{c}, c.{c})' for c in 'rgb'}
+for _c in 'argb':
+    _n = _NEXT[_c]
+    _orig = f'{_c}: channel(d.{_c}, o.{_c}, c.{_c})'
+    for _role, _anchor in (('the plain row', _PLAIN_OUT), ('the group row', _GROUP_OUT)):
+        M += [
+            (L, f'list {_role} outline: {_c} ignores the dialog', _anchor, _anchor.replace(_orig, f'{_c}: channel(1, o.{_c}, c.{_c})'), ''),
+            (L, f'list {_role} outline: {_c} ignores the string data', _anchor, _anchor.replace(_orig, f'{_c}: channel(d.{_c}, 1, c.{_c})'), ''),
+            (L, f'list {_role} outline: {_c} ignores the box', _anchor, _anchor.replace(_orig, f'{_c}: channel(d.{_c}, o.{_c}, 1)'), ''),
+            (L, f"list {_role} outline: {_c} takes the dialog's {_n}", _anchor, _anchor.replace(_orig, f'{_c}: channel(d.{_n}, o.{_c}, c.{_c})'), ''),
+            (L, f"list {_role} outline: {_c} takes the string data's {_n}", _anchor, _anchor.replace(_orig, f'{_c}: channel(d.{_c}, o.{_n}, c.{_c})'), ''),
+            (L, f"list {_role} outline: {_c} takes the box's {_n}", _anchor, _anchor.replace(_orig, f'{_c}: channel(d.{_c}, o.{_c}, c.{_n})'), ''),
+            (L, f'list {_role} outline: {_c} is the colour not the outline', _anchor, _anchor.replace(_orig, f'{_c}: channel(d.{_c}, s.{_c}, c.{_c})'), ''),
+        ]
+    # the colour of a group row (the alpha and the channels all like this) and of a plain row (the three channels; its alpha is _ALPHA)
+    _gcol = f'{_c}: channel(d.{_c}, s.{_c}, c.{_c})'
+    _gline = 'const color: ColorF = { a: channel(d.a, s.a, c.a), r: channel(d.r, s.r, c.r), g: channel(d.g, s.g, c.g), b: channel(d.b, s.b, c.b) };'
+    M += [
+        (L, f'list the group row colour: {_c} ignores the dialog', _gline, _gline.replace(_gcol, f'{_c}: channel(1, s.{_c}, c.{_c})'), ''),
+        (L, f'list the group row colour: {_c} ignores the string data', _gline, _gline.replace(_gcol, f'{_c}: channel(d.{_c}, 1, c.{_c})'), ''),
+        (L, f'list the group row colour: {_c} ignores the box', _gline, _gline.replace(_gcol, f'{_c}: channel(d.{_c}, s.{_c}, 1)'), ''),
+        (L, f"list the group row colour: {_c} takes the dialog's {_n}", _gline, _gline.replace(_gcol, f'{_c}: channel(d.{_n}, s.{_c}, c.{_c})'), ''),
+        (L, f"list the group row colour: {_c} takes the string data's {_n}", _gline, _gline.replace(_gcol, f'{_c}: channel(d.{_c}, s.{_n}, c.{_c})'), ''),
+        (L, f"list the group row colour: {_c} takes the box's {_n}", _gline, _gline.replace(_gcol, f'{_c}: channel(d.{_c}, s.{_c}, c.{_n})'), ''),
+        (L, f'list the group row colour: {_c} is the outline not the colour', _gline, _gline.replace(_gcol, f'{_c}: channel(d.{_c}, o.{_c}, c.{_c})'), ''),
+    ]
+    if _c != 'a':
+        _p = _PLAIN_COL[_c]
+        M += [
+            (L, f'list the plain row colour: {_c} ignores the dialog', _p, f'{_c}: own ? item.m_color.{_c} : channel(1, s.{_c}, c.{_c})', ''),
+            (L, f'list the plain row colour: {_c} ignores the string data', _p, f'{_c}: own ? item.m_color.{_c} : channel(d.{_c}, 1, c.{_c})', ''),
+            (L, f'list the plain row colour: {_c} ignores the box', _p, f'{_c}: own ? item.m_color.{_c} : channel(d.{_c}, s.{_c}, 1)', ''),
+            (L, f"list the plain row colour: {_c} takes the dialog's {_n}", _p, f'{_c}: own ? item.m_color.{_c} : channel(d.{_n}, s.{_c}, c.{_c})', ''),
+            (L, f"list the plain row colour: {_c} takes the string data's {_n}", _p, f'{_c}: own ? item.m_color.{_c} : channel(d.{_c}, s.{_n}, c.{_c})', ''),
+            (L, f"list the plain row colour: {_c} takes the box's {_n}", _p, f'{_c}: own ? item.m_color.{_c} : channel(d.{_c}, s.{_c}, c.{_n})', ''),
+            (L, f'list the plain row colour: {_c} is the outline not the colour', _p, f'{_c}: own ? item.m_color.{_c} : channel(d.{_c}, o.{_c}, c.{_c})', ''),
+        ]
 
 
 def limits():
