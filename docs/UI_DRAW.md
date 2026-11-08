@@ -18,7 +18,7 @@ Every `DLG_*.lua` of the archives is opened in one UI world with a device (one L
 | ... a pixel is over 3 | 0 |
 | draws that are none of the three shapes the UI makes | 0 (in 0 dialogs) |
 | the state stack is not back where it was | 0 |
-| quads in all | 16,739 (208 of them bars of edges, 293 without area) |
+| quads in all | 16,796 (208 of them bars of edges, 312 without area) |
 | glyph quads in all | 26,982 (in 3,874 flushes of a glyph page) |
 
 The largest difference of a channel between the device and the CPU, per dialog: 0: 677, 1: 347.
@@ -29,7 +29,6 @@ The largest difference of a channel between the device and the CPU, per dialog: 
 
 | what | dialogs | times |
 |---|---:|---:|
-| `CKTDGUIIMEEditBox` | 81 | 125 |
 | `CMovieData::OnFrameMove` | 3 | 3 |
 | `CMovieData::OnFrameRender` | 3 | 3 |
 
