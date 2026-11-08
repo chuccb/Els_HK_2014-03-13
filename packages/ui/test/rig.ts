@@ -174,7 +174,7 @@ export function drawnCalls(dev: Recorder, from = 0): DrawnCall[] {
   return out;
 }
 
-/** a quad (a strip of two triangles, `draw 5 start 2`) the UI drew: the texture on stage 0 at the time and the pixels it covers */
+/** a quad (a strip of two triangles, `draw 5 start 2`) the UI drew: the texture on stage 0 at the time and the pixels it covers (the four vertices have to be those of an upright rectangle: left-top, right-top, left-bottom, right-bottom) */
 export interface DrawnQuad {
   texture: string;
   /** [left, top, right, bottom] in back buffer pixels (the vertices of a quad sit half a pixel up and to the left) */
@@ -193,7 +193,10 @@ export function drawnQuads(dev: Recorder, from = 0): DrawnQuad[] {
   const out: DrawnQuad[] = [];
   drawnCalls(dev, from).forEach((c, i) => {
     if (c.type !== 5) return;
-    const [v0, v1, v2] = c.vertices;
+    const [v0, v1, v2, v3] = c.vertices;
+    // the strip is left-top, right-top, left-bottom, right-bottom of an upright rectangle
+    const upright = v0![0] === v2![0] && v1![0] === v3![0] && v0![1] === v1![1] && v2![1] === v3![1];
+    if (!upright) throw new Error(`drawnQuads: the strip is not an upright rectangle: ${JSON.stringify([v0, v1, v2, v3])}`);
     out.push({ texture: textures[i]!, rect: [v0![0]! + 0.5, v0![1]! + 0.5, v1![0]! + 0.5, v2![1]! + 0.5] });
   });
   return out;
