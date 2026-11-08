@@ -1401,6 +1401,15 @@ describe("construction and resolution", () => {
     expect([scale.x, scale.y]).toEqual([1.5, 2]);
   });
 
+  test("the application the font reaches (`app`, g_pKTDXApp for OutProjectionText) is the render of the world's host: null without a device", () => {
+    const withDevice = fontWorld();
+    expect(withDevice.font(16).app).toBe(withDevice.w.render);
+    expect(withDevice.w.render).not.toBeNull();
+    const none = fontWorld({}, { device: false });
+    expect(none.w.render).toBeNull();
+    expect(none.font(16).app).toBeNull();
+  });
+
   test("the size the resolution gives is CUT, not rounded: 13 px on a back buffer 1000 high is (int)(13 * 1000 / 768 = 16.93) = 16, a cell of 18", () => {
     const { font } = fontWorld({}, { backBuffer: { width: 1024, height: 1000 } });
     const ft = font(13, 0, 1, false);

@@ -1025,7 +1025,8 @@ m(FO, 'OutProjectionText: the view copy is the projection', 'this.m_matView.set(
 m(FO, 'OutProjectionText: the view port is not the application\'s', 'const kViewPort = { ...app.viewport };', 'const kViewPort = { ...app.viewport, x: 0, y: 0 };')
 m(FO, 'OutProjectionText: the view port has no depth range of its own', 'const kViewPort = { ...app.viewport };', 'const kViewPort = { ...app.viewport, minZ: 0, maxZ: 1 };')
 m(FO, 'OutProjectionText: projection and view are swapped', 'vec3Project(pos, kViewPort, this.m_matProj, this.m_matView, this.m_matIdentity)', 'vec3Project(pos, kViewPort, this.m_matView, this.m_matProj, this.m_matIdentity)')
-m(FO, 'OutProjectionText: the view is the world', 'vec3Project(pos, kViewPort, this.m_matProj, this.m_matView, this.m_matIdentity)', 'vec3Project(pos, kViewPort, this.m_matProj, this.m_matIdentity, this.m_matView)')
+m(FO, 'OutProjectionText: the view is the world', 'vec3Project(pos, kViewPort, this.m_matProj, this.m_matView, this.m_matIdentity)', 'vec3Project(pos, kViewPort, this.m_matProj, this.m_matIdentity, this.m_matView)',
+  'equivalent: world and view are multiplied one after the other and one of them is the identity, so which of the two is which does not change the product')
 m(FO, 'OutProjectionText: the projection is the world', 'vec3Project(pos, kViewPort, this.m_matProj, this.m_matView, this.m_matIdentity)', 'vec3Project(pos, kViewPort, this.m_matIdentity, this.m_matView, this.m_matProj)')
 m(FO, 'OutProjectionText: no projection', 'vec3Project(pos, kViewPort, this.m_matProj, this.m_matView, this.m_matIdentity)', 'vec3Project(pos, kViewPort, null, this.m_matView, this.m_matIdentity)')
 m(FO, 'OutProjectionText: no view', 'vec3Project(pos, kViewPort, this.m_matProj, this.m_matView, this.m_matIdentity)', 'vec3Project(pos, kViewPort, this.m_matProj, null, this.m_matIdentity)')
