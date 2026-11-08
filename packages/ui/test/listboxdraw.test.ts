@@ -347,6 +347,14 @@ describe("OnFrameRender: which rows are drawn", () => {
     u.b.m_rcTrack.bottom = 120;
     u.box.onFrameRender();
     expect([u.b.m_nPosition, u.b.m_rcThumb.top, u.b.m_rcThumb.bottom]).toEqual([0, 0, 8]);
+    // -1 is below 0 too (the rows would start at the row before the first)
+    const v = fixed(4);
+    v.b.m_rcTrack.top = 20;
+    v.b.m_rcTrack.bottom = 120;
+    v.b.m_nPosition = -1;
+    v.box.onFrameRender();
+    expect([v.b.m_nPosition, v.b.m_rcThumb.top, v.b.m_rcThumb.bottom]).toEqual([0, 20, 45]);
+    expect(names(v.calls)).toEqual(["Row0", "Row1", "Row2", "Row3"]);
   });
 });
 
@@ -527,6 +535,11 @@ describe("OnFrameRender: the text of a row", () => {
     t.box.m_BlankWidthByDepth = 7;
     t.box.onFrameRender();
     expect(t.calls.map((c) => c.args[0])).toEqual([122, 129, 143]);
+    // the corner is cut to a whole pixel BEFORE the depth is added: at x = -2.5 (the dialog at -114.25) a depth of 7 gives -2 + 7 = 5, not 4
+    t.calls.length = 0;
+    t.dialog.m_Pos.x = -114.25;
+    t.box.onFrameRender();
+    expect(t.calls.map((c) => c.args[0])).toEqual([-2, 5, 19]);
   });
 
   test("the colour is the dialog's times the string's times the box's, the style and the outline are the string data's; the sort flag is not (the call has 0)", () => {
@@ -820,6 +833,8 @@ describe("OnFrameRender: the mouse over a row of a message list (the rows with a
     const t = mouse([20, 21, 22, 23, 24], [], { width: 1536, height: 1536 });
     expect(t.hover(225, 192)).toEqual(only(5, 2));
     expect(t.hover(150, 96)).toEqual([false, false, false, false, false]); // (89.75, 27.5)
+    expect(t.hover(120, 192)).toEqual([false, false, false, false, false]); // (69.75, 75.5): left of the rows, but the mouse as it is (109.75) would be over them
+    expect(t.hover(400, 192)).toEqual(only(5, 2)); // (256.42, 75.5): over row 2, the mouse as it is (389.75) is right of the box
   });
 
   test("a row that is hidden, has no message id (-1) or belongs to a multi selection is not visited: it keeps its flag; a row that is visited and not hit loses it (0 is a message id)", () => {
