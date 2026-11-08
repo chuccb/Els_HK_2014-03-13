@@ -22,6 +22,15 @@ describe("FT_MulFix: (a * b + 0x8000) >> 16, rounding half away from zero", () =
     expect(mulFix(-5, 0xc000)).toBe(-4); // -3.75 -> -4
     expect(mulFix(5, -0xc000)).toBe(-4);
     expect(mulFix(-5, -0xc000)).toBe(4);
+    expect(mulFix(-1, 0x8000)).toBe(-1); // -0.5 -> -1
+    expect(mulFix(-1, 0x7fff)).toBe(0);
+  });
+  test("a product past 2^53 keeps the low 32 bits of the rounded quotient (ties away from zero)", () => {
+    // 0x7fff8000 * 0x7fffffff = 2^15 * 65535 * 2147483647 is a tie (the product is 0x8000 mod 0x10000): the quotient 70367670403072.5 rounds to
+    // 70367670403073 = 0x3FFFBFFF8001, whose low 32 bits are 0xBFFF8001; with the other sign the result is the negated quotient, low 32 bits 0x40007FFF
+    expect(mulFix(0x7fff8000, 0x7fffffff)).toBe(-1073774591);
+    expect(mulFix(0x7fff8000, -0x7fffffff)).toBe(1073774591);
+    expect(mulFix(0x7fffffff, 0x7fffffff)).toBe(-65536); // (2^62 - 2^32 + 1 + 0x8000) >> 16 = 0x3FFFFFFF0000
   });
 });
 
@@ -35,12 +44,35 @@ describe("FT_MulDiv: (a * b + c / 2) / c, FT_MulDiv_No_Round: (a * b) / c", () =
     expect(mulDiv(7, 1, 2)).toBe(4); // (7 + 1) / 2
     expect(mulDiv(7, 1, 3)).toBe(2); // (7 + 1) / 3 = 2.67 -> 2 (the division truncates after the half is added)
     expect(mulDiv(0, 5, 3)).toBe(0);
+    expect(mulDiv(1, 2, 3)).toBe(1); // 1 ^ 2 ^ 3 == 0: the sign test is on the sign bit, so zero is positive
+    expect(mulDiv(-1, -2, 3)).toBe(1);
+    expect(mulDiv(5, 7, 7)).toBe(5); // b == c gives a
+    expect(mulDiv(-5, 7, 7)).toBe(-5);
+  });
+  test("the 32-bit fast path ends where the product (plus half of c) would pass 2^31", () => {
+    expect(mulDiv(46340, 46340, 2)).toBe(1073697800); // (2147395600 + 1) / 2
+    expect(mulDiv(46341, 46341, 2)).toBe(1073744141); // (2147488281 + 1) / 2: the product no longer fits 31 bits
+    expect(mulDiv(46340, 46340, 176095)).toBe(12195); // 2147395600 + 88047 = 2^31 - 1
+    expect(mulDiv(46340, 46340, 176096)).toBe(12194); // 2147395600 + 88048 = 2^31: slow path, (2^31) / 176096
+    expect(mulDivNoRound(46341, 46341, 2)).toBe(1073744140);
+    // one operand past the limit, the other not: 46341 * 46340 = 2147441940 fits, but with the half of 176095 it is 2147529987 > 2^31 - 1 (176095 * 12195 =
+    // 2147478525, remainder 51462), so the 32-bit sum would wrap and the slow path must be taken, whichever operand is the large one
+    expect(mulDiv(46341, 46340, 176095)).toBe(12195);
+    expect(mulDiv(46340, 46341, 176095)).toBe(12195);
+    expect(mulDiv(-46341, 46340, 176095)).toBe(-12195);
+  });
+  test("a zero divisor gives 0x7FFFFFFF with the sign of the other two", () => {
+    expect(mulDiv(5, 7, 0)).toBe(0x7fffffff);
+    expect(mulDiv(-5, 7, 0)).toBe(-0x7fffffff);
+    expect(mulDivNoRound(5, 7, 0)).toBe(0x7fffffff);
   });
   test("not rounded", () => {
     expect(mulDivNoRound(3, 5, 2)).toBe(7);
     expect(mulDivNoRound(-3, 5, 2)).toBe(-7);
     expect(mulDivNoRound(1000, 3, 7)).toBe(428);
     expect(mulDivNoRound(1000, 3, -7)).toBe(-428);
+    expect(mulDivNoRound(3, 2, 1)).toBe(6); // 3 ^ 2 ^ 1 == 0: positive
+    expect(mulDivNoRound(7, 2, 3)).toBe(4); // 14 / 3, no half added
   });
   test("products over 32 bits", () => {
     expect(mulDiv(0x10000, 0x10000, 0x10000)).toBe(0x10000); // 2^32 / 2^16, past the 32-bit fast path
@@ -55,6 +87,14 @@ describe("FT_DivFix: ((a << 16) + b / 2) / b", () => {
     expect(divFix(1, 3)).toBe(21845); // (65536 + 1) / 3
     expect(divFix(2, 3)).toBe(43691); // (131072 + 1) / 3
     expect(divFix(0, 5)).toBe(0);
+    expect(divFix(5, 0)).toBe(0x7fffffff); // a zero divisor
+    expect(divFix(3, 0x7fffffff)).toBe(0); // (3 << 16) / 0x7fffffff, rounded
+    expect(divFix(0x7fff, 0xffff)).toBe(32767); // (0x7fff0000 + 0x7fff) / 0xffff = 32767.5 -> 32767: the half of b is added, and the division floors
+  });
+  test("a numerator with bits above 16 takes the 64-bit division", () => {
+    expect(divFix(0x10000, 1)).toBe(0x7fffffff); // 2^32 does not fit: the exe answers 0x7FFFFFFF
+    expect(divFix(0x20000, 0x30000)).toBe(0xaaab); // 2/3 = 43690.67 -> 43691
+    expect(divFix(0x7fff0000, 0x7fff0000)).toBe(0x10000);
   });
   test("signs", () => {
     expect(divFix(-1, 3)).toBe(-21845);

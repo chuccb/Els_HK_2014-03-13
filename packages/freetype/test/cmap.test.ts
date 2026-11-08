@@ -45,6 +45,29 @@ describe("cmap format 4 (segment mapping to delta values)", () => {
     expect(cm.charIndex(0x30)).toBe(0);
     expect(cm.charIndex(0x60)).toBe(0);
   });
+  test("out of order, with a glyph array: the first segment that holds the code answers, a 0 in the array stays 0", () => {
+    // segments: 0x4E00..0x4E02 through glyphIdArray [100, 0, 102] with delta 5 (idRangeOffset[0] is at byte 34, the array at 40: offset 6), then 0x20..0x7E with
+    // delta -0x1F; the second starts below the first, so the validator calls the table unsorted and the lookup walks the segments in order
+    const unsorted = [
+      ...u16(4, 46, 0, 6, 4, 1, 2),
+      ...u16(0x4e02, 0x7e, 0xffff),
+      ...u16(0),
+      ...u16(0x4e00, 0x20, 0xffff),
+      ...u16(5, 0xffe1, 1),
+      ...u16(6, 0, 0),
+      ...u16(100, 0, 102),
+    ];
+    const cm = build(unsorted)!;
+    expect(cm.flags & TT_CMAP_FLAG_UNSORTED).toBe(TT_CMAP_FLAG_UNSORTED);
+    expect(cm.charIndex(0x4e00)).toBe(105);
+    expect(cm.charIndex(0x4e01)).toBe(0); // the array holds 0: no delta
+    expect(cm.charIndex(0x4e02)).toBe(107);
+    expect(cm.charIndex(0x4e03)).toBe(0);
+    expect(cm.charIndex(0x20)).toBe(1);
+    expect(cm.charIndex(0x41)).toBe(0x22);
+    expect(cm.charIndex(0x7f)).toBe(0);
+    expect(cm.charIndex(0xffff)).toBe(0);
+  });
   test("a segment that ends before it starts is refused", () => {
     const bad = [...u16(4, 46, 0, 6, 4, 1, 2), ...u16(0x1f, 0x4e02, 0xffff), ...u16(0), ...u16(0x20, 0x4e00, 0xffff), ...u16(0xffe1, 5, 1), ...u16(0, 4, 0), ...u16(100, 0, 102)];
     expect(build(bad)).toBeNull();
@@ -84,6 +107,28 @@ describe("cmap format 12 (segmented coverage)", () => {
     expect(cm.charIndex(0x1f64f)).toBe(1079);
     expect(cm.charIndex(0x1f650)).toBe(0);
     expect(cm.charIndex(0xffffffff)).toBe(0);
+  });
+  test("five groups: every group is found, whichever side of the middle it is on", () => {
+    // length = 16 + 12 * 5 = 76
+    const five = [
+      ...u16(12, 0),
+      ...u32(76, 0, 5),
+      ...u32(0x20, 0x7e, 1),
+      ...u32(0xa0, 0xff, 200),
+      ...u32(0x4e00, 0x4e10, 500),
+      ...u32(0x1f600, 0x1f64f, 1000),
+      ...u32(0x20000, 0x2000f, 3000),
+    ];
+    const cm = build(five)!;
+    const want: [number, number][] = [
+      [0x20, 1], [0x50, 0x31], [0x7e, 0x5f],
+      [0xa0, 200], [0xb0, 216], [0xff, 295],
+      [0x4e00, 500], [0x4e08, 508], [0x4e10, 516],
+      [0x1f600, 1000], [0x1f62a, 1042], [0x1f64f, 1079],
+      [0x20000, 3000], [0x20007, 3007], [0x2000f, 3015],
+    ];
+    for (const [code, glyph] of want) expect(cm.charIndex(code)).toBe(glyph);
+    for (const code of [0x1f, 0x7f, 0x9f, 0x100, 0x4dff, 0x4e11, 0x1f5ff, 0x1f650, 0x1ffff, 0x20010]) expect(cm.charIndex(code)).toBe(0);
   });
   test("overlapping or reversed groups are refused", () => {
     expect(build([...u16(12, 0), ...u32(40, 0, 2), ...u32(0x20, 0x7e, 1), ...u32(0x7e, 0x90, 1000)])).toBeNull();

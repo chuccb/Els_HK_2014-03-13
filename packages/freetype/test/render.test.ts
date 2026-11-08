@@ -119,8 +119,11 @@ describe("FT_Render_Glyph with the smooth renderer", () => {
     expect(() => renderGlyph(s, 2)).toThrow(/not ported/);
     expect(renderGlyph(s, 0)).toBe(0);
     const before = rowsOf(s.bitmap);
+    const buffer = s.bitmap.buffer;
     expect(renderGlyph(s, 2)).toBe(0); // FT_GLYPH_FORMAT_BITMAP returns at once, whatever the mode
     expect(rowsOf(s.bitmap)).toEqual(before);
+    expect(renderGlyph(s, 0)).toBe(0);
+    expect(s.bitmap.buffer).toBe(buffer); // the same buffer: nothing was rendered again
   });
 
   test("an outline wider than 0x7FFF pixels is refused with Raster_Overflow", () => {
@@ -129,8 +132,61 @@ describe("FT_Render_Glyph with the smooth renderer", () => {
     expect(FtErr.Raster_Overflow).toBe(0x62);
   });
 
+  test("an outline more than 2^31 units across is refused before its size is worked out (the difference would wrap)", () => {
+    // x -2^30 .. 2^30: xMax = 2^30 is past INT_MAX + xMin = 2^30 - 1; the same in y
+    expect(renderGlyph(slotOf(rect(-0x40000000, 0, 0x40000000, 64), [ON, ON, ON, ON], [3]), 0)).toBe(FtErr.Raster_Overflow);
+    expect(renderGlyph(slotOf(rect(0, -0x40000000, 64, 0x40000000), [ON, ON, ON, ON], [3]), 0)).toBe(FtErr.Raster_Overflow);
+  });
+
+  test("a bitmap of exactly 0x7FFF pixels is made; 0x8000 rows are refused", () => {
+    const wide = slotOf(rect(0, 0, 0x7fff * 64, 64), [ON, ON, ON, ON], [3]);
+    expect(renderGlyph(wide, 0)).toBe(0);
+    expect([wide.bitmap.width, wide.bitmap.rows, wide.bitmap.pitch]).toEqual([0x7fff, 1, 0x7fff]);
+    expect(wide.bitmap.buffer![0x7ffe]).toBe(255);
+    expect(renderGlyph(slotOf(rect(0, 0, 64, 0x8000 * 64), [ON, ON, ON, ON], [3]), 0)).toBe(FtErr.Raster_Overflow);
+  });
+
+  test("the cbox is floored on the left / bottom and ceiled on the right / top: an edge 1/64 pixel past a boundary needs another pixel", () => {
+    // 1/64 of a pixel is an area of 2 * 256 * 256 / 64 = 2048, 2048 >> 9 = 4; 63/64 of a pixel is 252
+    const up = slotOf(rect(0, 0, 640, 65), [ON, ON, ON, ON], [3]); // top edge at 1 + 1/64: two rows
+    expect(renderGlyph(up, 0)).toBe(0);
+    expect([up.bitmap.rows, up.bitmapTop]).toEqual([2, 2]);
+    expect(rowsOf(up.bitmap)[0]!.every((v) => v === 4)).toBe(true);
+    expect(rowsOf(up.bitmap)[1]!.every((v) => v === 255)).toBe(true);
+    const right = slotOf(rect(0, 0, 65, 64), [ON, ON, ON, ON], [3]); // right edge at 1 + 1/64
+    expect(renderGlyph(right, 0)).toBe(0);
+    expect(rowsOf(right.bitmap)).toEqual([[255, 4]]);
+    const left = slotOf(rect(63, 0, 127, 64), [ON, ON, ON, ON], [3]); // left edge at 63/64: the bitmap starts at 0, not at 1
+    expect(renderGlyph(left, 0)).toBe(0);
+    expect([left.bitmapLeft, rowsOf(left.bitmap)]).toEqual([0, [[4, 252]]]);
+    const down = slotOf(rect(0, 63, 64, 127), [ON, ON, ON, ON], [3]); // bottom edge at 63/64
+    expect(renderGlyph(down, 0)).toBe(0);
+    expect([down.bitmapTop, rowsOf(down.bitmap)]).toEqual([2, [[252], [4]]]);
+  });
+
+  test("rendering shifts the outline only while it rasterises: the points are back where they were", () => {
+    const pts = rect(-96, -32, 160, 96);
+    const s = slotOf(pts, [ON, ON, ON, ON], [3]);
+    expect(renderGlyph(s, 0)).toBe(0);
+    expect(Array.from(s.outline.points)).toEqual(pts.flat());
+  });
+
+  test("LIGHT is rendered like NORMAL (the smooth renderer turns it into NORMAL)", () => {
+    const a = slotOf([[0, 0], [640, 0], [640, 640]], [ON, ON, ON], [2]);
+    const b = slotOf([[0, 0], [640, 0], [640, 640]], [ON, ON, ON], [2]);
+    expect(renderGlyph(a, 0)).toBe(0);
+    expect(renderGlyph(b, 1)).toBe(0);
+    expect(rowsOf(b.bitmap)).toEqual(rowsOf(a.bitmap));
+    expect(b.format).toBe(FT_GLYPH_FORMAT.BITMAP);
+  });
+
   test("an outline the decomposer rejects comes back as error 1; a contour table that stops short as Invalid_Outline", () => {
-    expect(renderGlyph(slotOf(rect(0, 0, 640, 640), [2, ON, ON, ON], [3]), 0)).toBe(1); // the first point is a cubic control point
+    const bad = slotOf(rect(0, 0, 640, 640), [2, ON, ON, ON], [3]);
+    expect(renderGlyph(bad, 0)).toBe(1); // the first point is a cubic control point
+    // the buffer made for it is freed (FT_FREE leaves NULL), the glyph stays an outline and its points are where they were
+    expect(bad.bitmap.buffer).toBeNull();
+    expect(bad.format).toBe(FT_GLYPH_FORMAT.OUTLINE);
+    expect(Array.from(bad.outline.points)).toEqual(rect(0, 0, 640, 640).flat());
     expect(renderGlyph(slotOf(rect(0, 0, 640, 640), [ON, ON, ON, ON], [2]), 0)).toBe(FtErr.Invalid_Outline);
   });
 });
@@ -146,7 +202,17 @@ describe("FT_Bitmap_Copy and FT_Bitmap_Embolden", () => {
     b.buffer = Uint8Array.from(pixels);
     return b;
   };
-  const hex = (b: Bitmap): string => Buffer.from(b.buffer!.subarray(0, b.rows * b.pitch)).toString("hex");
+  const hex = (b: Bitmap): string => Buffer.from(b.buffer!.subarray(0, b.rows * Math.abs(b.pitch))).toString("hex");
+  const mono = (rows: number, width: number, bytes: number[], pitch: number): Bitmap => {
+    const b = new Bitmap();
+    b.rows = rows;
+    b.width = width;
+    b.pitch = pitch;
+    b.pixelMode = FT_PIXEL_MODE.MONO;
+    b.numGrays = 2;
+    b.buffer = Uint8Array.from(bytes);
+    return b;
+  };
 
   test("a copy has its own buffer", () => {
     const src = gray(2, 3, [1, 2, 3, 4, 5, 6]);
@@ -206,6 +272,12 @@ describe("FT_Bitmap_Copy and FT_Bitmap_Embolden", () => {
     const b = gray(1, 2, [100, 0]);
     bitmapEmbolden(b, 32, 0); // rounds to 1
     expect([b.width, hex(b)]).toEqual([3, "646400"]);
+    const d = gray(1, 1, [50]);
+    bitmapEmbolden(d, 0, 32); // the same in y: 32 rounds to 1 row more, 31 to none
+    expect([d.rows, hex(d)]).toEqual([2, "3232"]);
+    const e = gray(1, 1, [50]);
+    bitmapEmbolden(e, 0, 31);
+    expect([e.rows, hex(e)]).toEqual([1, "32"]);
     const c = gray(1, 3, [10, 0, 0]);
     bitmapEmbolden(c, 128 + 31, 0); // 2.48 pixels -> 2
     expect([c.width, hex(c)]).toEqual([5, "0a0a0a0000"]);
@@ -221,6 +293,52 @@ describe("FT_Bitmap_Copy and FT_Bitmap_Embolden", () => {
     b.buffer = Uint8Array.of(0xa0); // 1 0 1
     expect(bitmapEmbolden(b, 64, 0)).toBe(0);
     expect([b.width, hex(b)]).toEqual([4, "f0"]); // 1 1 1 1: p |= p >> 1
+  });
+
+  test("a mono strength is limited to 8 pixels; a single pixel then covers 9", () => {
+    for (const strength of [9 * 64, 12 * 64]) {
+      const b = mono(1, 1, [0x80], 1);
+      expect(bitmapEmbolden(b, strength, 0)).toBe(0);
+      expect([b.width, b.pitch, hex(b)]).toEqual([9, 2, "ff80"]);
+    }
+  });
+
+  test("a mono bitmap's padding bits are cleared first, except the added column: 0xBF with width 3 becomes 0xB0 before the pixels spread", () => {
+    const b = mono(1, 3, [0xbf], 1);
+    expect(bitmapEmbolden(b, 64, 0)).toBe(0);
+    expect([b.width, hex(b)]).toEqual([4, "f8"]); // 0xB0 | (0xB0 >> 1)
+  });
+
+  test("a gray bitmap with a wider pitch keeps its added column as it was and loses what lies beyond it", () => {
+    const b = gray(1, 2, [100, 0, 0xee, 0xee], 4);
+    expect(bitmapEmbolden(b, 64, 0)).toBe(0);
+    expect([b.width, b.pitch, hex(b)]).toEqual([3, 4, "6464eeee"]); // byte 3 is cleared, then p3 += p2, p2 += p1, p1 += p0
+  });
+
+  test("LCD bitmaps are emboldened three times as far horizontally, LCD_V three times as far vertically", () => {
+    const lcd = gray(1, 3, [10, 0, 0]);
+    lcd.pixelMode = FT_PIXEL_MODE.LCD;
+    expect(bitmapEmbolden(lcd, 64, 0)).toBe(0);
+    expect([lcd.width, lcd.pitch, hex(lcd)]).toEqual([6, 6, "0a0a0a0a0000"]);
+    const lcdV = gray(1, 1, [50]);
+    lcdV.pixelMode = FT_PIXEL_MODE.LCD_V;
+    expect(bitmapEmbolden(lcdV, 0, 64)).toBe(0);
+    expect([lcdV.rows, hex(lcdV)]).toEqual([4, "32323232"]);
+  });
+
+  test("a bitmap that flows up (negative pitch) gets its new rows after the old ones in memory, and the rows above are or'ed", () => {
+    // memory [10, 20]: the top row of the image is the last one in memory.  The new top row is a copy of the old top row (20), and the old top row
+    // becomes 20 | 10
+    const b = gray(2, 1, [10, 20], -1);
+    expect(bitmapEmbolden(b, 0, 64)).toBe(0);
+    expect([b.rows, b.pitch, hex(b)]).toEqual([3, -1, "0a1e14"]);
+  });
+
+  test("a copy of a bitmap that flows up has the same bytes and the same negative pitch", () => {
+    const src = gray(2, 2, [1, 2, 3, 4], -2);
+    const dst = new Bitmap();
+    expect(bitmapCopy(src, dst)).toBe(0);
+    expect([dst.pitch, hex(dst)]).toEqual([-2, "01020304"]);
   });
 
   test("errors: no buffer, a negative strength", () => {

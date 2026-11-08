@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { KomArchive, fileSource } from "@els/kom";
 import { createHash } from "node:crypto";
 import { FtFace, FtError } from "../src/index.ts";
 import { bitmapCopy, bitmapEmbolden } from "../src/bitmap.ts";
@@ -154,6 +157,13 @@ export function compactGlyph(r: Json): Json {
   return c;
 }
 
+/** eight hex digits of a load result (`compactGlyph` without the render error): what the synthetic-font fixture keeps of each glyph load */
+export function glyphDigest(r: Json): string {
+  const c = compactGlyph(r);
+  delete c.render_err;
+  return sha1(Buffer.from(JSON.stringify(c))).slice(0, 8);
+}
+
 /** the glyph indices of a run of character codes, as a hash (a fixture of 2^18 lookups per font would be a megabyte) */
 export function indicesDigest(glyphs: number[]): { count: number; nonzero: number; sha1: string } {
   return { count: glyphs.length, nonzero: glyphs.filter((g) => g !== 0).length, sha1: sha1(Buffer.from(Int32Array.from(glyphs).buffer)) };
@@ -182,4 +192,18 @@ export function portCalc(kind: CalcKind, a: number[]): number | number[] {
       return [v[0]!, v[1]!];
     }
   }
+}
+
+/**
+ * The bytes of a font as the fixture names it: a path under `dataDir`, or `kom:<archive>:<entry>` for a file that only exists inside a KOM archive
+ * (GULIM.TTC is the entry `gulim.ttc` of datai022.kom).
+ */
+export async function fontBytes(dataDir: string, file: string): Promise<Uint8Array> {
+  if (file.startsWith("kom:")) {
+    const [, komFile, name] = file.split(":");
+    const kom = await KomArchive.open(fileSource(join(dataDir, komFile!)));
+    const entry = kom.entries.find((e) => e.name.toLowerCase() === name)!;
+    return await kom.read(entry);
+  }
+  return new Uint8Array(readFileSync(join(dataDir, file)));
 }

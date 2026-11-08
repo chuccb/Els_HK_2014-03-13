@@ -18,8 +18,11 @@ the Hex-Rays export `data/x2.exe.c` / `data/x2.exe.h`, and verify it - not "make
    32-bit/MSVC (`long` is 32 bit, `strtoul`, bytecode header). Differential tests compare the TS implementation against it.
 3b. **The exe's own machine code, run on a CPU emulator**, for a pure function whose imports can be stubbed (`tools/peemu.py`, Unicorn; PE mapped
    at its preferred base, so the addresses are those of the decompile). This is the strongest oracle there is, because it *is* the original: the port
-   of `OptimizeKeys` is compared with it bit for bit (FINDINGS 16.3). Say in the docs which imports were replaced by models, because the
-   comparison does not cover those.
+   of `OptimizeKeys` is compared with it bit for bit (FINDINGS 16.3), and so is the part of FreeType the exe's text path uses, from the font file to the pixels
+   (`tools/oracle-freetype.py`, FINDINGS 17.11: the exe's `FT_Load_Glyph` and `FT_Render_Glyph` run on real fonts, then on generated ones that make the
+   port enter every instruction the real ones never do). Say in the docs which imports were replaced by models, because the
+   comparison does not cover those. A comparison is only as good as the inputs: count what the inputs make the code do (which instructions ran, which
+   branches), and where the real data never reaches a branch, generate data that does (`packages/freetype/test/synth.ts`).
 4. Public documentation / memory of other engines come last, and never override 1-3b.
 
 ## 2. Rules

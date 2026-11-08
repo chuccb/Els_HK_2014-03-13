@@ -656,7 +656,7 @@ describe("XRenderer.fx: skinning (1-4 bones, D3DCOLOR indices, palette of 20)", 
       }
     }
     expect(count).toBe(80);
-  });
+  }, 60_000); // 80 shader permutations compiled and drawn on a software GPU: 5 to 9 s depending on the machine, over bun's default of 5 s
 });
 
 // ============================================================================================================= fog

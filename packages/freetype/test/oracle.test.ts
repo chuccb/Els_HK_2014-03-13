@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { KomArchive, fileSource } from "@els/kom";
-import { FtFace, setCharSize } from "../src/index.ts";
-import { compactGlyph, faceInfo, indicesDigest, portCalc, portEmbolden, portGlyph, portRaster, sizeInfo, type CalcKind } from "./probe.ts";
+import { FtFace, FtLibrary, setCharSize } from "../src/index.ts";
+import { compactGlyph, faceInfo, fontBytes, glyphDigest, indicesDigest, portCalc, portEmbolden, portGlyph, portRaster, sha1, sizeInfo, type CalcKind } from "./probe.ts";
+import { synthFont } from "./synth.ts";
 
 /**
  * Replays fixtures/oracle.json: what x2.exe's own FreeType 2.4.11 answered (tools/oracle-freetype.py runs its machine code under the Unicorn emulator;
@@ -13,19 +13,9 @@ import { compactGlyph, faceInfo, indicesDigest, portCalc, portEmbolden, portGlyp
 const fx = JSON.parse(readFileSync(join(import.meta.dir, "fixtures/oracle.json"), "utf8"));
 const dataDir = join(import.meta.dir, "../../../data");
 
-async function fontBytes(file: string): Promise<Uint8Array> {
-  if (file.startsWith("kom:")) {
-    const [, komFile, name] = file.split(":");
-    const kom = await KomArchive.open(fileSource(join(dataDir, komFile!)));
-    const entry = kom.entries.find((e) => e.name.toLowerCase() === name)!;
-    return await kom.read(entry);
-  }
-  return new Uint8Array(readFileSync(join(dataDir, file)));
-}
-
 const faces = new Map<string, FtFace>();
 beforeAll(async () => {
-  for (const [name, spec] of Object.entries<any>(fx.fonts)) faces.set(name, FtFace.open(await fontBytes(spec.file), spec.face));
+  for (const [name, spec] of Object.entries<any>(fx.fonts)) faces.set(name, FtFace.open(await fontBytes(dataDir, spec.file), spec.face));
 });
 
 const same = (a: unknown, b: unknown): boolean => Bun.deepEquals(a, b, true);
@@ -35,7 +25,7 @@ describe("the exe's FreeType, recorded", () => {
     expect(Object.keys(fx.fonts).length).toBe(9);
     expect(fx.glyphs.length).toBeGreaterThan(700);
     expect(fx.chars.length).toBe(9);
-    expect(fx.raster.length).toBe(109);
+    expect(fx.raster.length).toBe(111);
     expect(fx.embolden.length).toBe(192);
     expect(fx.calc.length).toBe(7);
   });
@@ -46,18 +36,18 @@ describe("the exe's FreeType, recorded", () => {
     expect(bad).toEqual([]);
   });
 
-  test("size metrics at 13 / 15 / 17 / 28 px", () => {
+  test("size metrics at 13 / 15 / 17 / 28 px (and at the other sizes the picked glyphs are loaded at)", () => {
     const bad: string[] = [];
-    let n = 0;
+    let core = 0;
     for (const [name, rec] of Object.entries<any>(fx.faces)) {
       const face = faces.get(name)!;
       for (const [size, s] of Object.entries<any>(rec.sizes)) {
         expect(setCharSize(face, Number(size) << 6, 0, 72, 72)).toBe(0);
-        n++;
+        if ([13, 15, 17, 28].includes(Number(size))) core++;
         if (!same(sizeInfo(face), s.metrics)) bad.push(`${name}@${size}`);
       }
     }
-    expect(n).toBe(36);
+    expect(core).toBe(36);
     expect(bad).toEqual([]);
   });
 
@@ -83,13 +73,39 @@ describe("the exe's FreeType, recorded", () => {
         job = g.job;
         setCharSize(face, g.size << 6, 0, 72, 72);
       }
-      if (face.getCharIndex(g.code) !== g.glyph) bad.push(`${g.font} U+${g.code.toString(16)}: char index`);
+      // a glyph picked by number (tools/ft-picks.json) has no character code
+      if (g.code !== undefined && face.getCharIndex(g.code) !== g.glyph) bad.push(`${g.font} U+${g.code.toString(16)}: char index`);
       const got = compactGlyph(portGlyph(face, g.glyph, g.flags, g.render, true));
       if (!same(got, g.expect)) bad.push(`${g.font}@${g.size} flags ${g.flags} glyph ${g.glyph}`);
       if (g.flags === 8) hinted++;
     }
     expect(hinted).toBeGreaterThan(300);
     expect(bad).toEqual([]);
+  });
+
+  test("synthetic fonts: random glyph programs, composites, an INSTCTRL prep (test/synth.ts), every glyph at 9 / 13 / 22 px", () => {
+    // one library for all of them, loaded in the order of the recording: the interpreter's state (cvt, storage, twilight zone, the graphics state the last
+    // program left) is shared by every load
+    const lib = new FtLibrary();
+    const bad: string[] = [];
+    let loads = 0;
+    for (const font of fx.synth.fonts) {
+      const built = synthFont(font.spec);
+      expect(sha1(built.bytes)).toBe(font.sha1);
+      expect(built.nGlyphs).toBe(font.nGlyphs);
+      const face = FtFace.open(built.bytes, 0, lib);
+      for (const job of font.jobs) {
+        expect(setCharSize(face, job.size << 6, 0, 72, 72)).toBe(0);
+        const want = job.digests.split(" ");
+        expect(want.length).toBe(font.nGlyphs);
+        for (let gi = 0; gi < font.nGlyphs; gi++) {
+          loads++;
+          if (glyphDigest(portGlyph(face, gi, job.flags, null, true)) !== want[gi]) bad.push(`${font.spec.name}@${job.size} flags 0x${job.flags.toString(16)} glyph ${gi}`);
+        }
+      }
+    }
+    expect(loads).toBe(15885);
+    expect(bad.slice(0, 20)).toEqual([]);
   });
 
   test("emboldened bitmaps (FT_Bitmap_Copy + FT_Bitmap_Embolden)", () => {

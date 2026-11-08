@@ -147,8 +147,3 @@ export function divFix(a: number, b: number): number {
   }
   return s < 0 ? -q | 0 : q | 0;
 }
-
-/** FT_RoundFix / FT_CeilFix / FT_FloorFix on 16.16 numbers */
-export const roundFix = (a: number): number => (a >= 0 ? (a + 0x8000) & ~0xffff : -((-a + 0x8000) & ~0xffff) | 0);
-export const ceilFix = (a: number): number => (a >= 0 ? (a + 0xffff) & ~0xffff : -((-a + 0xffff) & ~0xffff) | 0);
-export const floorFix = (a: number): number => (a >= 0 ? a & ~0xffff : -(-a & ~0xffff) | 0);

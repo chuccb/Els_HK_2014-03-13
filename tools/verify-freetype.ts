@@ -3,20 +3,23 @@
  * tools/oracle-freetype.py):
  *
  *   pip install --target /home/user/work/pycap unicorn pefile
- *   ./node_modules/.bin/bun run tools/verify-freetype.ts [--layers calc,face,chars,unhinted,hinted,render,embolden] [--fonts A,B] [--sizes 13,15,17]
+ *   ./node_modules/.bin/bun run tools/verify-freetype.ts [--layers calc,face,chars,unhinted,hinted,render,embolden,synth] [--fonts A,B] [--sizes 13,15,17]
  *                                                        [--glyphs N] [--seed S] [--verbose] [--record FILE]
  *
  * One layer per piece of the library, so a failure names the piece: `calc` (FT_MulFix / MulDiv / MulDiv_No_Round / DivFix), `face` (what FT_New_Memory_Face
  * and FT_Set_Char_Size leave in the face and the size), `chars` (FT_Get_Char_Index over the whole BMP), `unhinted` (FT_Load_Glyph with FT_LOAD_NO_HINTING |
  * NO_BITMAP: the outline, metrics and advances), `hinted` (FT_LOAD_NO_BITMAP: the bytecode interpreter), `render` (FT_Render_Glyph, the pixels) and `embolden`
- * (FT_Bitmap_Copy + FT_Bitmap_Embolden).  Every number is compared exactly.
+ * (FT_Bitmap_Copy + FT_Bitmap_Embolden), `raster` (FT_Render_Glyph of synthetic outlines), `render-unhinted`, and `synth` (the generated fonts of
+ * packages/freetype/test/synth.ts: random programs over all 119 instructions, composites with every flag...; the shipped fonts enter 80 of them).
+ * Every number is compared exactly.  `--record FILE` writes the fixture packages/freetype/test/oracle.test.ts replays.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FtFace, setCharSize } from "@els/freetype";
-import { bufHex, compactGlyph, faceInfo, indicesDigest, portEmbolden, portGlyph, portRaster, sha1, sizeInfo, type Json, type SynthOutline } from "../packages/freetype/test/probe.ts";
+import { FtFace, FtLibrary, setCharSize } from "@els/freetype";
+import { bufHex, compactGlyph, faceInfo, glyphDigest, indicesDigest, portEmbolden, portGlyph, portRaster, sha1, sizeInfo, type Json, type SynthOutline } from "../packages/freetype/test/probe.ts";
+import { SYNTH_FLAGS, SYNTH_SIZES, SYNTH_SPECS, synthFont, type SynthFont } from "../packages/freetype/test/synth.ts";
 import { divFix, mulDiv, mulDivNoRound, mulFix } from "../packages/freetype/src/calc.ts";
 import { sqrtFixed, vectorLength, vectorTransform } from "../packages/freetype/src/trig.ts";
 import { dataDir, indexAllKoms } from "./komindex.ts";
@@ -564,11 +567,98 @@ async function emboldenLayer(list: FontSpec[], count: number): Promise<void> {
   report("embolden", res.length, bad, firsts);
 }
 
+// ------------------------------------------------------------------------------------------------------------------ synthetic fonts
+/**
+ * The fonts of packages/freetype/test/synth.ts: random glyph programs over every instruction, composites with every flag, a skewed `hmtx`, a `prep` that sets
+ * INSTCTRL.  Loaded in one library, in this order, by the exe and by the port: the interpreter's state is shared by every load (the cvt, the storage, the
+ * twilight zone, the graphics state the last glyph left), so the order is part of the test.  The same load flag sets run more than once per size: the second run
+ * of FT_LOAD_TARGET_MONO makes the exe run `prep` again (grayscale changed), and the pedantic one turns the errors the others ignore into results.
+ */
+interface SynthJob {
+  font: string;
+  size: number;
+  flags: number;
+}
+
+function synthPlan(): { fonts: SynthFont[]; jobs: SynthJob[] } {
+  const fonts = SYNTH_SPECS.map((s) => synthFont(s));
+  const jobs: SynthJob[] = [];
+  for (const f of fonts) for (const size of SYNTH_SIZES) for (const flags of SYNTH_FLAGS) jobs.push({ font: f.spec.name, size, flags });
+  return { fonts, jobs };
+}
+
+/** the oracle's answer to every job of the plan: the glyph lines of each, in order */
+function synthOracle(plan: { fonts: SynthFont[]; jobs: SynthJob[] }): Json[][] {
+  const dir = mkdtempSync(join(tmpdir(), "els-synth-"));
+  try {
+    const fontsJson: Json = {};
+    for (const f of plan.fonts) {
+      const path = join(dir, `${f.spec.name}.ttf`);
+      writeFileSync(path, f.bytes);
+      fontsJson[f.spec.name] = { path, face: 0 };
+    }
+    const glyphs = (f: string): number[] => Array.from({ length: plan.fonts.find((x) => x.spec.name === f)!.nGlyphs }, (_, i) => i);
+    const res = runOracle({ fonts: fontsJson, jobs: plan.jobs.map((j) => ({ font: j.font, size: j.size, flags: j.flags, render: null, glyphs: glyphs(j.font), outline: true })) });
+    const per: Json[][] = [];
+    for (const r of res) {
+      if (r.info !== undefined && r.size === undefined) continue;
+      if (r.size !== undefined && r.glyph === undefined) {
+        if (r.set_err) throw new Error(`oracle: FT_Set_Char_Size failed (${r.set_err}) for ${r.font}@${r.size}`);
+        per.push([]);
+        continue;
+      }
+      per[per.length - 1]!.push(r);
+    }
+    return per;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function synthLayer(): Promise<void> {
+  const plan = synthPlan();
+  const t = Date.now();
+  const per = synthOracle(plan);
+  if (verbose) console.log(`  oracle: ${per.reduce((n, p) => n + p.length, 0)} glyph loads in ${((Date.now() - t) / 1000).toFixed(1)} s`);
+  const lib = new FtLibrary();
+  const faces = new Map(plan.fonts.map((f) => [f.spec.name, FtFace.open(f.bytes, 0, lib)]));
+  const firsts: string[] = [];
+  let total = 0;
+  let bad = 0;
+  const errs = new Map<string, number>();
+  plan.jobs.forEach((job, ji) => {
+    const face = faces.get(job.font)!;
+    setCharSize(face, job.size << 6, 0, 72, 72);
+    for (const want of per[ji]!) {
+      total++;
+      const got = portGlyph(face, want.glyph, job.flags, null, true);
+      const where = `${job.font}@${job.size} flags 0x${job.flags.toString(16)} glyph ${want.glyph}`;
+      if (got.thrown) {
+        bad++;
+        if (firsts.length < 40) firsts.push(`${where}: port threw: ${got.thrown}`);
+        continue;
+      }
+      errs.set(`0x${want.load_err.toString(16)}`, (errs.get(`0x${want.load_err.toString(16)}`) ?? 0) + 1);
+      const w: Json = { ...want };
+      for (const k of ["font", "size", "code", "render_err"]) delete w[k];
+      delete got.render_err;
+      const out: string[] = [];
+      diff(w, got, where, out);
+      if (out.length) {
+        bad++;
+        firsts.push(...out.slice(0, 3));
+      }
+    }
+  });
+  if (verbose) console.log(`  the exe's load results: ${[...errs.entries()].map(([k, v]) => `${k}: ${v}`).join(", ")}`);
+  report("synth", total, bad, firsts);
+}
+
 // ------------------------------------------------------------------------------------------------------------------ fixture
 /**
  * `--record FILE`: what the exe's FreeType says about a sample, written as the fixture packages/freetype/test/oracle.test.ts replays without Python:
  * face info and size metrics, the char index of U+0..U+2FFFF (as a hash), hinted and unhinted renders of a mixed sample of glyphs at 13 / 15 / 17 / 28 px,
- * emboldened bitmaps, 2,100 integer-helper cases, and synthetic outlines (cubics, even-odd, tiny curves, a pixel-grid staircase, a glyph-sized one that makes the exe bisect bands).
+ * emboldened bitmaps, 4,400 integer-helper cases, and synthetic outlines (cubics, even-odd, tiny curves, a pixel-grid staircase, a glyph-sized one that makes the exe bisect bands).
  */
 async function record(list: FontSpec[], file: string): Promise<void> {
   const use = list.filter((f) => f.name !== "GULIM_1" && f.name !== "GULIM_2");
@@ -592,8 +682,41 @@ async function record(list: FontSpec[], file: string): Promise<void> {
     { points: square, tags: [1, 1, 1, 2], contours: [3], flags: 0 }, // a lone cubic control point closes the contour
     { points: square, tags: [1, 1, 1, 1], contours: [2], flags: 0 }, // the last contour ends before the last point
   );
+  // curves on which the rasterizer's draw-or-split decisions matter (tools/mutate-freetype.py found that no other outline of the fixture tells them apart): a cubic that
+  // stays in the first pixel row but loops back in x (splitting follows the loop, drawing it whole draws its chord), and one whose chord estimate is exactly 32768
+  // (128 pixels: L > 32767 splits it at once) and whose control points are flat enough that the flatness tests alone would draw it whole
+  outlines.push(
+    { points: [[0, 0], [3200, 40], [-1600, 40], [1600, 0]], tags: [1, 2, 2, 1], contours: [3], flags: 0 },
+    { points: [[0, 0], [2962, 8], [5924, 9], [8886, 1]], tags: [1, 2, 2, 1], contours: [3], flags: 0 },
+  );
   const jobs: Json[] = [];
-  for (const f of use) for (const s of recSizes) for (const [flags, render] of flagSets) jobs.push({ font: f.name, size: s, flags, render, codes, outline: true });
+  const glyphJobs: [number, number][] = []; // (flags, render) of each glyph job in `jobs`: the oracle answers them in order
+  for (const f of use) {
+    for (const s of recSizes) {
+      for (const [flags, render] of flagSets) {
+        jobs.push({ font: f.name, size: s, flags, render, codes, outline: true });
+        glyphJobs.push([flags, render]);
+      }
+    }
+  }
+  // glyphs that kill mutants of the port (tools/mutate-freetype.py --pick, tools/ft-kill-pick.ts): the exe loads them like the rest, rendered
+  const picksFile = join(import.meta.dir, "ft-picks.json");
+  if (existsSync(picksFile)) {
+    const keyOf = (f: FontSpec): string => `${f.name.startsWith("GULIM") ? "kom:datai022.kom:gulim.ttc" : f.file.slice(dataDir.length + 1)}#${f.face}`;
+    const nameOf = new Map(use.map((f) => [keyOf(f), f.name]));
+    const groups = new Map<string, { font: string; size: number; flags: number; glyphs: number[] }>();
+    for (const p of JSON.parse(readFileSync(picksFile, "utf8")) as { file: string; face: number; size: number; glyph: number; flags: number }[]) {
+      const font = nameOf.get(`${p.file}#${p.face}`);
+      if (!font) throw new Error(`ft-picks.json: no fixture font for ${p.file} face ${p.face}`);
+      const g = groups.get(`${font}/${p.size}/${p.flags}`) ?? { font, size: p.size, flags: p.flags, glyphs: [] };
+      g.glyphs.push(p.glyph);
+      groups.set(`${font}/${p.size}/${p.flags}`, g);
+    }
+    for (const g of groups.values()) {
+      jobs.push({ font: g.font, size: g.size, flags: g.flags, render: 0, glyphs: g.glyphs, outline: true });
+      glyphJobs.push([g.flags, 0]);
+    }
+  }
   for (const f of use) jobs.push({ font: f.name, char_range: [0, 0x2ffff, 1] });
   for (const o of outlines) jobs.push({ font: "MSJH", raster: o });
   const crnd = mulberry32(seed + 5);
@@ -605,9 +728,20 @@ async function record(list: FontSpec[], file: string): Promise<void> {
     if (r < 0.8) return Math.floor((crnd() - 0.5) * 2 ** 17);
     return Math.floor((crnd() - 0.5) * 2 ** 32) | 0;
   };
-  const calcArgs = (n: number, k: number): number[][] => Array.from({ length: n }, () => Array.from({ length: k }, pick));
-  const calcKinds: [string, number][] = [["mulfix", 2], ["muldiv", 3], ["muldiv_no_round", 3], ["divfix", 2], ["sqrtfixed", 1], ["veclen", 2], ["vtransform", 6]];
-  const calcJobs = calcKinds.map(([kind, k]) => ({ calc: kind, args: calcArgs(300, k) }));
+  const random = (n: number, k: number): number[][] => Array.from({ length: n }, () => Array.from({ length: k }, pick));
+  // every pair of 16 edge values (the fast / slow path limits, INT_MIN, a zero), and for three arguments the families b == c, c == 0 and b == 0: a random
+  // draw would almost never hit them, and each is a branch of the exe's code
+  const e16 = [0, 1, -1, 2, 64, 0x7fff, 0x8000, 0x10000, 0x7fffffff, -0x80000000, 46340, 46341, 176095, 176096, 0x40000000, -0x12345678];
+  const pairs = (f: (a: number, b: number) => number[]): number[][] => e16.flatMap((a) => e16.map((b) => f(a, b)));
+  const calcJobs = [
+    { calc: "mulfix", args: [...pairs((a, b) => [a, b]), ...random(300, 2)] },
+    { calc: "muldiv", args: [...pairs((a, b) => [a, b, b]), ...pairs((a, b) => [a, b, 0]), ...pairs((a, c) => [a, 0, c]), ...random(300, 3)] },
+    { calc: "muldiv_no_round", args: [...pairs((a, b) => [a, b, b]), ...pairs((a, b) => [a, b, 0]), ...pairs((a, c) => [a, 0, c]), ...random(300, 3)] },
+    { calc: "divfix", args: [...pairs((a, b) => [a, b]), ...random(300, 2)] },
+    { calc: "sqrtfixed", args: [...e16.map((a) => [a]), ...random(300, 1)] },
+    { calc: "veclen", args: [...pairs((a, b) => [a, b]), ...random(300, 2)] },
+    { calc: "vtransform", args: random(300, 6) },
+  ];
   jobs.push(...calcJobs);
   const res = runOracle({ fonts: fontsJson, jobs });
   const fx: Json = { about: "recorded from x2.exe's FreeType 2.4.11 by tools/oracle-freetype.py (tools/verify-freetype.ts --record); replayed by packages/freetype/test/oracle.test.ts", fonts: {}, faces: {}, chars: [], glyphs: [], embolden: [], raster: [], calc: [] };
@@ -635,7 +769,7 @@ async function record(list: FontSpec[], file: string): Promise<void> {
       flagsSeen++;
       jobNo++;
       fx.faces[r.font].sizes[r.size] = { metrics: r.metrics };
-      cur = flagSets[(flagsSeen - 1) % flagSets.length]!; // the jobs go font, size, flag set
+      cur = glyphJobs[flagsSeen - 1]!;
     } else if (r.glyph !== undefined && !r.missing) {
       const [flags, render] = cur;
       fx.glyphs.push({ job: jobNo, font: r.font, size: r.size ?? sizeNow, flags, render, code: r.code, glyph: r.glyph, expect: compactGlyph(r) });
@@ -659,8 +793,23 @@ async function record(list: FontSpec[], file: string): Promise<void> {
   for (const b of synth) for (const [x, y] of [[128, 128], [192, 64], [0, 128], [64, 0], [31, 31]]) ejobs.push({ embolden: b, xstr: x, ystr: y });
   const eres = runOracle({ fonts: {}, jobs: ejobs }).filter((r) => r.embolden);
   eres.forEach((r, i) => fx.embolden.push({ b: ejobs[i]!.embolden, xstr: ejobs[i]!.xstr, ystr: ejobs[i]!.ystr, expect: r }));
+  {
+    // the synthetic fonts: one digest per glyph load (the font itself is rebuilt from its spec by the test; its SHA-1 says it is the same one)
+    const plan = synthPlan();
+    const per = synthOracle(plan);
+    fx.synth = {
+      sizes: SYNTH_SIZES,
+      flags: SYNTH_FLAGS,
+      fonts: plan.fonts.map((f) => ({
+        spec: f.spec,
+        sha1: sha1(f.bytes),
+        nGlyphs: f.nGlyphs,
+        jobs: plan.jobs.flatMap((j, ji) => (j.font === f.spec.name ? [{ size: j.size, flags: j.flags, digests: per[ji]!.map(glyphDigest).join(" ") }] : [])),
+      })),
+    };
+  }
   writeFileSync(file, JSON.stringify(fx));
-  console.log(`recorded ${file}: ${Object.keys(fx.fonts).length} fonts, ${fx.glyphs.length} glyph results, ${fx.chars.length} char ranges, ${fx.raster.length} outlines, ${fx.embolden.length} emboldened bitmaps (${(JSON.stringify(fx).length / 1024).toFixed(0)} KB)`);
+  console.log(`recorded ${file}: ${Object.keys(fx.fonts).length} fonts, ${fx.glyphs.length} glyph results, ${fx.chars.length} char ranges, ${fx.raster.length} outlines, ${fx.embolden.length} emboldened bitmaps, ${fx.synth.fonts.length} synthetic fonts (${(JSON.stringify(fx).length / 1024).toFixed(0)} KB)`);
 }
 
 // ------------------------------------------------------------------------------------------------------------------ main
@@ -679,6 +828,7 @@ if (layers.has("render")) await glyphLayer(list, { name: "render", flags: 8, ren
 const rasterCount = Number(opt("--rasters") ?? 400);
 if (layers.has("raster")) await rasterLayer(list, rasterCount);
 if (layers.has("embolden")) await emboldenLayer(list, rasterCount);
+if (layers.has("synth")) await synthLayer();
 if (layers.has("render-unhinted")) await glyphLayer(list, { name: "render-unhinted", flags: 10, render: 0 }, glyphLimit);
 console.log(`${failures === 0 ? "all layers agree" : `${failures} differences`} (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
 process.exit(failures === 0 ? 0 : 1);
