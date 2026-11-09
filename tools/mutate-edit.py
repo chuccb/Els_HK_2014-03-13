@@ -246,8 +246,12 @@ m(UB, 'XtoCP: the end of a character is the width of the text up to and with it'
 m(UB, 'XtoCP: the width is of the whole text up to there', r'''font.GetWidth(text.slice(0, i + 1))''', r'''font.GetWidth(text.slice(i, i + 1))''')
 m(UB, 'XtoCP: the answer is the character', r'''if (font.GetWidth(text.slice(0, i + 1)) >= x) return { cp: i, trail: 0 };''', r'''if (font.GetWidth(text.slice(0, i + 1)) >= x) return { cp: i + 1, trail: 0 };''')
 m(UB, 'XtoCP: the answer has no trail', r'''if (font.GetWidth(text.slice(0, i + 1)) >= x) return { cp: i, trail: 0 };''', r'''if (font.GetWidth(text.slice(0, i + 1)) >= x) return { cp: i, trail: 1 };''')
-m(UB, 'XtoCP: the search starts at the first character', r'''for (let i = 0; i < size; i++) {''', r'''for (let i = 1; i < size; i++) {''')
-m(UB, 'XtoCP: the search goes to the last character', r'''for (let i = 0; i < size; i++) {''', r'''for (let i = 0; i < size - 1; i++) {''')
+m(UB, 'XtoCP: the search starts at the first character', r'''const size = text.length;
+    for (let i = 0; i < size; i++) {''', r'''const size = text.length;
+    for (let i = 1; i < size; i++) {''')
+m(UB, 'XtoCP: the search goes to the last character', r'''const size = text.length;
+    for (let i = 0; i < size; i++) {''', r'''const size = text.length;
+    for (let i = 0; i < size - 1; i++) {''')
 m(UB, 'XtoCP: no character reaching x is the end of the text', r'''return { cp: size, trail: 0 };
   }''', r'''return { cp: size - 1, trail: 0 };
   }''')
