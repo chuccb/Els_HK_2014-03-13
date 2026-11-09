@@ -322,7 +322,7 @@ Deliberately not ported (`n/a`): the JIT compiler and its IR/assembler (the VM i
 
 ## C++ engine classes
 
-2879 classes / 26233 methods. Status by class: done 337, n/a 1338, partial 99, todo 1105; by method: done 502, n/a 4225, partial 1943, todo 19563.
+2879 classes / 26233 methods. Status by class: done 338, n/a 1338, partial 98, todo 1105; by method: done 517, n/a 4225, partial 1928, todo 19563.
 
 The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes:
 
@@ -357,7 +357,7 @@ The complete list is `docs/ledger-classes.generated.tsv`. The 60 largest classes
 | `CX2Data` | 110 | 32A27F00 | todo |   |
 | `CX2UIQuestNew` | 103 | 32CE0E10 | todo |   |
 | `CX2CashShop` | 101 | 329E6480 | todo |   |
-| `CKTDGUIDialog` | 95 | 328C0CD0 | partial | packages/ui/src/dialog.ts the constructor, OpenScriptFile (error logs 0x87 / 0x48 / 0x49), AddControl (a taken name becomes name+N from 100), GetControl (log 0x24), all 53 Lua methods, the Create* factories, ChangeSequence*, the custom sound files; OnFrameRender (32958FF0: the dialog manager hides it, the self-delete time, the sampler states and the table of render states pushed around its controls drawn in list order, then OnFrameRenderEnd); OnFrameMove (32958A00: the guide text's static and dialog hidden and a slot dragged in it sent home, the move to the goal position and colour, the self-delete time, the queue of moves, the controls moved last to first, the drag range) and SetShow(false) (3295B900); not ported: MsgProc, SetShow(true) (OnMouseMove) and ShowGuideDesc (3295BA30: both throw), the destructors, SetFront / SetLayer against the dialog manager |
+| `CKTDGUIDialog` | 95 | 328C0CD0 | partial | packages/ui/src/dialog.ts the constructor, OpenScriptFile (error logs 0x87 / 0x48 / 0x49), AddControl (a taken name becomes name+N from 100), GetControl (log 0x24), all 53 Lua methods, the Create* factories, ChangeSequence*, the custom sound files; OnFrameRender (32958FF0: the dialog manager hides it, the self-delete time, the sampler states and the table of render states pushed around its controls drawn in list order, then OnFrameRenderEnd); OnFrameMove (32958A00: the guide text's static and dialog hidden and a slot dragged in it sent home, the move to the goal position and colour, the self-delete time, the queue of moves, the controls moved last to first, the drag range) and SetShow(false) (3295B900); SetFront (3295B700) / SetLayer (3295B790) through the dialog manager; the deleting destructor ~CKTDGUIDialog 329554D0 (Destroy: the guide text's dialog is deleted, the dialog leaves its manager, the control with the focus loses it, the radio button groups are dropped, the controls are destroyed with their own destructors, which throw for now); not ported: MsgProc 32958350 (the stub throws), SetShow(true) (OnMouseMove) and ShowGuideDesc (3295BA30: both throw), the controls' destructors |
 | `CX2PostBox` | 94 | 32CA5110 | partial | packages/ui/src/slot.ts (CX2PostBox) only what the dialog scripts reach through the global g_pPostBoxInventory (32CA5F80); the post box itself is not ported |
 | `CX2UIManager` | 93 | 32B7DE70 | todo |   |
 | `CX2Unit` | 92 | 329BB8A0 | todo |   |
