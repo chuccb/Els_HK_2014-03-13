@@ -14,7 +14,7 @@ import { CKTDGUIRadioButton } from "./radiobutton.ts";
 import { CKTDGUIDialog } from "./dialog.ts";
 import { DeviceManager } from "./device.ts";
 import { CKTDGUIDialogManager } from "./dialogmanager.ts";
-import { UIKeyboard, UIMouse } from "./input.ts";
+import { UIInputManager, UIKeyboard, UIMouse } from "./input.ts";
 import { UIRender } from "./render.ts";
 import { CKTDGUIItem, CKTDGUIStatic } from "./static.ts";
 import { CKTDGUISlot, CX2CouponBox, CX2PostBox, CX2Slot, CX2SlotManager } from "./slot.ts";
@@ -97,7 +97,9 @@ export class UIWorld implements UIContext {
   /** the message boxes the UI code opened, in order (the exe shows them modally) */
   readonly messageBoxes: { text: string; caption: string }[] = [];
   readonly render: UIRender | null;
-  readonly dialogManager = new CKTDGUIDialogManager();
+  readonly dialogManager = new CKTDGUIDialogManager(this);
+  /** `g_pKTDXApp->m_pDIManager` */
+  readonly diManager = new UIInputManager();
   /** `g_pKTDXApp->m_pDIManager->m_KTDIKeyboard` */
   readonly keyboard = new UIKeyboard();
   /** `g_pKTDXApp->m_pDIManager->m_KTDIMouse` */

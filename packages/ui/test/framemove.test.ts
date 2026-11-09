@@ -10,7 +10,7 @@ import { StringTable } from "@els/assets";
 import {
   BCS, CBCS, CKTDGUIButton, CKTDGUICheckBox, CKTDGUIComboBox, CKTDGUIContolList, CKTDGUIDialog, CKTDGUIDialogManager, CKTDGUIEditBox, CKTDGUIIMEEditBox,
   CKTDGFreeTypeFont, CKTDGUIListBox, CKTDGUINavigation, CKTDGUIRadioButton, CKTDGUIScrollBar, CKTDGUISlider, CKTDGUISlot, CKTDGUIStatic, CMovieData, CPictureData, DeviceSound,
-  RBCS, SCS, TA, TexChangeData, UIKeyboard, UIM, UIPointData, UIStringData, UKFont, newRect, setTexureData, setRect,
+  RBCS, SCS, TA, TexChangeData, UIInputManager, UIKeyboard, UIM, UIPointData, UIStringData, UKFont, newRect, setTexureData, setRect,
 } from "../src/index.ts";
 import type { CKTDGUIControl, ListBoxItem } from "../src/index.ts";
 import { wstringFind } from "../src/static.ts";
@@ -1881,7 +1881,7 @@ describe("CKTDGUIDialog::OnFrameMove (32958A00)", () => {
 describe("CKTDGUIDialogManager: CheckDlg (328DE0F0), CheckFrontModalDlg (328DE180), CountModalDialog (328DE4C0)", () => {
   function managed(n: number) {
     const { w } = setup();
-    const manager = new CKTDGUIDialogManager();
+    const manager = new CKTDGUIDialogManager(w);
     const dialogs = Array.from({ length: n }, () => {
       const d = new CKTDGUIDialog(w);
       d.m_bModal = false;
@@ -1894,7 +1894,8 @@ describe("CKTDGUIDialogManager: CheckDlg (328DE0F0), CheckFrontModalDlg (328DE18
   }
 
   test("constructor (328DD5F0): shown, cannot be hidden; GetHideDialog is m_bCanHide && !m_bShow", () => {
-    const m = new CKTDGUIDialogManager();
+    const { w } = setup();
+    const m = new CKTDGUIDialogManager(w);
     expect([m.m_bShow, m.m_bCanHide, m.getHideDialog(), m.m_iModalDialogCount]).toEqual([true, false, false, 0]);
     m.m_bCanHide = true;
     expect(m.getHideDialog()).toBe(false);
@@ -1934,12 +1935,12 @@ describe("CKTDGUIDialogManager: CheckDlg (328DE0F0), CheckFrontModalDlg (328DE18
     expect(manager.checkFrontModalDlg(null)).toBe(false);
   });
 
-  test("CheckFrontModalDlg is false for a dialog the manager does not hold (every dialog a script opens until AddDlg is ported) and for one that does not know its manager", () => {
+  test("CheckFrontModalDlg is false for a dialog the manager does not hold and for one that does not know its manager", () => {
     const { w, manager, dialogs } = managed(2);
     expect(manager.checkFrontModalDlg(new CKTDGUIDialog(w))).toBe(false);
     dialogs[0]!.m_pkUIDialogManager = null;
     expect(manager.checkFrontModalDlg(dialogs[0]!)).toBe(false);
-    expect(new CKTDGUIDialogManager().checkFrontModalDlg(dialogs[0]!)).toBe(false);
+    expect(new CKTDGUIDialogManager(w).checkFrontModalDlg(dialogs[0]!)).toBe(false);
   });
 
   test("CountModalDialog(dialog): +1 for a dialog that is not modal, shown and has no slot; (null): counted again over the list", () => {
@@ -1989,5 +1990,12 @@ describe("the keyboard (CKTDIDevice::GetKeyState 32962CF0, the lock loop of Read
     expect([k.getKeyState(5), k.getKeyState(6)]).toEqual([0, 0]);
     k.m_State[6] = -128; // pressed again
     expect(k.getKeyState(6)).toBe(1);
+  });
+});
+
+describe("the input manager (CKTDIManager::CKTDIManager 328CF0E0)", () => {
+  test("m_bEnabled is true at construction, in a world's too", () => {
+    expect(new UIInputManager().m_bEnabled).toBe(true);
+    expect(setup().w.diManager.m_bEnabled).toBe(true);
   });
 });

@@ -29,6 +29,15 @@ export class UIKeyboard {
 }
 
 /**
+ * `g_pKTDXApp->m_pDIManager` (`CKTDIManager`, 328CF0E0) as far as the dialogs reach it: `m_bEnabled` (true at construction) says whether the
+ * game's input is on; `CKTDGUIDialogManager::GetCloseDialogByESC` turns it on when it finds a message box to close.  The devices
+ * (`m_KTDIKeyboard`, `m_KTDIMouse`) are `UIContext.keyboard` and `.mouse`.
+ */
+export class UIInputManager {
+  m_bEnabled = true;
+}
+
+/**
  * The mouse as the controls see it: `g_pKTDXApp->m_pDIManager->m_KTDIMouse`, a `CKTDIDevice` of type 2.  `GetXPos` / `GetYPos`
  * (32962E60 / 32962EB0) answer `m_XPos` / `m_YPos` (a joystick, type 3, would first copy its axes): the position in pixels of the back
  * buffer, which `Read` (32962ED0) keeps up from DirectInput every frame.  The poll is not ported: a test, or later the host, puts the

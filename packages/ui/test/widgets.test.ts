@@ -5,7 +5,7 @@ import { StringTable } from "@els/assets";
 import { LuaError, LuaTable } from "@els/lua";
 import {
   CKTDGUIContolList, CKTDGUIEditBox, CKTDGUINavigation, CKTDGUIScrollBar, CKTDGUISlider, CKTDGUIStatic, CMovieData, CX2MapSelectWindow,
-  CX2SlotManager, D3DFMT_A8R8G8B8, E_FAIL, IntPairMap, NoVideoLibrary, UCT, UIM, UIWorld, ftoi, setRect,
+  CX2SlotManager, D3DFMT_A8R8G8B8, E_FAIL, IntPairMap, NoVideoLibrary, UCT, UIM, UIWorld, WStringMap, ftoi, setRect,
 } from "../src/index.ts";
 import type { BandiVideoLibrary, BandiVideoTexture, Rect } from "../src/index.ts";
 import { indexAllKoms, KomMassFileSource } from "../../../tools/komindex.ts";
@@ -41,6 +41,18 @@ describe("ftoi, IntPairMap and the render target devices", () => {
     expect(map.getOrInsert(1, 0, () => "other")).toBe("1,0");
     expect([map.get(0, 5), map.get(5, 0), map.get(1, 1)]).toEqual(["0,5", undefined, undefined]);
     expect(map.size).toBe(4);
+  });
+
+  test("WStringMap keeps its keys in order, emplace keeps the first value of a key, erase and clear empty it for good", () => {
+    const map = new WStringMap<number>();
+    expect([map.emplace("b", 2), map.emplace("a", 1), map.emplace("b", 9), map.emplace("c", 3)]).toEqual([true, true, false, true]);
+    expect([map.keys(), map.get("b"), map.size]).toEqual([["a", "b", "c"], 2, 3]);
+    expect([map.erase("b"), map.erase("b"), map.keys()]).toEqual([true, false, ["a", "c"]]);
+    map.clear();
+    expect([map.size, map.keys(), [...map], map.has("a"), map.has("c"), map.get("a")]).toEqual([0, [], [], false, false, undefined]);
+    // it works as a new map afterwards: the keys that were there do not come back, the order is kept
+    expect([map.emplace("z", 26), map.emplace("c", 30), map.emplace("a", 10)]).toEqual([true, true, true]);
+    expect([map.keys(), [...map].map(([k, v]) => `${k}${v}`), map.size]).toEqual([["a", "c", "z"], ["a10", "c30", "z26"], 3]);
   });
 
   test("OpenRenderTargetTexture (328EE4C0): no id, no device; the id is upper case; an open device is referenced again and keeps its size; CloseDevice unreferences", () => {

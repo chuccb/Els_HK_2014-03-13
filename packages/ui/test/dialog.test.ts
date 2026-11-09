@@ -110,16 +110,22 @@ describe("CKTDGUIDialog: controls and names", () => {
     expect([d.m_Pos.x, d.m_Pos.y]).toEqual([Math.fround(0.1), Math.fround(0.2)]);
   });
 
-  test("SetFront / SetLayer on a dialog that belongs to a manager need that manager (not ported)", () => {
-    const d = new CKTDGUIDialog(bare());
+  test("SetFront / SetLayer (3295B700 / 3295B790): a dialog of a manager asks the manager, which only moves the dialogs of its own set", () => {
+    const w = bare();
+    const d = new CKTDGUIDialog(w);
     d.SetFront(true);
     d.SetLayer(7);
     expect([d.m_bFront, d.m_iLayer]).toEqual([true, 7]);
-    d.m_pkUIDialogManager = new CKTDGUIDialogManager();
-    d.SetFront(true); // no change: the manager is not asked
-    d.SetLayer(7);
-    expect(() => d.SetFront(false)).toThrow("not ported");
-    expect(() => d.SetLayer(8)).toThrow("not ported");
+    const manager = new CKTDGUIDialogManager(w);
+    d.m_pkUIDialogManager = manager; // a manager the dialog knows but does not hold: ChangeFront / ChangeLayer fail CheckDlg and change nothing
+    d.SetFront(false);
+    d.SetLayer(8);
+    expect([d.m_bFront, d.m_iLayer, manager.m_iDialogListChangeCount]).toEqual([true, 7, 0]);
+    d.m_pkUIDialogManager = null;
+    expect(manager.addDlg(d)).toBe(true); // now the manager holds it: the change goes through the manager (the list moves, the count of changes goes up)
+    d.SetFront(false);
+    d.SetLayer(8);
+    expect([d.m_bFront, d.m_iLayer, manager.m_iDialogListChangeCount]).toEqual([false, 8, 5]);
   });
 
   test("a fade-in is not ported", () => {

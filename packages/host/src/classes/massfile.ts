@@ -63,8 +63,17 @@ export interface MassFileSource {
 /** `CKTDXLog::PushErrorLog(&g_CKTDXLog, id, text)`: the exe passes a message id (the table of texts is not ported) and one argument */
 export class ErrorLog {
   readonly entries: { id: number; text: string }[] = [];
+  /**
+   * `CKTDXLog::SetLastErrorLog(&g_CKTDXLog, text)` (328B17C0): the exe keeps the last text it was given in the std::string of the thread's
+   * TLS block (when the thread has one) for its crash report; the dialog manager puts the name of each dialog there before the dialog moves
+   */
+  lastErrorLog = "";
   push(id: number, text = ""): void {
     this.entries.push({ id, text });
+  }
+  /** `SetLastErrorLog(text)`: the text is the last one */
+  setLastErrorLog(text: string): void {
+    this.lastErrorLog = text;
   }
 }
 

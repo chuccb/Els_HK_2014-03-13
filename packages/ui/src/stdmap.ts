@@ -82,6 +82,12 @@ export class WStringMap<V> implements Iterable<[string, V]> {
     return true;
   }
 
+  /** `clear()` */
+  clear(): void {
+    this.sorted.length = 0;
+    this.values.clear();
+  }
+
   keys(): string[] {
     return [...this.sorted];
   }

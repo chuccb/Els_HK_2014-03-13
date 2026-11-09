@@ -23,7 +23,7 @@ import { DVB_TYPE } from "@els/engine";
 import type { DeviceManager, DeviceSound, DeviceTexture } from "./device.ts";
 import type { CKTDGUIDialog } from "./dialog.ts";
 import type { CKTDGUIDialogManager } from "./dialogmanager.ts";
-import type { UIKeyboard, UIMouse } from "./input.ts";
+import type { UIInputManager, UIKeyboard, UIMouse } from "./input.ts";
 import type { UIRender, VertexUI4 } from "./render.ts";
 import { ftoi } from "./rect.ts";
 import type { UIFonts } from "./font.ts";
@@ -79,6 +79,8 @@ export interface UIContext {
   readonly dialogManager: CKTDGUIDialogManager;
   /** `_clock()` in milliseconds: the CRT's clock the `boost::timer` of a dialog counts from */
   clock(): number;
+  /** `g_pKTDXApp->m_pDIManager`: the input manager's flag the dialog manager sets (`m_bEnabled`) */
+  readonly diManager: UIInputManager;
   /** `g_pKTDXApp->m_pDIManager->m_KTDIKeyboard`: the keys the controls ask for (a focused button answers the Enter key) */
   readonly keyboard: UIKeyboard;
   /** `g_pKTDXApp->m_pDIManager->m_KTDIMouse`: where the mouse is (the list box asks which row it is over) */
@@ -1244,6 +1246,14 @@ export class CKTDGUIControl implements Partial<CKTDGUIControl_Methods> {
   /** `OnFocusOut()`, virtual slot 10 */
   onFocusOut(): void {
     this.m_bHasFocus = false;
+  }
+
+  /**
+   * The deleting destructor (virtual slot 0: `~CKTDGUIControl` 32923680 and the destructor of each class) that `~CKTDGUIDialog` calls for
+   * every control.  Not ported yet.
+   */
+  Destroy(): void {
+    throw new Error(`${this.constructor.name}: the control's destructor is not ported`);
   }
 
   /**

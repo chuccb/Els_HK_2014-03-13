@@ -75,6 +75,15 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
   m_pkUIDialogManager: CKTDGUIDialogManager | null = null;
   /** `m_bHasSlot`: set by the game's code for a dialog of slots (the constructor makes it false); `CountModalDialog` leaves such a dialog out */
   m_bHasSlot = false;
+  /**
+   * `m_iDialogListChangeCount`: the manager's count of changes of its list at the last change that moved this dialog (negative: it was put at the
+   * bottom of its layer; 0: it is not in the list)
+   */
+  m_iDialogListChangeCount = 0;
+  /** `m_bOKAndCancelMsgBox`: the dialog is an OK / Cancel message box (the game's code says so; the constructor makes it false) */
+  m_bOKAndCancelMsgBox = false;
+  /** not in the exe: the dialog's slot of the `KJohnObjMan` table was freed (`Destroy`), so every handle to it resolves to nothing */
+  destroyed = false;
   /** the guide text's static and dialog (made by `CreateGuideDesc` when a control shows its guide text; the guide text is not ported, so null) */
   m_pStaticGuideDesc: CKTDGUIStatic | null = null;
   m_pDialogGuideDesc: CKTDGUIDialog | null = null;
@@ -364,18 +373,54 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
     this.m_bModal = modal;
   }
 
-  /** `SetFront(BOOL)` (3295B700): a dialog of a manager asks the manager (`ChangeFront`) */
+  /** `SetFront(BOOL)` (3295B700): a dialog of a manager asks the manager (`ChangeFront`: the dialog moves in the list) */
   SetFront(front: boolean): void {
     if (this.m_bFront === front) return;
-    if (this.m_pkUIDialogManager !== null) throw new Error("CKTDGUIDialogManager::ChangeFront is not ported");
-    this.m_bFront = front;
+    if (this.m_pkUIDialogManager !== null) this.m_pkUIDialogManager.changeFront(this, front);
+    else this.m_bFront = front;
   }
 
-  /** `SetLayer(int)` (3295B790): a dialog of a manager asks the manager (`ChangeLayer`) */
+  /** `SetLayer(int)` (3295B790): a dialog of a manager asks the manager (`ChangeLayer`: the dialog moves in the list) */
   SetLayer(layer: number): void {
     if (layer === this.m_iLayer) return;
-    if (this.m_pkUIDialogManager !== null) throw new Error("CKTDGUIDialogManager::ChangeLayer is not ported");
-    this.m_iLayer = layer;
+    if (this.m_pkUIDialogManager !== null) this.m_pkUIDialogManager.changeLayer(this, layer);
+    else this.m_iLayer = layer;
+  }
+
+  /**
+   * `MsgProc(hWnd, uMsg, wParam, lParam)` (32958350): the dialog's share of the window messages (the mouse and the keyboard of its controls).
+   * Not ported: the input.
+   */
+  msgProc(_hWnd: unknown, _uMsg: number, _wParam: number, _lParam: number): boolean {
+    throw new Error("CKTDGUIDialog::MsgProc (32958350: the dialog's input) is not ported");
+  }
+
+  /**
+   * `~CKTDGUIDialog` (329554D0), the deleting destructor the dialog manager calls (and `KJohnObjMan<CKTDGUIDialog>::Destroy`, which then frees the
+   * dialog's slot: `destroyed`).  The guide text's dialog is deleted from the application's manager; the dialog leaves the manager it belongs
+   * to (`UnmanageDlg`); a control of this dialog that has the focus loses it (`OnFocusOut`); the radio button groups are dropped, every control
+   * is destroyed (its own destructor) and the control list and the name map are emptied.
+   */
+  Destroy(): void {
+    if (this.m_pDialogGuideDesc !== null) {
+      this.ctx.dialogManager.deleteDlg(this.m_pDialogGuideDesc);
+      this.m_pDialogGuideDesc = null;
+    }
+    if (this.m_pkUIDialogManager !== null) this.m_pkUIDialogManager.unmanageDlg(this);
+    const focus = this.ctx.controlFocus;
+    if (focus !== null && focus.m_pDialog === this) {
+      focus.onFocusOut();
+      this.ctx.controlFocus = null;
+    }
+    this.m_mapRadioButtonGroupInfo.clear();
+    for (let i = 0; i < this.m_ControlsList.length; i++) {
+      const control = this.m_ControlsList[i];
+      if (control) control.Destroy();
+      this.m_ControlsList[i] = null as never;
+    }
+    this.m_ControlsList.length = 0;
+    this.m_ControlsMap.clear();
+    this.destroyed = true;
   }
 
   // ---- the controls a script creates -----------------------------------------------------------------------------------------
