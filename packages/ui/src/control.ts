@@ -105,6 +105,11 @@ export interface UIContext {
   readonly keyboard: UIKeyboard;
   /** `g_pKTDXApp->m_pDIManager->m_KTDIMouse`: where the mouse is (the list box asks which row it is over) */
   readonly mouse: UIMouse;
+  /**
+   * `SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0)` (the combo box and the list box ask when the wheel turns over an open dropdown): how
+   * many lines one notch of the wheel scrolls, a setting of the operating system (3 unless the user changed it).
+   */
+  wheelScrollLines(): number;
   /** the function-level statics of the `OnFrameRender`s: what the exe keeps for the life of its process, a world keeps here */
   readonly statics: RenderStatics;
 }
@@ -138,6 +143,18 @@ export function requestFocus(ctx: UIContext, control: CKTDGUIControl): void {
     ctx.controlFocus?.onFocusOut();
     control.onFocusIn();
     ctx.controlFocus = control;
+  }
+}
+
+/**
+ * `CKTDGUIDialog::ClearFocus()` (32956B90), a static function that reads nothing of any dialog (a control calls it through whatever its dialog handle
+ * resolves to): the control that has the focus is told it lost it and nobody has the focus.
+ */
+export function clearFocus(ctx: UIContext): void {
+  const focus = ctx.controlFocus;
+  if (focus) {
+    focus.onFocusOut();
+    ctx.controlFocus = null;
   }
 }
 
@@ -966,6 +983,16 @@ export class CKTDGUIControl implements Partial<CKTDGUIControl_Methods> {
    */
   showGuideDesc(): void {
     if (this.m_GuideDesc.length !== 0 && this.m_pDialog !== null) this.m_pDialog.showGuideDesc(this);
+  }
+
+  /** `GetGuideDescPos()` (329247A0), virtual slot 34: the offset added to the absolute position, a lane at a time in single precision (the slot overrides it) */
+  getGuideDescPos(): Vec2 {
+    return new Vec2(f(this.m_vGuideDescOffsetPos.x + this.m_vGuideDescAbsolutePos.x), f(this.m_vGuideDescOffsetPos.y + this.m_vGuideDescAbsolutePos.y));
+  }
+
+  /** `GetIsGuideDescAbsolutePos()` (329247E0), virtual slot 36: the guide text has an absolute position when either coordinate is not 0 (a NaN is not 0) */
+  getIsGuideDescAbsolutePos(): boolean {
+    return this.m_vGuideDescAbsolutePos.x !== 0 || this.m_vGuideDescAbsolutePos.y !== 0;
   }
 
   /**

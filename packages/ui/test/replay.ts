@@ -7,15 +7,16 @@
  * `A.mouse(513,20,20,0,0)`, `A.key(257,9,1)`, `A.msg(...)`, `A.in`, `A.out`, `A.change(state,force)`, `A.sound(up)`, `stage(1127,5,A)` (a message
  * to the stage: 0x467, the custom message 5, lParam the control A; for 0x468 the second number is the function name), `gameMsg(1126,2,A,1)`,
  * `returnDrag`, `modalCount(D)`, `resetComp`, `capture` / `release` (the window takes and gives back the mouse), `A.setChecked(b,double,input)`
- * (a radio button's `SetCheckedInternal`, replaced on both sides by its first statement `m_bChecked = b` and the call written down).
+ * (a radio button's `SetCheckedInternal`, replaced on both sides by its first statement `m_bChecked = b` and the call written down; a slot's
+ `ChangeState` is written down the same way as a button's, `A.change(state,force)`, and `ReturnDraggingItem` as `returnDrag`).
  * The state after a message is a list of `key=value` the oracle chooses by the kind of control (`STATE_MEMBERS` maps a key to the member of the port
  * that holds it; a rectangle is `l,t,r,b`, a point `x,y`, a flag 0 or 1).
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
-  CKTDGUIButton, CKTDGUICheckBox, CKTDGUIContolList, CKTDGUIControl, CKTDGUIDialog, CKTDGUINavigation, CKTDGUIRadioButton, CKTDGUIScrollBar,
-  CKTDGUISlider, CKTDGUISlot, CKTDGUIStatic, CPictureData, RadioButtonGroupInfo, UCT, UIPointData,
+  CKTDGUIButton, CKTDGUICheckBox, CKTDGUIComboBox, CKTDGUIContolList, CKTDGUIControl, CKTDGUIDialog, CKTDGUINavigation, CKTDGUIRadioButton, CKTDGUIScrollBar,
+  CKTDGUISlider, CKTDGUISlot, CKTDGUIStatic, CPictureData, RadioButtonGroupInfo, UCT, UIPointData, newRect, setRect,
 } from "../src/index.ts";
 import type { DeviceSound, UIStage } from "../src/index.ts";
 import { rig } from "./rig.ts";
@@ -30,7 +31,7 @@ const DIALOG_BOOLS = new Set([
   "m_bModal", "m_bEnable", "m_bShow", "m_bCloseOnFocusOut", "m_bEnableMoveByDrag", "m_bMouseDownForDrag", "m_bIsMouseOver",
   "m_bDisableUnderWindow", "m_bIsOverControl",
 ]);
-const CONTROL_BOOLS = new Set(["m_bEnable", "m_bShow", "m_bOutofList", "m_bMouseOver", "m_bHasFocus", "m_bChecked", "m_bPressed"]);
+const CONTROL_BOOLS = new Set(["m_bEnable", "m_bShow", "m_bOutofList", "m_bMouseOver", "m_bHasFocus", "m_bChecked", "m_bPressed", "m_bOpened", "m_bMousePointAdjust"]);
 /** the two sounds a button holds (the oracle's fake pointers 0x5550 and 0x5554) */
 const SOUND_UP = { id: "up" } as unknown as DeviceSound;
 const SOUND_DOWN = { id: "down" } as unknown as DeviceSound;
@@ -43,6 +44,8 @@ const STATE_MEMBERS: Record<string, string> = {
   pos: "m_nPosition", arrow: "m_Arrow", arrowTS: "m_dArrowTS", upClicked: "m_bIsUpButtonClicked", downClicked: "m_bIsDownButtonClicked",
   drag: "m_bDrag", showThumb: "m_bShowThumb", last: "m_LastMouse", thumb: "m_rcThumb",
   dragging: "m_bDraggingWindow", ptLast: "m_ptLastMouse", rcBG: "m_rcBG", rcWindow: "m_rcWindow",
+  state: "m_eControlState",
+  opened: "m_bOpened", selected: "m_iSelected", focused: "m_iFocused", adjust: "m_bMousePointAdjust",
 };
 
 function showField(v: unknown): string {
@@ -55,12 +58,16 @@ function showField(v: unknown): string {
 }
 
 /** the text of the state the oracle wrote (`want`), as the port reads it: the same keys, in the same order */
-function stateOf(w: ReturnType<typeof setup>["w"], c: CKTDGUIControl, want: string, focus: string): string {
+function stateOf(w: ReturnType<typeof setup>["w"], c: CKTDGUIControl, want: string, focus: string, labelOf: (v: unknown) => string): string {
   return want.split(" ").map((kv) => {
     const key = kv.slice(0, kv.indexOf("="));
     if (key === "focus") return `focus=${focus}`;
+    // a slot: the slot that was dropped on it and the one that is being dragged (`s_pDragSlot`), by label (none: null)
+    if (key === "dropped") return `dropped=${(c as CKTDGUISlot).m_pDroppedSlot === null ? "none" : labelOf((c as CKTDGUISlot).m_pDroppedSlot)}`;
+    if (key === "dragSlot") return `dragSlot=${CKTDGUISlot.s_pDragSlot === null ? "none" : labelOf(CKTDGUISlot.s_pDragSlot)}`;
     if (key === "down") return `down=${+c.m_pDialog!.m_bMouseDownForDrag}`;
     if (key === "thumbOffsetY") return `thumbOffsetY=${w.statics.thumbOffsetY}`;
+    if (key === "btnOffset") return `btnOffset=${(c as CKTDGUIComboBox).m_ButtonOffsetX},${(c as CKTDGUIComboBox).m_ButtonOffsetY}`;
     if (key === "winPoint") { // the eight floats of the navigation's window point, corner by corner
       const p = (c as CKTDGUINavigation).m_pWindowPoint!;
       return `winPoint=${[p.leftTopPoint, p.rightTopPoint, p.leftBottomPoint, p.rightBottomPoint].map((v) => `${v.x},${v.y}`).join(",")}`;
@@ -73,12 +80,18 @@ function stateOf(w: ReturnType<typeof setup>["w"], c: CKTDGUIControl, want: stri
 class Probe extends CKTDGUIControl {
   readonly answers: { mouse?: number; key?: number; msg?: number } = {};
   readonly effects: { mouse?: () => void } = {};
+  /** what a scroll bar has that a combo box asks (`m_nPosition`, `Scroll`): the probe is the bar of the case's combo box */
+  m_nPosition = 0;
   constructor(w: ConstructorParameters<typeof CKTDGUIControl>[0], readonly label: string, private readonly log: string[]) {
     super(w);
     this.m_Name = label;
   }
+  scroll(delta: number): void {
+    this.log.push(`${this.label}.scroll(${delta})`);
+  }
   override handleMouse(uMsg: number, x: number, y: number, wParam: number, lParam: number): boolean {
-    this.log.push(`${this.label}.mouse(${uMsg},${x},${y},${wParam},${lParam})`);
+    // the oracle writes the arguments as the signed 32-bit numbers they are on the stack
+    this.log.push(`${this.label}.mouse(${uMsg},${x},${y},${wParam | 0},${lParam | 0})`);
     this.effects.mouse?.();
     return this.answers.mouse === 1;
   }
@@ -122,9 +135,14 @@ export function runScene(ops: Op[]): void {
     for (const [name, c] of controls) if (c === v) return name;
     return typeof v === "number" ? String(v) : v === null ? "0" : "?";
   };
+  // `watch`: a message of a slot is written down with the slot's m_pDroppedSlot of that moment (what the stage's handler sees)
+  let watchDropped = false;
   const stage: UIStage = {
     MsgProc: (msg: number, wParam: number | string, lParam: unknown) => {
-      log.push(`stage(${msg},${wParam},${labelOf(lParam)})`);
+      let seen = watchDropped && lParam instanceof CKTDGUISlot ? `[dropped=${lParam.m_pDroppedSlot === null ? "none" : labelOf(lParam.m_pDroppedSlot)}]` : "";
+      // a combo box's message is written down with its selection of that moment (the handler may ask for it)
+      if (lParam instanceof CKTDGUIComboBox) seen = `[sel=${lParam.m_iSelected} foc=${lParam.m_iFocused} open=${+lParam.m_bOpened}]`;
+      log.push(`stage(${msg},${wParam},${labelOf(lParam)})${seen}`);
       return true;
     },
   };
@@ -332,6 +350,45 @@ export function runScene(ops: Op[]): void {
           controls.set(label, c);
           break;
         }
+        case "combo": {
+          const [label, , o] = a as [string, string, {
+            box: number[]; drop: number[]; items: [number[], boolean, string | null][]; bar: string | null; selected: number; focused: number; opened: boolean;
+            pressed: boolean; enable: boolean; show: boolean; selMsg: number; openMsg: number; closeMsg: number; sound: boolean; adjust: boolean; btnOff: number[];
+          }];
+          const c = new CKTDGUIComboBox(w);
+          c.m_Name = label;
+          const rect4 = (v: number[]): [number, number, number, number] => [v[0]!, v[1]!, v[2]!, v[3]!];
+          setRect(c.m_rcBoundingBox2, ...rect4(o.box));
+          setRect(c.m_rcDropdown, ...rect4(o.drop));
+          for (const [rect, visible, control] of o.items) {
+            const rc = newRect();
+            setRect(rc, ...rect4(rect));
+            c.m_Items.push({ strText: "", pData: null, rcActive: rc, bVisible: visible, pControl: control === null ? null : controls.get(control)! });
+          }
+          c.m_pScrollBar = o.bar === null ? null : (controls.get(o.bar) as unknown as CKTDGUIScrollBar);
+          c.m_iSelected = o.selected;
+          c.m_iFocused = o.focused;
+          c.m_bOpened = o.opened;
+          c.m_bPressed = o.pressed;
+          c.m_bEnable = o.enable;
+          c.m_bShow = o.show;
+          c.m_CustomMsgSelectionChanged = o.selMsg;
+          c.m_CustomMsgOpenDropdown = o.openMsg;
+          c.m_CustomMsgCloseDropdown = o.closeMsg;
+          c.m_pSndButtonMouseDown = o.sound ? SOUND_DOWN : undefined;
+          c.m_bMousePointAdjust = o.adjust;
+          c.m_ButtonOffsetX = o.btnOff[0]!;
+          c.m_ButtonOffsetY = o.btnOff[1]!;
+          c.playSound = (s) => void log.push(`${label}.sound(${s === SOUND_DOWN ? "down" : "none"})`);
+          controls.set(label, c);
+          break;
+        }
+        case "wheel": // the operating system's lines per notch; asking is written down
+          w.wheelScrollLines = () => {
+            log.push("spi");
+            return a[0] as number;
+          };
+          break;
         case "navigation": {
           const [label, , o] = a as [string, string, {
             bg: number[]; win: number[]; enable: boolean; show: boolean; drag: boolean; last: number[]; downMsg: number; dragMsg: number;
@@ -389,6 +446,53 @@ export function runScene(ops: Op[]): void {
           const info = new RadioButtonGroupInfo(id);
           info.m_iMaxCheckCount = max;
           dialogOf(dialog).m_mapRadioButtonGroupInfo.set(id, info);
+          break;
+        }
+        case "slotctl": { // a slot as a control: the state it is in, the custom messages, the sounds, the guide text's position, the mouse-over point
+          const [label, , o] = a as [string, string, {
+            rect: number[]; enable: boolean; show: boolean; state: number; dragable: boolean; down: number; up: number; rightUp: number; drop: number;
+            sndUp: boolean; sndDown: boolean; guide: (number | string)[]; offset: (number | string)[]; over: number[] | null;
+          }];
+          const c = new CKTDGUISlot(w);
+          c.m_Name = label;
+          setQuad(c, o.rect);
+          c.m_bEnable = o.enable;
+          c.m_bShow = o.show;
+          c.m_eControlState = o.state;
+          c.m_bDragable = o.dragable;
+          c.m_CustomMsgMouseDown = o.down;
+          c.m_CustomMsgMouseUp = o.up;
+          c.m_CustomMsgMouseRightUp = o.rightUp;
+          c.m_CustomMsgDropped = o.drop;
+          c.m_pSndMouseUp = o.sndUp ? SOUND_UP : undefined;
+          c.m_pSndMouseDown = o.sndDown ? SOUND_DOWN : undefined;
+          c.m_vGuideDescAbsolutePos.set(Number(o.guide[0]), Number(o.guide[1]));
+          c.m_vGuideDescOffsetPos.set(Number(o.offset[0]), Number(o.offset[1]));
+          if (o.over !== null) { // the eight coordinates: left-top, right-top, left-bottom, right-bottom
+            const p = new UIPointData();
+            const v = o.over as [number, number, number, number, number, number, number, number];
+            p.leftTopPoint.set(v[0], v[1]);
+            p.rightTopPoint.set(v[2], v[3]);
+            p.leftBottomPoint.set(v[4], v[5]);
+            p.rightBottomPoint.set(v[6], v[7]);
+            c.m_pMouseOverPoint = p;
+          }
+          c.playSound = (s) => void log.push(`${label}.sound(${s === SOUND_UP ? "up" : s === SOUND_DOWN ? "down" : "none"})`);
+          c.ChangeState = (state, force) => void log.push(`${label}.change(${state},${+force})`);
+          controls.set(label, c);
+          break;
+        }
+        case "watch":
+          watchDropped = a[0] as boolean;
+          break;
+        case "dragslot": // `CKTDGUISlot::s_pDragSlot` is this slot (null: nobody)
+          CKTDGUISlot.s_pDragSlot = a[0] === null ? null : (controls.get(a[0] as string) as CKTDGUISlot);
+          break;
+        case "putGuide": { // the guide text's absolute position and offset of any control
+          const [label, guide, offset] = a as [string, (number | string)[], (number | string)[]];
+          const c = controls.get(label)!;
+          c.m_vGuideDescAbsolutePos.set(Number(guide[0]), Number(guide[1]));
+          c.m_vGuideDescOffsetPos.set(Number(offset[0]), Number(offset[1]));
           break;
         }
         case "register": {
@@ -476,7 +580,34 @@ export function runScene(ops: Op[]): void {
           log.length = 0;
           const ret = c.handleMouse(args[0]!, args[1]!, args[2]!, args[3]!, args[4]!);
           // the keys of the state are the ones the oracle wrote down for this kind of control
-          expect([name, +ret, log.slice(), stateOf(w, c, want.state, focusLabel())]).toEqual([name, want.ret, want.events, want.state]);
+          expect([name, +ret, log.slice(), stateOf(w, c, want.state, focusLabel(), labelOf)]).toEqual([name, want.ret, want.events, want.state]);
+          break;
+        }
+        case "act_out": { // OnFocusOut()
+          const [name, label, want] = a as [string, string, Expect];
+          const c = controls.get(label)!;
+          log.length = 0;
+          c.onFocusOut();
+          expect([name, 0, log.slice(), stateOf(w, c, want.state, focusLabel(), labelOf)]).toEqual([name, want.ret, want.events, want.state]);
+          break;
+        }
+        case "act_hotkey": { // OnHotkey() of a combo box
+          const [name, label, want] = a as [string, string, Expect];
+          const c = controls.get(label) as CKTDGUIComboBox;
+          log.length = 0;
+          c.onHotkey();
+          expect([name, 0, log.slice(), stateOf(w, c, want.state, focusLabel(), labelOf)]).toEqual([name, want.ret, want.events, want.state]);
+          break;
+        }
+        case "act_guide": { // GetGuideDescPos() as the point `x,y`, or GetIsGuideDescAbsolutePos() as 0 / 1
+          const [name, label, what, want] = a as [string, string, "pos" | "isAbsolute", string];
+          const c = controls.get(label)!;
+          let got: string;
+          if (what === "pos") {
+            const p = c.getGuideDescPos();
+            got = `${p.x},${p.y}`;
+          } else got = String(+c.getIsGuideDescAbsolutePos());
+          expect([name, got]).toEqual([name, want]);
           break;
         }
         case "act_msg": { // the scroll bar's and the navigation's own MsgProc(uMsg, wParam, lParam)
@@ -484,7 +615,7 @@ export function runScene(ops: Op[]): void {
           const c = controls.get(label) as CKTDGUIScrollBar | CKTDGUINavigation;
           log.length = 0;
           const ret = c instanceof CKTDGUINavigation ? c.navigationMsgProc(args[0]!, args[1]!, args[2]!) : c.scrollBarMsgProc(args[0]!, args[1]!, args[2]!);
-          expect([name, +ret, log.slice(), stateOf(w, c, want.state, focusLabel())]).toEqual([name, want.ret, want.events, want.state]);
+          expect([name, +ret, log.slice(), stateOf(w, c, want.state, focusLabel(), labelOf)]).toEqual([name, want.ret, want.events, want.state]);
           break;
         }
         default:

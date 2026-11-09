@@ -15,15 +15,16 @@
  * `OnFrameRender` (3293DB00) draws the closed box (the button, the text rectangle, the selected row's text or control) and
  * `OnFrameRenderEnd` (3293E390) the dropdown, which the dialog draws in its second pass, over the other controls; see `onFrameRender`.
  *
- * Not ported: what the box does while the game runs (`MsgProc`, `HandleMouse`, `OnFocusOut`, `OnHotkey`).  The virtual functions the Lua methods of the base class reach are the base class's: the box overrides only those
+ * What the box does while the game runs: `HandleMouse` (3293D340, slot 8), `OnFocusOut` (3293D930, slot 10) and `OnHotkey` (3293F790, slot 41); the box has no
+ * `MsgProc` and no `HandleKeyboard` of its own (the base class's answer no).  The virtual functions the Lua methods of the base class reach are the base class's: the box overrides only those
  * and `UpdateRects` (vtable slot 42, which is where `SetDropHeight` and the setters go).
  */
 import type { CKTDGUIComboBox_Methods } from "@els/host";
 import { Vec2 } from "@els/host";
-import { CKTDGUIControl, UCT, UIM, UIPointData, destroyTexture, readStringData, wcharText } from "./control.ts";
+import { CKTDGUIControl, UCT, UIM, UIPointData, clearFocus, destroyTexture, readStringData, requestFocus, wcharText } from "./control.ts";
 import type { UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
-import { idiv, newRect, offsetRect, setRect, copyRect } from "./rect.ts";
+import { copyRect, idiv, newRect, offsetRect, ptInRect, setRect } from "./rect.ts";
 import type { Rect } from "./rect.ts";
 import { VertexUI4 } from "./render.ts";
 import { CKTDGUIScrollBar } from "./scrollbar.ts";
@@ -563,6 +564,155 @@ export class CKTDGUIComboBox extends CKTDGUIControl implements Partial<CKTDGUICo
     const custom = this.m_CustomMsgSelectionChanged;
     if (custom === -1) this.sendInternelEvent(UIM.CONTROL_EVENT, 0);
     else this.sendInternelEvent(UIM.CUSTOM_MSG, custom);
+  }
+
+  /**
+   * `HandleMouse(uMsg, pt, wParam, lParam)` (3293D340), virtual slot 8.  Not shown or not enabled: not taken.  The scroll bar is asked first, for every
+   * message, and when it takes the message nothing else happens.  Then:
+   *  - 0x200 (move): over the open dropdown the focused row is the LAST visible row whose active rectangle holds the point (the loop does not stop at
+   *    the first); taken.  Otherwise (closed, or the point is outside the dropdown) the message goes to the rows' controls (below).
+   *  - 0x201 and 0x203 (left button down, double click), on the box (`m_rcBoundingBox2`): the box is pressed, the window takes the mouse, and when the box
+   *    has the focus (or gets it: `RequestFocus`, with no `CheckDlg`: a box that is the focused control all the same, with its flag off, gets nothing)
+   *    the mouse down sound plays, the dropdown opens or closes (closing clears the focus: `OnFocusOut` of whoever has it) and the custom message for the
+   *    new state (0x467, `m_CustomMsgOpenDropdown` or `m_CustomMsgCloseDropdown`) is sent unless it is -1; taken in every case.
+   *    Off the box with the dropdown open: outside the dropdown the focused row goes back to the selected one, the sound plays, the selection message
+   *    (0x467 with `m_CustomMsgSelectionChanged`, or 0x466 with 0 when there is none) is sent and the dropdown closes; inside it the first visible row
+   *    holding the point (searched from the scroll bar's position when there is a bar) is selected and focused, the sound plays, the selection message
+   *    is sent, the dropdown closes (with a bar the focus is cleared too) and the message is taken (also when no row holds the point).
+   *    Any other press (the dropdown closed, or just closed above) lets go of the box and clears the focus, and goes to the rows' controls.
+   *  - 0x202 (left button up): on the box while it is pressed: let go, the window gives the mouse back; taken.  Anything else goes to the rows' controls.
+   *  - 0x20A (wheel; `notches = HIWORD(wParam) / 120`, cut towards zero): open: the bar (if any) scrolls by `-(lines * notches)`, the OS's lines per
+   *    notch; closed: one row up for a positive count and one down for the rest (0 too), when there is one there, and the selection message is sent.
+   *    Never taken.
+   * Every other message, and what is left above, goes to the control of every row (in order, with the answers dropped); not taken.
+   */
+  override handleMouse(uMsg: number, x: number, y: number, wParam: number, lParam: number): boolean {
+    if (!this.m_bShow || !this.m_bEnable) return false;
+    const bar = this.m_pScrollBar;
+    if (bar !== null && bar.handleMouse(uMsg, x, y, wParam, lParam)) return true;
+    const pt = { x, y };
+    switch (uMsg) {
+      case 0x200:
+        if (this.m_bOpened && ptInRect(this.m_rcDropdown, pt)) {
+          for (let i = 0; i < this.m_Items.length; i++) {
+            const item = this.m_Items[i]!;
+            if (item.bVisible && ptInRect(item.rcActive, pt)) this.m_iFocused = i;
+          }
+          return true;
+        }
+        break;
+      case 0x201:
+      case 0x203:
+        if (ptInRect(this.m_rcBoundingBox2, pt)) {
+          this.m_bPressed = true;
+          this.ctx.setCapture();
+          if (!this.m_bHasFocus) requestFocus(this.ctx, this);
+          if (this.m_bHasFocus) {
+            this.playSound(this.m_pSndButtonMouseDown);
+            const wasOpened = this.m_bOpened;
+            this.m_bOpened = !wasOpened;
+            if (wasOpened) clearFocus(this.ctx);
+            const msg = this.m_bOpened ? this.m_CustomMsgOpenDropdown : this.m_CustomMsgCloseDropdown;
+            if (msg !== -1) this.sendInternelEvent(UIM.CUSTOM_MSG, msg);
+          }
+          return true;
+        }
+        if (this.m_bOpened) {
+          if (ptInRect(this.m_rcDropdown, pt)) return this.pickRow(pt);
+          this.m_iFocused = this.m_iSelected;
+          this.playSound(this.m_pSndButtonMouseDown);
+          this.sendSelectionChanged();
+          this.m_bOpened = false;
+        }
+        this.m_bPressed = false;
+        clearFocus(this.ctx);
+        break;
+      case 0x202:
+        if (this.m_bPressed && ptInRect(this.m_rcBoundingBox2, pt)) {
+          this.m_bPressed = false;
+          this.ctx.releaseCapture();
+          return true;
+        }
+        break;
+      case 0x20a: {
+        const notches = idiv(wParam >> 16, 120); // the signed high word
+        if (this.m_bOpened) {
+          const lines = this.ctx.wheelScrollLines(); // asked even when there is no bar
+          if (bar !== null) bar.scroll(-Math.imul(lines, notches) | 0);
+          return false;
+        }
+        let next: number;
+        if (notches <= 0) {
+          next = (this.m_iFocused + 1) | 0;
+          if (next >= this.m_Items.length) return false;
+        } else {
+          if (this.m_iFocused <= 0) return false;
+          next = (this.m_iFocused - 1) | 0;
+        }
+        this.m_iFocused = next;
+        this.m_iSelected = next;
+        this.sendSelectionChanged();
+        return false;
+      }
+      default:
+        break;
+    }
+    for (let i = 0; i < this.m_Items.length; i++) this.m_Items[i]!.pControl?.handleMouse(uMsg, x, y, wParam, lParam);
+    return false;
+  }
+
+  /**
+   * what a left button down inside the open dropdown does: the first visible row that holds the point (from the first row, or from the scroll bar's
+   * position when there is a bar: the exe reads the row at `m_nPosition` without looking at it first, so a position before the first row reads memory
+   * that is not the array) is selected and focused, the mouse down sound plays, the selection message is sent and the dropdown closes; with a bar the
+   * focus is cleared too.  Taken, whether or not a row was found (then nothing happens).
+   */
+  private pickRow(pt: { x: number; y: number }): boolean {
+    const bar = this.m_pScrollBar;
+    let i = 0;
+    if (bar !== null) {
+      i = bar.m_nPosition;
+      if (i >= this.m_Items.length) return true;
+      if (i < 0) throw new Error(`CKTDGUIComboBox::HandleMouse: the scroll bar's position ${i} is before the first row (the exe reads the memory before the array)`);
+    }
+    for (; i < this.m_Items.length; i++) {
+      const item = this.m_Items[i]!;
+      if (item.bVisible && ptInRect(item.rcActive, pt)) {
+        this.m_iSelected = i;
+        this.m_iFocused = i;
+        this.playSound(this.m_pSndButtonMouseDown);
+        this.sendSelectionChanged();
+        this.m_bOpened = false;
+        if (bar !== null) clearFocus(this.ctx);
+        return true;
+      }
+    }
+    return true;
+  }
+
+  /** `OnFocusOut()` (3293D930), virtual slot 10: the dropdown closes and the button is let go of; the mouse point is to be adjusted again */
+  override onFocusOut(): void {
+    this.m_bMousePointAdjust = true;
+    this.m_bHasFocus = false;
+    this.m_bOpened = false;
+    this.m_ButtonOffsetX = 0;
+    this.m_ButtonOffsetY = 0;
+  }
+
+  /**
+   * `OnHotkey()` (3293F790), virtual slot 41 (nothing in the exe calls it by name; the dialog's hotkey dispatch reaches it): a closed box that has a
+   * selection moves it to the next row (the first after the last) and sends the selection message.
+   */
+  onHotkey(): void {
+    if (this.m_bOpened || this.m_iSelected === -1) return;
+    let next = (this.m_iSelected + 1) | 0;
+    this.m_iSelected = next;
+    if (next >= this.m_Items.length) {
+      this.m_iSelected = 0;
+      next = 0;
+    }
+    this.m_iFocused = next;
+    this.sendSelectionChanged();
   }
 
   /**

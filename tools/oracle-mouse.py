@@ -82,10 +82,11 @@ class MouseOracle:
         return d
 
     def control(self, cls, name, corners=None, offset=(0.0, 0.0), show=True, enable=True, out_of_list=False, dialog=-1,
-                enable_lt=(0.0, 0.0), enable_rb=(0.0, 0.0), pictures=None, mouse_over=False, bars=None, bg=None):
-        """corners: left-top, right-top, left-bottom, right-bottom (the current point); pictures (a Static): a list of such corner lists"""
+                enable_lt=(0.0, 0.0), enable_rb=(0.0, 0.0), pictures=None, mouse_over=False, bars=None, bg=None, size=0x400):
+        """corners: left-top, right-top, left-bottom, right-bottom (the current point); pictures (a Static): a list of such corner lists;
+        size: the bytes of the object (a combo box is 0x424)"""
         emu = self.emu
-        c = emu.alloc(0x400)
+        c = emu.alloc(size)
         emu.w32(c, VTABLE[cls])
         emu.write(c + 4, struct.pack("<ii", dialog, 1))
         emu.w32(c + 0xC, UCT[cls])

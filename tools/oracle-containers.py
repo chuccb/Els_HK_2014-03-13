@@ -304,6 +304,11 @@ def main():
         hit("N4 a window of 40 x 31 centred on y %d: y is rounded to single precision before the half height is added or taken" % y, "A", 0x201, 70, y)
     fresh_nav(bg=(-2147483648, -2147483648, 2147483520, 2147483520), win=(-2000000000, -2000000000, 2000000000, 2000000000))
     hit("N4 a window 4000000000 wide and high (its width is -294967296 in 32 bits): the half is -147483648, a corner past the int range is the integer indefinite", "A", 0x201, -2100000000, 0)
+    # a corner below zero with a fraction is cut towards zero (-15.5 is -15), not down (-16): the background reaches below zero so that nothing pushes it
+    fresh_nav(bg=(-100, -100, 210, 110), win=(50, 30, 91, 61))
+    hit("N4 a window of 41 x 31 centred on (5,5), the background reaches below zero: left 5 - 20.5 = -15.5 and top 5 - 15.5 = -10.5 are cut towards zero (-15, -10)", "A", 0x201, 5, 5)
+    fresh_nav(bg=(-100, -100, 210, 110), win=(50, 30, 91, 61))
+    hit("N4 the same centred on (-3,-4): left -23.5 and top -19.5 give -23 and -19; right 17.5 and bottom 11.5 give 17 and 11", "A", 0x201, -3, -4)
     for axis in "xy":
         def pos(v, other=20):
             return (v, other) if axis == "x" else (other, v)

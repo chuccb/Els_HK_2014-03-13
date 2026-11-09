@@ -143,6 +143,13 @@ export class UIWorld implements UIContext {
     return this.devices.massFiles.tickCount();
   }
 
+  /** the operating system's setting: the lines one notch of the wheel scrolls (`SPI_GETWHEELSCROLLLINES`; Windows' default is 3) */
+  scrollLines = 3;
+
+  wheelScrollLines(): number {
+    return this.scrollLines;
+  }
+
   /** whether the window holds the mouse (`SetCapture` was called and `ReleaseCapture` was not) */
   mouseCaptured = false;
 

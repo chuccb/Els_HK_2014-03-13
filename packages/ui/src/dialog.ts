@@ -15,7 +15,7 @@
 import { LuaError } from "@els/lua";
 import { Color, KLuaManager, Vec2, Vec3 } from "@els/host";
 import type { CKTDGUIDialog_Methods } from "@els/host";
-import { CKTDGUIControl, CPictureData, UCT, UIM, approach, requestFocus } from "./control.ts";
+import { CKTDGUIControl, CPictureData, UCT, UIM, approach, clearFocus, requestFocus } from "./control.ts";
 import type { UIStage } from "./control.ts";
 import { CKTDGUIButton } from "./button.ts";
 import { CKTDGUICheckBox } from "./checkbox.ts";
@@ -934,11 +934,7 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
 
   /** `CKTDGUIDialog::ClearFocus()` (32956B90), a static function: the control that has the focus loses it */
   clearFocus(): void {
-    const ctx = this.ctx;
-    if (ctx.controlFocus) {
-      ctx.controlFocus.onFocusOut();
-      ctx.controlFocus = null;
-    }
+    clearFocus(this.ctx);
   }
 
   // ---- moving ----------------------------------------------------------------------------------------------------------------

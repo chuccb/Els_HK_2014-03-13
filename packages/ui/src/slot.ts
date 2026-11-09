@@ -13,7 +13,8 @@
  * `CKTDGUISlot::CKTDGUISlot` 329507F0, SetItemTex_LUA 32953E40 (-> SetItemTex(file, key) 329535F0), SetItemTex_LUA2 32953B00,
  * SetMouseOverTex_LUA 32954140, SetPoint_LUA 329543F0, SetMouseOverPoint_LUA 32954030, SetString_LUA 32954570,
  * SetAllPointDatabyNormalPoint 329534D0, ChangeState 32950FB0, SetEnable 329535C0, SetShow 329544F0.  The drawing: OnFrameRender 32952670,
- * DrawEdge 32951310, RenderDragSlot 32952DD0, UpdateDraggingVertex 329545B0.
+ * DrawEdge 32951310, RenderDragSlot 32952DD0, UpdateDraggingVertex 329545B0.  The input: HandleMouse 329520A0, OnFocusOut 329523D0,
+ * GetGuideDescPos 32951F20.
  */
 import { D3DRS } from "@els/d3d9";
 import { Color, KLuaManager, Vec2 } from "@els/host";
@@ -126,6 +127,141 @@ export class CKTDGUISlot extends CKTDGUIControl implements Partial<CKTDGUISlot_M
   /** `ContainsPoint` (3292D460, the function Button has too): the control's quadrilateral and, with one, its enable rectangle: `containsPointInEnableRect` */
   override containsPoint(x: number, y: number): boolean {
     return this.containsPointInEnableRect(x, y);
+  }
+
+  // ---- input ---------------------------------------------------------------------------------------------------------------
+
+  /** how the slot asks for the focus: when it does not have it and the manager knows its dialog (`CheckDlg`), the dialog's `RequestFocus` */
+  private takeFocus(): void {
+    const dialog = this.m_pDialog;
+    if (!this.m_bHasFocus && this.ctx.dialogManager.checkDlg(dialog)) dialog.requestFocus(this);
+  }
+
+  /**
+   * what the left button up does when the slot is not the one that is dragged (or the dragged slot goes back): nobody is dragged: the mouse-up
+   * sound; else the dragged slot goes back to normal (forced), nobody is dragged and the sound plays.  Taken.
+   */
+  private letGoOfTheDragged(): boolean {
+    const dragged = CKTDGUISlot.s_pDragSlot;
+    if (dragged !== null) {
+      dragged.ChangeState(SCS.NORMAL, true);
+      CKTDGUISlot.s_pDragSlot = null;
+    }
+    this.playSound(this.m_pSndMouseUp);
+    return true;
+  }
+
+  /**
+   * `HandleMouse(uMsg, pt, wParam, lParam)` (329520A0), virtual: a disabled or hidden slot takes nothing.  Otherwise
+   *  - 0x201 (left button down): not taken outside the slot.  Inside it asks for the focus (`CheckDlg` first), plays the mouse-down sound, and
+   *    unless it is disabled goes to `ONDRAG` when it is dragable, else to `DOWN`, and sends its custom message `m_CustomMsgMouseDown` (0x467,
+   *    unless it is -1); taken.
+   *  - 0x202 (left button up): outside the slot taken with nothing done.  Inside, by the state: normal / mouse over: a dragged slot in `ONDRAG`
+   *    is dropped here (`m_pDroppedSlot`, the custom message `m_CustomMsgDropped` sent even when it is -1, `ReturnDraggingItem`, the mouse-up
+   *    sound), else just the sound.  Down: `m_CustomMsgMouseUp` is sent (even when it is -1), the slot goes to normal and whoever is dragged goes
+   *    back (the sound).  Dragging: only when it is the dragged slot, `ReturnDraggingItem` and the sound, else the sound.  Disabled and any other
+   *    state: whoever is dragged goes back and the sound plays.  Taken.
+   *  - 0x204 (right button down): asks for the focus wherever the point is; then, in the slot and with the focus, a dragged slot goes back, the
+   *    slot goes to `DOWN` and the mouse-down sound plays.  Taken.
+   *  - 0x205 (right button up): in the slot and with the focus the custom message `m_CustomMsgMouseRightUp` (0x467, unless it is -1), the state
+   *    `MOUSEOVER` and the mouse-up sound.  Taken.
+   * Any other message (0x203 too) is not taken.
+   */
+  override handleMouse(uMsg: number, x: number, y: number, _wParam: number, _lParam: number): boolean {
+    if (!this.m_bEnable || !this.m_bShow) return false;
+    switch (uMsg) {
+      case 0x201: {
+        if (!this.containsPoint(x, y)) return false;
+        this.takeFocus();
+        this.playSound(this.m_pSndMouseDown);
+        if (this.m_eControlState === SCS.DISABLE) return true;
+        this.ChangeState(this.m_bDragable ? SCS.ONDRAG : SCS.DOWN, false);
+        const msg = this.m_CustomMsgMouseDown;
+        if (msg !== -1) this.sendInternelEvent(UIM.CUSTOM_MSG, msg);
+        return true;
+      }
+      case 0x202: {
+        if (!this.containsPoint(x, y)) return true;
+        const dragged = CKTDGUISlot.s_pDragSlot;
+        switch (this.m_eControlState) {
+          case SCS.NORMAL:
+          case SCS.MOUSEOVER:
+            if (dragged === null || dragged.m_eControlState !== SCS.ONDRAG) {
+              this.playSound(this.m_pSndMouseUp);
+              return true;
+            }
+            this.m_pDroppedSlot = dragged;
+            this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgDropped);
+            CKTDGUISlot.returnDraggingItem();
+            this.playSound(this.m_pSndMouseUp);
+            return true;
+          case SCS.DOWN:
+            this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgMouseUp);
+            this.ChangeState(SCS.NORMAL, false);
+            return this.letGoOfTheDragged();
+          case SCS.ONDRAG:
+            if (dragged === null || dragged !== this) {
+              this.playSound(this.m_pSndMouseUp);
+              return true;
+            }
+            CKTDGUISlot.returnDraggingItem();
+            this.playSound(this.m_pSndMouseUp);
+            return true;
+          default:
+            return this.letGoOfTheDragged();
+        }
+      }
+      case 0x204:
+        this.takeFocus();
+        if (!this.containsPoint(x, y) || !this.m_bHasFocus) return true;
+        if (this.m_eControlState === SCS.ONDRAG) CKTDGUISlot.returnDraggingItem();
+        this.ChangeState(SCS.DOWN, false);
+        this.playSound(this.m_pSndMouseDown);
+        return true;
+      case 0x205:
+        if (this.containsPoint(x, y) && this.m_bHasFocus) {
+          if (this.m_CustomMsgMouseRightUp !== -1) this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgMouseRightUp);
+          this.ChangeState(SCS.MOUSEOVER, false);
+          this.playSound(this.m_pSndMouseUp);
+        }
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * `OnFocusOut()` (329523D0), virtual: the focus is gone; a slot that is being dragged sends whoever is dragged back (forced) and nobody is dragged
+   * any more; the state is set to normal (disabled for a disabled slot) before `ChangeState` is asked for it, so the call finds nothing to change.
+   */
+  override onFocusOut(): void {
+    const dragging = this.m_eControlState === SCS.ONDRAG;
+    this.m_bHasFocus = false;
+    if (dragging && CKTDGUISlot.s_pDragSlot !== null) {
+      CKTDGUISlot.s_pDragSlot.ChangeState(SCS.NORMAL, true);
+      CKTDGUISlot.s_pDragSlot = null;
+    }
+    const state = this.m_bEnable ? SCS.NORMAL : SCS.DISABLE;
+    this.m_eControlState = state;
+    this.ChangeState(state, false);
+  }
+
+  /**
+   * `GetGuideDescPos()` (32951F20), virtual slot 34: the guide text goes where it was told to (`m_vGuideDescAbsolutePos`), or, while one of its
+   * coordinates is 0 and there is a mouse-over point, to the middle of that point's top edge; the offset is added to it (single precision).
+   */
+  override getGuideDescPos(): Vec2 {
+    const abs = this.m_vGuideDescAbsolutePos;
+    const over = this.m_pMouseOverPoint;
+    let x: number, y: number;
+    if ((abs.x === 0 || abs.y === 0) && over !== null) {
+      x = f(f(over.rightTopPoint.x + over.leftTopPoint.x) * 0.5);
+      y = over.leftTopPoint.y;
+    } else {
+      x = abs.x;
+      y = abs.y;
+    }
+    return new Vec2(f(x + this.m_vGuideDescOffsetPos.x), f(this.m_vGuideDescOffsetPos.y + y));
   }
 
   /**
