@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Mutation check of the mouse input of the controls (E5b): the focus helpers of control.ts and dialog.ts, and the `handleMouse` /
 `scrollBarMsgProc` of the check box, the radio button, the slider and the scroll bar (checkbox.ts, radiobutton.ts, slider.ts, scrollbar.ts) and
-the `handleMouse` of the navigation and the control list (navigation.ts with its three rectangle helpers and `navigationMsgProc`, controllist.ts).  One
+the `handleMouse` of the navigation and the control list (navigation.ts with its three rectangle helpers and `navigationMsgProc`, controllist.ts), of the
+slot, of the combo box and of the list box (listbox.ts with its row, press and release helpers and `listBoxMsgProc`).  One
 small change at a time is applied to a source file, the tests that replay the exe's answers (toggles-input, bars-input, containers-input, focus) are
 run and the script reports whether a test notices (killed) or not (SURVIVED).
 
@@ -21,7 +22,7 @@ import os, re, resource, subprocess, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUN = os.path.join(ROOT, 'node_modules/.bin/bun')
 T = 'packages/ui/test/'
-SRC = {f: 'packages/ui/src/' + f for f in ('control.ts', 'dialog.ts', 'world.ts', 'checkbox.ts', 'radiobutton.ts', 'slider.ts', 'scrollbar.ts', 'navigation.ts', 'controllist.ts', 'slot.ts', 'combobox.ts')}
+SRC = {f: 'packages/ui/src/' + f for f in ('control.ts', 'dialog.ts', 'world.ts', 'checkbox.ts', 'radiobutton.ts', 'slider.ts', 'scrollbar.ts', 'navigation.ts', 'controllist.ts', 'slot.ts', 'combobox.ts', 'listbox.ts')}
 FOCUS = [T + 'focus.test.ts', T + 'toggles-input.test.ts', T + 'bars-input.test.ts', T + 'controls-input.test.ts', T + 'input.test.ts']
 TESTS = {
     'control.ts': FOCUS + [T + 'slots-input.test.ts'],
@@ -35,6 +36,7 @@ TESTS = {
     'controllist.ts': [T + 'containers-input.test.ts'],
     'slot.ts': [T + 'slots-input.test.ts'],
     'combobox.ts': [T + 'combos-input.test.ts', T + 'combobox.test.ts'],
+    'listbox.ts': [T + 'lists-input.test.ts'],
 }
 
 M = []
@@ -886,6 +888,279 @@ h(cx, HK, 'Combo hotkey: the selected row becomes the first', '      this.m_iSel
 h(cx, HK, 'Combo hotkey: the focused row becomes the first', '      next = 0;\n', '')
 h(cx, HK, 'Combo hotkey: the focused row follows the selection', 'this.m_iFocused = next;', '')
 h(cx, HK, 'Combo hotkey: the selection message is sent', 'this.sendSelectionChanged();\n', '')
+
+# ================================================================ the list box (listbox.ts): HandleMouse, the row under the mouse, the press and the release, MsgProc
+lb = 'listbox.ts'
+RA = block(lb, '  private rowAt(')
+h(lb, RA, 'List row: a row height of 0 is no row', 'if (height === 0 || bar === null) return -1;', 'if (bar === null) return -1;')
+h(lb, RA, 'List row: the scroll bar\'s position is added', 'return (bar.m_nPosition + idiv((y - this.m_rcText.top) | 0, height)) | 0;', 'return idiv((y - this.m_rcText.top) | 0, height) | 0;')
+h(lb, RA, 'List row: the position is added, not taken away', 'return (bar.m_nPosition + idiv(', 'return (bar.m_nPosition - idiv(')
+h(lb, RA, 'List row: the rows are counted from the top of the text', '(y - this.m_rcText.top) | 0', '(y - this.m_rcSelection.top) | 0')
+h(lb, RA, 'List row: the distance is y less the top', '(y - this.m_rcText.top) | 0', '(this.m_rcText.top - y) | 0')
+h(lb, RA, 'List row: the distance is a 32-bit difference', '(y - this.m_rcText.top) | 0', '(y - this.m_rcText.top)')
+h(lb, RA, 'List row: the height of a row', ', height)) | 0;', ', height + 1)) | 0;')
+h(lb, RA, 'List row: the quotient is cut towards zero', 'idiv((y - this.m_rcText.top) | 0, height)', 'Math.floor(((y - this.m_rcText.top) | 0) / height)')
+h(lb, RA, 'List row: the quotient is not rounded', 'idiv((y - this.m_rcText.top) | 0, height)', 'Math.round(((y - this.m_rcText.top) | 0) / height)')
+h(lb, RA, 'List row: the row is a 32-bit sum', 'return (bar.m_nPosition + idiv((y - this.m_rcText.top) | 0, height)) | 0;', 'return bar.m_nPosition + idiv((y - this.m_rcText.top) | 0, height);')
+SC = block(lb, '  private sendOrCustom(')
+h(lb, SC, 'List message: -1 is the generic control event', 'if (custom === -1) this.sendInternelEvent(UIM.CONTROL_EVENT, wParam);', 'if (custom === 0) this.sendInternelEvent(UIM.CONTROL_EVENT, wParam);')
+h(lb, SC, 'List message: only -1 is the generic control event', 'if (custom === -1) this.sendInternelEvent(UIM.CONTROL_EVENT, wParam);', 'if (custom < 0) this.sendInternelEvent(UIM.CONTROL_EVENT, wParam);')
+h(lb, SC, 'List message: the generic event carries the number', 'this.sendInternelEvent(UIM.CONTROL_EVENT, wParam);', 'this.sendInternelEvent(UIM.CONTROL_EVENT, 0);')
+h(lb, SC, 'List message: the custom one is 0x467', 'this.sendInternelEvent(UIM.CUSTOM_MSG, custom);', 'this.sendInternelEvent(UIM.CONTROL_EVENT, custom);')
+h(lb, SC, 'List message: the custom one carries its number', 'this.sendInternelEvent(UIM.CUSTOM_MSG, custom);', 'this.sendInternelEvent(UIM.CUSTOM_MSG, wParam);')
+PR = block(lb, '  private pressRow(')
+h(lb, PR, 'List press: the row is the selected one', '    this.m_nSelected = index;\n    if ((wParam & 4)', '    if ((wParam & 4)')
+h(lb, PR, 'List press: the start moves unless shift is held', '(wParam & 4) === 0) this.m_nSelStart = index;', '(wParam & 4) !== 0) this.m_nSelStart = index;')
+h(lb, PR, 'List press: control alone moves the start', '(wParam & 4) === 0) this.m_nSelStart = index;', '(wParam & 0xc) === 0) this.m_nSelStart = index;')
+h(lb, PR, 'List press: shift alone keeps the start (not the bit 8)', '(wParam & 4) === 0) this.m_nSelStart = index;', '(wParam & 8) === 0) this.m_nSelStart = index;')
+h(lb, PR, 'List press: the start moves', ') this.m_nSelStart = index;', ') void 0;')
+h(lb, PR, 'List press: a single selection list keeps the flags', 'if ((this.m_dwStyle & 1) === 0) return;', '')
+h(lb, PR, 'List press: the multi selection is the bit 1', '(this.m_dwStyle & 1) === 0) return;', '(this.m_dwStyle & 2) === 0) return;')
+h(lb, PR, 'List press: the multi selection is when the bit is set', '(this.m_dwStyle & 1) === 0) return;', '(this.m_dwStyle & 1) !== 0) return;')
+h(lb, PR, 'List press: style 2 is no multi selection', '(this.m_dwStyle & 1) === 0) return;', 'this.m_dwStyle === 0) return;')
+h(lb, PR, 'List press: style 3 is a multi selection', '(this.m_dwStyle & 1) === 0) return;', 'this.m_dwStyle !== 1) return;')
+h(lb, PR, 'List press: a start below the first row is not a row', '(start < 0 || start >= rows.length)', '(start >= rows.length)')
+h(lb, PR, 'List press: a start at the end is not a row', '(start < 0 || start >= rows.length)', '(start < 0 || start > rows.length)')
+h(lb, PR, 'List press: the keys are the bits 4 and 8', 'switch (wParam & 0xc) {', 'switch (wParam & 0xf) {')
+h(lb, PR, 'List press: the keys are only the bits 4 and 8 (more bits)', 'switch (wParam & 0xc) {', 'switch (wParam & 0x1c) {')
+h(lb, PR, 'List press: the keys are only the bits 4 and 8 (fewer bits)', 'switch (wParam & 0xc) {', 'switch (wParam & 0x4) {')
+h(lb, PR, 'List press: control toggles the row', 'row.bSelected = !row.bSelected;', 'row.bSelected = true;')
+h(lb, PR, 'List press: control toggles the row (not only clears it)', 'row.bSelected = !row.bSelected;', 'row.bSelected = false;')
+h(lb, PR, 'List press: control changes the row', 'row.bSelected = !row.bSelected;', 'row.bSelected = row.bSelected;')
+h(lb, PR, 'List press: shift clears the rows before the range', '        for (let i = 0; i < lo; i++) rows[i]!.bSelected = false;\n', '')
+h(lb, PR, 'List press: shift clears the rows after the range', '        for (let i = hi + 1; i < rows.length; i++) rows[i]!.bSelected = false;\n', '')
+h(lb, PR, 'List press: shift selects the range', '        for (let i = lo; i <= hi; i++) rows[i]!.bSelected = true;\n', '')
+h(lb, PR, 'List press: shift selects the first row of the range', 'for (let i = lo; i <= hi; i++) rows[i]!.bSelected = true;', 'for (let i = lo + 1; i <= hi; i++) rows[i]!.bSelected = true;')
+h(lb, PR, 'List press: shift selects the last row of the range', 'for (let i = lo; i <= hi; i++) rows[i]!.bSelected = true;', 'for (let i = lo; i < hi; i++) rows[i]!.bSelected = true;')
+h(lb, PR, 'List press: shift clears the row before the range too', 'for (let i = 0; i < lo; i++) rows[i]!.bSelected = false;', 'for (let i = 0; i <= lo; i++) rows[i]!.bSelected = false;',
+  'equivalent: the row at the start of the range is selected again by the loop below')
+h(lb, PR, 'List press: shift clears the row after the range too', 'for (let i = hi + 1; i < rows.length; i++) rows[i]!.bSelected = false;', 'for (let i = hi; i < rows.length; i++) rows[i]!.bSelected = false;',
+  'equivalent: the row at the end of the range is selected again by the loop below')
+h(lb, PR, 'List press: both keys copy the flag of the start row', 'const flag = rows[start]!.bSelected;', 'const flag = row.bSelected;')
+h(lb, PR, 'List press: both keys copy a flag', 'for (let i = lo + 1; i < hi; i++) rows[i]!.bSelected = flag;\n', '')
+h(lb, PR, 'List press: both keys copy the flag to the rows in between', 'for (let i = lo + 1; i < hi; i++) rows[i]!.bSelected = flag;', 'for (let i = lo + 1; i < hi; i++) rows[i]!.bSelected = !flag;')
+h(lb, PR, 'List press: both keys copy the flag to the first row too', 'for (let i = lo + 1; i < hi; i++) rows[i]!.bSelected = flag;', 'for (let i = lo; i < hi; i++) rows[i]!.bSelected = flag;',
+  'equivalent: the first row is the start row (its own flag) or the pressed row (selected right after)')
+h(lb, PR, 'List press: both keys copy the flag to the last row too', 'for (let i = lo + 1; i < hi; i++) rows[i]!.bSelected = flag;', 'for (let i = lo + 1; i <= hi; i++) rows[i]!.bSelected = flag;',
+  'equivalent: the last row is the start row (its own flag) or the pressed row (selected right after)')
+h(lb, PR, 'List press: both keys select the row', '        row.bSelected = true;\n        this.m_nSelected = start;', '        this.m_nSelected = start;')
+h(lb, PR, 'List press: both keys leave the start row selected', '        this.m_nSelected = start;\n', '')
+h(lb, PR, 'List press: both keys select the start row, not the pressed one', 'this.m_nSelected = start;', 'this.m_nSelected = index;')
+h(lb, PR, 'List press: no key clears the other rows', '        for (const other of rows) other.bSelected = false;\n', '')
+h(lb, PR, 'List press: no key selects the row', '        row.bSelected = true;\n        break;\n    }\n  }', '        break;\n    }\n  }')
+FR = block(lb, '  private finishRange(')
+h(lb, FR, 'List release: the window gives the mouse back', '    this.ctx.releaseCapture();\n', '')
+h(lb, FR, 'List release: the drag is over', '    this.m_bDrag = false;\n', '')
+h(lb, FR, 'List release: no selection is nothing to finish', 'if (selected === -1) return false;', 'if (selected === 0) return false;')
+h(lb, FR, 'List release: only -1 is no selection', 'if (selected === -1) return false;', 'if (selected <= -1) return false;')
+h(lb, FR, 'List release: no selection is not finished', 'if (selected === -1) return false;', 'if (selected === -1) return true;')
+h(lb, FR, 'List release: a range past the end is not finished', 'if (Math.max(start, selected) >= rows.length) return false;', 'if (Math.max(start, selected) > rows.length) return false;')
+h(lb, FR, 'List release: a range that reaches past the end is not finished', 'if (Math.max(start, selected) >= rows.length) return false;', 'if (Math.min(start, selected) >= rows.length) return false;')
+h(lb, FR, 'List release: a range past the end is not finished (true)', 'if (Math.max(start, selected) >= rows.length) return false;', 'if (Math.max(start, selected) >= rows.length) return true;')
+h(lb, FR, 'List release: a selection before the first row is no row', 'if (selected < 0 || start < 0) throw', 'if (start < 0) throw')
+h(lb, FR, 'List release: a start before the first row is no row', 'if (selected < 0 || start < 0) throw', 'if (selected < 0) throw')
+h(lb, FR, 'List release: the range takes the flag of the start row', 'const flag = rows[start]!.bSelected;', 'const flag = rows[selected]!.bSelected;')
+h(lb, FR, 'List release: the rows in between take the flag', '    for (let i = Math.min(start, selected) + 1; i < Math.max(start, selected); i++) rows[i]!.bSelected = flag;\n', '')
+h(lb, FR, 'List release: the rows in between start after the lower end', 'for (let i = Math.min(start, selected) + 1;', 'for (let i = start + 1;')
+h(lb, FR, 'List release: the rows in between end before the upper end', 'i < Math.max(start, selected); i++)', 'i < selected; i++)')
+h(lb, FR, 'List release: the rows from the lower end on take the flag too', 'for (let i = Math.min(start, selected) + 1;', 'for (let i = Math.min(start, selected);',
+  'equivalent: the lower end is the start row (its own flag) or the selected row (set right after)')
+h(lb, FR, 'List release: the rows up to the upper end take the flag too', 'i < Math.max(start, selected); i++)', 'i <= Math.max(start, selected); i++)',
+  'equivalent: the upper end is the start row (its own flag) or the selected row (set right after)')
+h(lb, FR, 'List release: the selected row takes the flag', '    rows[selected]!.bSelected = flag;\n', '')
+h(lb, FR, 'List release: it is finished', '    return true;\n  }', '    return false;\n  }')
+MP = block(lb, '  listBoxMsgProc(')
+h(lb, MP, 'List MsgProc: the lost capture ends the drag', 'if (uMsg === 0x215) this.m_bDrag = false;', 'if (uMsg === 0x216) this.m_bDrag = false;')
+h(lb, MP, 'List MsgProc: any other message does not', 'if (uMsg === 0x215) this.m_bDrag = false;', 'if (uMsg !== 0x215) this.m_bDrag = false;')
+h(lb, MP, 'List MsgProc: the drag is over', 'this.m_bDrag = false;', 'this.m_bDrag = true;')
+h(lb, MP, 'List MsgProc: the drag is not kept', 'if (uMsg === 0x215) this.m_bDrag = false;', 'void 0;')
+h(lb, MP, 'List MsgProc: it is never taken', '    return false;\n  }', '    return true;\n  }')
+HM = block(lb, '  override handleMouse(')
+
+
+def part(text, start, end):
+    i = text.index(start)
+    return text[i:text.index(end, i)]
+
+
+HEAD = part(HM, '    if (!this.m_bShow', '    const pt = { x, y };\n')
+MOVE = part(HM, '      case 0x200:\n', '      case 0x201:\n')
+DOWN = part(HM, '      case 0x201:\n', '      case 0x202:\n')
+UP = part(HM, '      case 0x202:\n', '      case 0x204: {\n')
+RDOWN = part(HM, '      case 0x204: {\n', '      case 0x205:\n')
+RUP = part(HM, '      case 0x205:\n', '      case 0x20a: {\n')
+WHEEL = part(HM, '      case 0x20a: {\n', '      default:\n')
+TAIL = HM[HM.index('    for (let i = 0; i < this.m_Items.length; i++) this.m_Items'):]
+# the gates, the focus, the scroll bar
+h(lb, HEAD, 'List: a disabled list takes nothing', 'if (!this.m_bShow || !this.m_bEnable) return false;', 'if (!this.m_bShow) return false;')
+h(lb, HEAD, 'List: a hidden list takes nothing', 'if (!this.m_bShow || !this.m_bEnable) return false;', 'if (!this.m_bEnable) return false;')
+h(lb, HEAD, 'List: a list that is disabled or hidden takes nothing, not only one that is both', '!this.m_bShow || !this.m_bEnable', '!this.m_bShow && !this.m_bEnable')
+h(lb, HEAD, 'List focus: only the first left button down asks', 'if (uMsg === 0x201 && !this.m_bHasFocus) requestFocus(this.ctx, this);', 'if (!this.m_bHasFocus) requestFocus(this.ctx, this);')
+h(lb, HEAD, 'List focus: the double click does not ask', 'if (uMsg === 0x201 && !this.m_bHasFocus) requestFocus(this.ctx, this);', 'if ((uMsg === 0x201 || uMsg === 0x203) && !this.m_bHasFocus) requestFocus(this.ctx, this);')
+h(lb, HEAD, 'List focus: it asks only when m_bHasFocus is off', 'if (uMsg === 0x201 && !this.m_bHasFocus) requestFocus(this.ctx, this);', 'if (uMsg === 0x201) requestFocus(this.ctx, this);')
+h(lb, HEAD, 'List focus: it asks', 'if (uMsg === 0x201 && !this.m_bHasFocus) requestFocus(this.ctx, this);', '')
+h(lb, HEAD, 'List: the scroll bar is asked first', 'if (bar !== null && bar.handleMouse(uMsg, x, y, wParam, lParam)) {', 'if (bar !== null && false) {')
+h(lb, HEAD, 'List: the scroll bar gets the point (x)', 'bar.handleMouse(uMsg, x, y, wParam, lParam)', 'bar.handleMouse(uMsg, y, y, wParam, lParam)')
+h(lb, HEAD, 'List: the scroll bar gets the point (y)', 'bar.handleMouse(uMsg, x, y, wParam, lParam)', 'bar.handleMouse(uMsg, x, x, wParam, lParam)')
+h(lb, HEAD, 'List: the scroll bar gets wParam', 'bar.handleMouse(uMsg, x, y, wParam, lParam)', 'bar.handleMouse(uMsg, x, y, 0, lParam)')
+h(lb, HEAD, 'List: the scroll bar gets lParam', 'bar.handleMouse(uMsg, x, y, wParam, lParam)', 'bar.handleMouse(uMsg, x, y, wParam, 0)')
+h(lb, HEAD, 'List: the scroll bar gets the message', 'bar.handleMouse(uMsg, x, y, wParam, lParam)', 'bar.handleMouse(0x200, x, y, wParam, lParam)')
+h(lb, HEAD, 'List: a message the scroll bar takes brings the rows back only with use item disappear', 'if (this.m_bUseItemDisappear) {', 'if (!this.m_bUseItemDisappear) {')
+h(lb, HEAD, 'List: a message the scroll bar takes brings the rows back always', 'if (this.m_bUseItemDisappear) {', 'if (true) {')
+h(lb, HEAD, 'List: the rows are shown again', '          row.m_bShow = true;\n', '')
+h(lb, HEAD, 'List: the rows are shown, not hidden', 'row.m_bShow = true;', 'row.m_bShow = false;')
+h(lb, HEAD, 'List: the time left of a row is first reset', '          row.m_fTimeLeftShow = -1;\n', '',
+  'equivalent: the loop after it sets every row\'s time left to 50 and nothing looks at it in between')
+h(lb, HEAD, 'List: the time left of every row is 50', 'for (const row of this.m_Items) row.m_fTimeLeftShow = 50;', 'for (const row of this.m_Items) row.m_fTimeLeftShow = -1;')
+h(lb, HEAD, 'List: the time left of every row is set', '        for (const row of this.m_Items) row.m_fTimeLeftShow = 50;\n', '')
+h(lb, HEAD, 'List: a message the scroll bar takes is taken', '      }\n      return true;\n    }\n', '      }\n      return false;\n    }\n')
+# the move
+h(lb, MOVE, 'List move: selecting at the move is a flag', 'if (this.m_bIsSelectItemAtMouseMove) {', 'if (!this.m_bIsSelectItemAtMouseMove) {')
+h(lb, MOVE, 'List move: selecting at the move is always', 'if (this.m_bIsSelectItemAtMouseMove) {', 'if (true) {')
+h(lb, MOVE, 'List move: the point must be in the box to select', 'if (ptInRect(this.m_rcSelection, pt) && this.m_Items.length > 0) {', 'if (this.m_Items.length > 0) {')
+h(lb, MOVE, 'List move: the box is the selection rectangle', 'if (ptInRect(this.m_rcSelection, pt) && this.m_Items.length > 0) {', 'if (ptInRect(this.m_rcText, pt) && this.m_Items.length > 0) {')
+h(lb, MOVE, 'List move: a list without rows is not looked at', 'ptInRect(this.m_rcSelection, pt) && this.m_Items.length > 0', 'ptInRect(this.m_rcSelection, pt) && this.m_Items.length >= 0')
+h(lb, MOVE, 'List move: a list of one row is looked at', 'ptInRect(this.m_rcSelection, pt) && this.m_Items.length > 0', 'ptInRect(this.m_rcSelection, pt) && this.m_Items.length > 1')
+h(lb, MOVE, 'List move: no such row is taken', 'if (this.getItem(index) === null) return true;', 'if (this.getItem(index) === null) return false;')
+h(lb, MOVE, 'List move: the row must be there', '            if (this.getItem(index) === null) return true;\n', '')
+h(lb, MOVE, 'List move: the page starts at the position', 'if (index >= position && index <', 'if (index > position && index <')
+h(lb, MOVE, 'List move: the page starts at the position (not before it)', 'if (index >= position && index <', 'if (index < position && index <')
+h(lb, MOVE, 'List move: the row is below the length', 'index < this.m_Items.length && index <', 'index <= this.m_Items.length && index <',
+  'equivalent: GetItem answered a row, so the index is below the length already')
+h(lb, MOVE, 'List move: the row is below the length (no test)', 'index >= position && index < this.m_Items.length && index <', 'index >= position && index <',
+  'equivalent: GetItem answered a row, so the index is below the length already')
+h(lb, MOVE, 'List move: the page ends before position + page', 'index < ((position + bar!.m_nPageSize) | 0))', 'index <= ((position + bar!.m_nPageSize) | 0))')
+h(lb, MOVE, 'List move: the end of the page is a 32-bit sum', '((position + bar!.m_nPageSize) | 0)', '(position + bar!.m_nPageSize)')
+h(lb, MOVE, 'List move: the end of the page is the page size from the position', '((position + bar!.m_nPageSize) | 0)', '((position - bar!.m_nPageSize) | 0)')
+h(lb, MOVE, 'List move: the row is selected', 'this.m_nSelected = index;', 'void 0;')
+h(lb, MOVE, 'List move: the row is selected, not the position', 'this.m_nSelected = index;', 'this.m_nSelected = position;')
+h(lb, MOVE, 'List move: outside the box nothing is selected', '} else this.m_nSelected = -1;', '} else this.m_nSelected = 0;')
+h(lb, MOVE, 'List move: outside the box the selection is cleared', '} else this.m_nSelected = -1;', '} else void 0;')
+h(lb, MOVE, 'List move: a point in the box is taken', '        if (ptInRect(this.m_rcSelection, pt)) return true;\n', '        if (ptInRect(this.m_rcSelection, pt)) return false;\n')
+h(lb, MOVE, 'List move: a point in the box is not passed on', '        if (ptInRect(this.m_rcSelection, pt)) return true;\n', '')
+h(lb, MOVE, 'List move: the box that takes the move is the selection rectangle', '        if (ptInRect(this.m_rcSelection, pt)) return true;\n', '        if (ptInRect(this.m_rcText, pt)) return true;\n')
+# the left button down and the double click
+h(lb, DOWN, 'List down: the double click is a button down', '      case 0x201:\n      case 0x203:\n', '      case 0x201:\n')
+h(lb, DOWN, 'List down: the point must be in the box', '        if (!ptInRect(this.m_rcSelection, pt)) break;\n', '')
+h(lb, DOWN, 'List down: the box is the selection rectangle', 'if (!ptInRect(this.m_rcSelection, pt)) break;', 'if (!ptInRect(this.m_rcText, pt)) break;')
+h(lb, DOWN, 'List down: a list without rows has nothing selected', 'if (this.m_Items.length <= 0) this.m_nSelected = -1;', 'if (this.m_Items.length < 0) this.m_nSelected = -1;')
+h(lb, DOWN, 'List down: a list of one row has rows', 'if (this.m_Items.length <= 0) this.m_nSelected = -1;', 'if (this.m_Items.length <= 1) this.m_nSelected = -1;')
+h(lb, DOWN, 'List down: a list without rows is cleared', 'if (this.m_Items.length <= 0) this.m_nSelected = -1;', 'if (this.m_Items.length <= 0) void 0;')
+h(lb, DOWN, 'List down: a list without rows is cleared to -1', 'if (this.m_Items.length <= 0) this.m_nSelected = -1;', 'if (this.m_Items.length <= 0) this.m_nSelected = 0;')
+h(lb, DOWN, 'List down: no such row is taken', 'if (this.getItem(index) === null) return true;', 'if (this.getItem(index) === null) return false;')
+h(lb, DOWN, 'List down: no such row is taken whatever clicks do', 'if (this.getItem(index) === null) return true;', 'if (this.getItem(index) === null) return !this.m_bIgnoreListClick;')
+h(lb, DOWN, 'List down: the row must be there', '          if (this.getItem(index) === null) return true;\n', '')
+h(lb, DOWN, 'List down: the page starts at the position', 'if (index >= position && index <', 'if (index > position && index <')
+h(lb, DOWN, 'List down: the row is below the length', 'index < this.m_Items.length && index <', 'index <= this.m_Items.length && index <',
+  'equivalent: GetItem answered a row, so the index is below the length already')
+h(lb, DOWN, 'List down: the row is below the length (no test)', 'index >= position && index < this.m_Items.length && index <', 'index >= position && index <',
+  'equivalent: GetItem answered a row, so the index is below the length already')
+h(lb, DOWN, 'List down: the page ends before position + page', 'index < ((position + bar!.m_nPageSize) | 0)) {', 'index <= ((position + bar!.m_nPageSize) | 0)) {')
+h(lb, DOWN, 'List down: the end of the page is a 32-bit sum', '((position + bar!.m_nPageSize) | 0)', '(position + bar!.m_nPageSize)')
+h(lb, DOWN, 'List down: the window takes the mouse', '            this.ctx.setCapture();\n', '')
+h(lb, DOWN, 'List down: the drag starts', '            this.m_bDrag = true;\n', '')
+h(lb, DOWN, 'List down: the double click is the 0x203', 'if (uMsg === 0x203) {', 'if (uMsg === 0x201) {')
+h(lb, DOWN, 'List double click: the sound plays', '            if (uMsg === 0x203) {\n              this.playSound(this.m_pSndMouseDown);\n', '            if (uMsg === 0x203) {\n')
+h(lb, DOWN, 'List double click: the message is sent', '              this.sendOrCustom(this.m_CustomMsgItemDoubleClick, 0);\n', '')
+h(lb, DOWN, 'List double click: the message is the double click\'s', 'this.sendOrCustom(this.m_CustomMsgItemDoubleClick, 0);', 'this.sendOrCustom(this.m_CustomMsgSelection, 0);')
+h(lb, DOWN, 'List double click: the message carries 0', 'this.sendOrCustom(this.m_CustomMsgItemDoubleClick, 0);', 'this.sendOrCustom(this.m_CustomMsgItemDoubleClick, 1);')
+h(lb, DOWN, 'List double click: it is taken', '              return true;\n            }\n            this.pressRow', '              return false;\n            }\n            this.pressRow')
+h(lb, DOWN, 'List double click: it selects nothing', '              return true;\n            }\n            this.pressRow', '            }\n            this.pressRow')
+h(lb, DOWN, 'List down: the row is pressed', '            this.pressRow(index, wParam);\n', '')
+h(lb, DOWN, 'List down: the keys are wParam', 'this.pressRow(index, wParam);', 'this.pressRow(index, 0);')
+h(lb, DOWN, 'List down: the sound plays', '            this.pressRow(index, wParam);\n            this.playSound(this.m_pSndMouseDown);\n', '            this.pressRow(index, wParam);\n')
+h(lb, DOWN, 'List down: the selection message is sent', '            this.sendOrCustom(this.m_CustomMsgSelection, 1);\n', '')
+h(lb, DOWN, 'List down: the selection message carries 1', 'this.sendOrCustom(this.m_CustomMsgSelection, 1);', 'this.sendOrCustom(this.m_CustomMsgSelection, 2);')
+h(lb, DOWN, 'List down: the selection message is the selection\'s', 'this.sendOrCustom(this.m_CustomMsgSelection, 1);', 'this.sendOrCustom(this.m_CustomMsgSelection_End, 1);')
+h(lb, DOWN, 'List down: the row is pressed before the message', '            this.pressRow(index, wParam);\n            this.playSound(this.m_pSndMouseDown);\n            this.sendOrCustom(this.m_CustomMsgSelection, 1);\n',
+  '            this.playSound(this.m_pSndMouseDown);\n            this.sendOrCustom(this.m_CustomMsgSelection, 1);\n            this.pressRow(index, wParam);\n')
+h(lb, DOWN, 'List down: the sound plays before the message', '            this.playSound(this.m_pSndMouseDown);\n            this.sendOrCustom(this.m_CustomMsgSelection, 1);\n',
+  '            this.sendOrCustom(this.m_CustomMsgSelection, 1);\n            this.playSound(this.m_pSndMouseDown);\n')
+h(lb, DOWN, 'List down: clicks may be ignored', 'return !this.m_bIgnoreListClick;', 'return true;')
+h(lb, DOWN, 'List down: clicks that are ignored are not taken', 'return !this.m_bIgnoreListClick;', 'return false;')
+h(lb, DOWN, 'List down: a click is taken unless clicks are ignored', 'return !this.m_bIgnoreListClick;', 'return this.m_bIgnoreListClick;')
+# the left button up
+h(lb, UP, 'List up: no range is not taken', 'if (!this.finishRange()) return false;', 'if (!this.finishRange()) return true;')
+h(lb, UP, 'List up: no range sends nothing', 'if (!this.finishRange()) return false;', 'this.finishRange();')
+h(lb, UP, 'List up: a range of more than one row is selected', 'if (this.m_nSelStart !== this.m_nSelected) this.sendOrCustom', 'if (this.m_nSelStart === this.m_nSelected) this.sendOrCustom')
+h(lb, UP, 'List up: a range of one row is not a selection', 'if (this.m_nSelStart !== this.m_nSelected) this.sendOrCustom', 'if (true) this.sendOrCustom')
+h(lb, UP, 'List up: the selection message is sent', '        if (this.m_nSelStart !== this.m_nSelected) this.sendOrCustom(this.m_CustomMsgSelection, 1);\n', '')
+h(lb, UP, 'List up: the selection message carries 1', 'this.sendOrCustom(this.m_CustomMsgSelection, 1);', 'this.sendOrCustom(this.m_CustomMsgSelection, 2);')
+h(lb, UP, 'List up: the selection message is the selection\'s', 'this.sendOrCustom(this.m_CustomMsgSelection, 1);', 'this.sendOrCustom(this.m_CustomMsgSelection_End, 1);')
+h(lb, UP, 'List up: the end message is sent', '        this.sendOrCustom(this.m_CustomMsgSelection_End, 2);\n', '')
+h(lb, UP, 'List up: the end message carries 2', 'this.sendOrCustom(this.m_CustomMsgSelection_End, 2);', 'this.sendOrCustom(this.m_CustomMsgSelection_End, 1);')
+h(lb, UP, 'List up: the end message is the end\'s', 'this.sendOrCustom(this.m_CustomMsgSelection_End, 2);', 'this.sendOrCustom(this.m_CustomMsgSelection, 2);')
+h(lb, UP, 'List up: it is not taken', 'this.sendOrCustom(this.m_CustomMsgSelection_End, 2);\n        return false;', 'this.sendOrCustom(this.m_CustomMsgSelection_End, 2);\n        return true;')
+# the right button down
+h(lb, RDOWN, 'List right down: the point must be in the box', '        if (!ptInRect(this.m_rcSelection, pt)) break;\n', '')
+h(lb, RDOWN, 'List right down: the box is the selection rectangle', 'if (!ptInRect(this.m_rcSelection, pt)) break;', 'if (!ptInRect(this.m_rcText, pt)) break;')
+h(lb, RDOWN, 'List right down: a list without rows', 'if (this.m_Items.length <= 0) {', 'if (this.m_Items.length < 0) {')
+h(lb, RDOWN, 'List right down: a list of one row has rows', 'if (this.m_Items.length <= 0) {', 'if (this.m_Items.length <= 1) {')
+h(lb, RDOWN, 'List right down: a list without rows has nothing selected', '          this.m_nSelected = -1;\n          return true;', '          return true;')
+h(lb, RDOWN, 'List right down: a list without rows has -1 selected', 'this.m_nSelected = -1;', 'this.m_nSelected = 0;')
+h(lb, RDOWN, 'List right down: a list without rows is taken', '          this.m_nSelected = -1;\n          return true;', '          this.m_nSelected = -1;\n          return false;')
+h(lb, RDOWN, 'List right down: no such row is taken', 'if (this.getItem(index) === null) return true;', 'if (this.getItem(index) === null) return false;')
+h(lb, RDOWN, 'List right down: the row must be there', '        if (this.getItem(index) === null) return true;\n', '')
+h(lb, RDOWN, 'List right down: a row off the page is taken', '(position + bar!.m_nPageSize) | 0)) return true;', '(position + bar!.m_nPageSize) | 0)) return false;')
+h(lb, RDOWN, 'List right down: the page starts at the position', 'if (index < position ||', 'if (index <= position ||')
+h(lb, RDOWN, 'List right down: the row is below the length', 'index >= this.m_Items.length ||', 'index > this.m_Items.length ||',
+  'equivalent: GetItem answered a row, so the index is below the length already')
+h(lb, RDOWN, 'List right down: the row is below the length (no test)', ' || index >= this.m_Items.length || index >= ', ' || index >= ',
+  'equivalent: GetItem answered a row, so the index is below the length already')
+h(lb, RDOWN, 'List right down: the page ends before position + page', 'index >= ((position + bar!.m_nPageSize) | 0)) return true;', 'index > ((position + bar!.m_nPageSize) | 0)) return true;')
+h(lb, RDOWN, 'List right down: the end of the page is a 32-bit sum', '((position + bar!.m_nPageSize) | 0)', '(position + bar!.m_nPageSize)')
+h(lb, RDOWN, 'List right down: the window takes the mouse', '        this.ctx.setCapture();\n', '')
+h(lb, RDOWN, 'List right down: the drag starts', '        this.m_bDrag = true;\n', '')
+h(lb, RDOWN, 'List right down: the row is pressed', '        this.pressRow(index, wParam);\n', '')
+h(lb, RDOWN, 'List right down: the keys are wParam', 'this.pressRow(index, wParam);', 'this.pressRow(index, 0);')
+h(lb, RDOWN, 'List right down: the sound plays', '        this.playSound(this.m_pSndMouseDown);\n', '')
+h(lb, RDOWN, 'List right down: the message is sent', '        this.sendOrCustom(this.m_CustomMsgSelectionByRButton, 3);\n', '')
+h(lb, RDOWN, 'List right down: the message carries 3', 'this.sendOrCustom(this.m_CustomMsgSelectionByRButton, 3);', 'this.sendOrCustom(this.m_CustomMsgSelectionByRButton, 1);')
+h(lb, RDOWN, 'List right down: the message is the right button\'s', 'this.sendOrCustom(this.m_CustomMsgSelectionByRButton, 3);', 'this.sendOrCustom(this.m_CustomMsgSelection, 3);')
+h(lb, RDOWN, 'List right down: it is taken', '        this.sendOrCustom(this.m_CustomMsgSelectionByRButton, 3);\n        return true;', '        this.sendOrCustom(this.m_CustomMsgSelectionByRButton, 3);\n        return false;')
+h(lb, RDOWN, 'List right down: the row is pressed before the message', '        this.pressRow(index, wParam);\n        this.playSound(this.m_pSndMouseDown);\n        this.sendOrCustom(this.m_CustomMsgSelectionByRButton, 3);\n',
+  '        this.playSound(this.m_pSndMouseDown);\n        this.sendOrCustom(this.m_CustomMsgSelectionByRButton, 3);\n        this.pressRow(index, wParam);\n')
+h(lb, RDOWN, 'List right down: the sound plays before the message', '        this.playSound(this.m_pSndMouseDown);\n        this.sendOrCustom(this.m_CustomMsgSelectionByRButton, 3);\n',
+  '        this.sendOrCustom(this.m_CustomMsgSelectionByRButton, 3);\n        this.playSound(this.m_pSndMouseDown);\n')
+# the right button up
+h(lb, RUP, 'List right up: no range is not taken', 'if (!this.finishRange()) return false;', 'if (!this.finishRange()) return true;')
+h(lb, RUP, 'List right up: no range sends nothing', 'if (!this.finishRange()) return false;', 'this.finishRange();')
+h(lb, RUP, 'List right up: a range of one row sends nothing', 'if (this.m_nSelStart === this.m_nSelected) return false;\n', '')
+h(lb, RUP, 'List right up: a range of more than one row sends the message', 'if (this.m_nSelStart === this.m_nSelected) return false;', 'if (this.m_nSelStart !== this.m_nSelected) return false;')
+h(lb, RUP, 'List right up: the generic event is chosen by the selection message', 'if (this.m_CustomMsgSelection === -1) this.sendInternelEvent', 'if (this.m_CustomMsgSelectionByRButton === -1) this.sendInternelEvent')
+h(lb, RUP, 'List right up: the generic event is chosen by -1', 'if (this.m_CustomMsgSelection === -1) this.sendInternelEvent', 'if (this.m_CustomMsgSelection === 0) this.sendInternelEvent')
+h(lb, RUP, 'List right up: the generic event carries 3', 'this.sendInternelEvent(UIM.CONTROL_EVENT, 3);', 'this.sendInternelEvent(UIM.CONTROL_EVENT, 1);')
+h(lb, RUP, 'List right up: the generic event is 0x466', 'this.sendInternelEvent(UIM.CONTROL_EVENT, 3);', 'this.sendInternelEvent(UIM.CUSTOM_MSG, 3);')
+h(lb, RUP, 'List right up: the custom message is the right button\'s', 'this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgSelectionByRButton);', 'this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgSelection);')
+h(lb, RUP, 'List right up: the custom message is 0x467', 'this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgSelectionByRButton);', 'this.sendInternelEvent(UIM.CONTROL_EVENT, this.m_CustomMsgSelectionByRButton);')
+h(lb, RUP, 'List right up: it is not taken', '        else this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgSelectionByRButton);\n        return false;', '        else this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgSelectionByRButton);\n        return true;')
+h(lb, RUP, 'List right up: a range of one row is not taken', 'if (this.m_nSelStart === this.m_nSelected) return false;', 'if (this.m_nSelStart === this.m_nSelected) return true;')
+# the wheel
+h(lb, WHEEL, 'List wheel: the system is asked', '        const lines = this.ctx.wheelScrollLines(); // asked even when there is no bar\n        if (bar !== null) bar.scroll(Math.imul(lines, idiv(wParam >> 16, -120)));', '        if (bar !== null) bar.scroll(Math.imul(this.ctx.wheelScrollLines(), idiv(wParam >> 16, -120)));')
+h(lb, WHEEL, 'List wheel: the bar scrolls', 'if (bar !== null) bar.scroll(', 'if (bar === null) void (')
+h(lb, WHEEL, 'List wheel: the bar scrolls the way of the notches', 'idiv(wParam >> 16, -120)', 'idiv(wParam >> 16, 120)')
+h(lb, WHEEL, 'List wheel: the delta is a signed number', 'idiv(wParam >> 16, -120)', 'idiv(wParam >>> 16, -120)')
+h(lb, WHEEL, 'List wheel: the delta is the high word', 'idiv(wParam >> 16, -120)', 'idiv(wParam & 0xffff, -120)')
+h(lb, WHEEL, 'List wheel: a notch is 120', 'idiv(wParam >> 16, -120)', 'idiv(wParam >> 16, -100)')
+h(lb, WHEEL, 'List wheel: the notches are cut towards zero', 'idiv(wParam >> 16, -120)', 'Math.floor((wParam >> 16) / -120)')
+h(lb, WHEEL, 'List wheel: the notches are not rounded', 'idiv(wParam >> 16, -120)', 'Math.round((wParam >> 16) / -120)')
+h(lb, WHEEL, 'List wheel: the bar scrolls by the lines', 'Math.imul(lines, idiv(wParam >> 16, -120))', 'idiv(wParam >> 16, -120)')
+h(lb, WHEEL, 'List wheel: the bar scrolls by the notches', 'Math.imul(lines, idiv(wParam >> 16, -120))', 'lines')
+h(lb, WHEEL, 'List wheel: the bar scrolls by a 32-bit product', 'Math.imul(lines, idiv(wParam >> 16, -120))', '(lines * idiv(wParam >> 16, -120)) | 0',
+  'equivalent: a product of two ints below 2^53 wraps to the same 32 bits with `| 0`, so imul gives the same result')
+h(lb, WHEEL, 'List wheel: the bar scrolls by an exact product', 'Math.imul(lines, idiv(wParam >> 16, -120))', 'lines * idiv(wParam >> 16, -120)')
+h(lb, WHEEL, 'List wheel: it is taken', '        return true;\n      }', '        return false;\n      }')
+# what is left goes to the rows' controls
+h(lb, TAIL, 'List: the rows\' controls get the message', 'for (let i = 0; i < this.m_Items.length; i++) this.m_Items[i]!.pControl?.handleMouse(uMsg, x, y, wParam, lParam);\n', '')
+h(lb, TAIL, 'List: every row\'s control gets the message', 'for (let i = 0; i < this.m_Items.length; i++)', 'for (let i = 0; i < this.m_Items.length - 1; i++)')
+h(lb, TAIL, 'List: the first row\'s control gets the message', 'for (let i = 0; i < this.m_Items.length; i++)', 'for (let i = 1; i < this.m_Items.length; i++)')
+h(lb, TAIL, 'List: the rows\' controls get the message in order', 'for (let i = 0; i < this.m_Items.length; i++) this.m_Items[i]!.pControl?.handleMouse(uMsg, x, y, wParam, lParam);', 'for (let i = this.m_Items.length - 1; i >= 0; i--) this.m_Items[i]!.pControl?.handleMouse(uMsg, x, y, wParam, lParam);')
+h(lb, TAIL, 'List: the rows\' controls get the point (x)', 'pControl?.handleMouse(uMsg, x, y, wParam, lParam);', 'pControl?.handleMouse(uMsg, y, y, wParam, lParam);')
+h(lb, TAIL, 'List: the rows\' controls get the point (y)', 'pControl?.handleMouse(uMsg, x, y, wParam, lParam);', 'pControl?.handleMouse(uMsg, x, x, wParam, lParam);')
+h(lb, TAIL, 'List: the rows\' controls get wParam', 'pControl?.handleMouse(uMsg, x, y, wParam, lParam);', 'pControl?.handleMouse(uMsg, x, y, 0, lParam);')
+h(lb, TAIL, 'List: the rows\' controls get lParam', 'pControl?.handleMouse(uMsg, x, y, wParam, lParam);', 'pControl?.handleMouse(uMsg, x, y, wParam, 0);')
+h(lb, TAIL, 'List: the rows\' controls get the message number', 'pControl?.handleMouse(uMsg, x, y, wParam, lParam);', 'pControl?.handleMouse(0x200, x, y, wParam, lParam);')
+h(lb, TAIL, 'List: a message that goes to the rows is not taken', '    return false;\n  }\n', '    return true;\n  }\n')
 
 
 def limits():

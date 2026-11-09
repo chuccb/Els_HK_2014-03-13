@@ -15,8 +15,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
-  CKTDGUIButton, CKTDGUICheckBox, CKTDGUIComboBox, CKTDGUIContolList, CKTDGUIControl, CKTDGUIDialog, CKTDGUINavigation, CKTDGUIRadioButton, CKTDGUIScrollBar,
-  CKTDGUISlider, CKTDGUISlot, CKTDGUIStatic, CPictureData, RadioButtonGroupInfo, UCT, UIPointData, newRect, setRect,
+  CKTDGUIButton, CKTDGUICheckBox, CKTDGUIComboBox, CKTDGUIContolList, CKTDGUIControl, CKTDGUIDialog, CKTDGUIListBox, CKTDGUINavigation, CKTDGUIRadioButton,
+  CKTDGUIScrollBar, CKTDGUISlider, CKTDGUISlot, CKTDGUIStatic, CPictureData, RadioButtonGroupInfo, UCT, UIPointData, newRect, setRect,
 } from "../src/index.ts";
 import type { DeviceSound, UIStage } from "../src/index.ts";
 import { rig } from "./rig.ts";
@@ -46,6 +46,7 @@ const STATE_MEMBERS: Record<string, string> = {
   dragging: "m_bDraggingWindow", ptLast: "m_ptLastMouse", rcBG: "m_rcBG", rcWindow: "m_rcWindow",
   state: "m_eControlState",
   opened: "m_bOpened", selected: "m_iSelected", focused: "m_iFocused", adjust: "m_bMousePointAdjust",
+  sel: "m_nSelected", start: "m_nSelStart",
 };
 
 function showField(v: unknown): string {
@@ -68,6 +69,19 @@ function stateOf(w: ReturnType<typeof setup>["w"], c: CKTDGUIControl, want: stri
     if (key === "down") return `down=${+c.m_pDialog!.m_bMouseDownForDrag}`;
     if (key === "thumbOffsetY") return `thumbOffsetY=${w.statics.thumbOffsetY}`;
     if (key === "btnOffset") return `btnOffset=${(c as CKTDGUIComboBox).m_ButtonOffsetX},${(c as CKTDGUIComboBox).m_ButtonOffsetY}`;
+    // a list box: the rows' flags (selected, shown) as a string of 0 / 1 and the time left of each row, equal neighbours grouped (`7.5*3|50`)
+    if (key === "rows") return `rows=${(c as CKTDGUIListBox).m_Items.map((r) => +r.bSelected).join("")}`;
+    if (key === "shown") return `shown=${(c as CKTDGUIListBox).m_Items.map((r) => +r.m_bShow).join("")}`;
+    if (key === "left") {
+      const groups: [string, number][] = [];
+      for (const r of (c as CKTDGUIListBox).m_Items) {
+        const text = String(r.m_fTimeLeftShow);
+        const last = groups[groups.length - 1];
+        if (last !== undefined && last[0] === text) last[1]++;
+        else groups.push([text, 1]);
+      }
+      return `left=${groups.map(([t, n]) => (n === 1 ? t : `${t}*${n}`)).join("|")}`;
+    }
     if (key === "winPoint") { // the eight floats of the navigation's window point, corner by corner
       const p = (c as CKTDGUINavigation).m_pWindowPoint!;
       return `winPoint=${[p.leftTopPoint, p.rightTopPoint, p.leftBottomPoint, p.rightBottomPoint].map((v) => `${v.x},${v.y}`).join(",")}`;
@@ -80,8 +94,9 @@ function stateOf(w: ReturnType<typeof setup>["w"], c: CKTDGUIControl, want: stri
 class Probe extends CKTDGUIControl {
   readonly answers: { mouse?: number; key?: number; msg?: number } = {};
   readonly effects: { mouse?: () => void } = {};
-  /** what a scroll bar has that a combo box asks (`m_nPosition`, `Scroll`): the probe is the bar of the case's combo box */
+  /** what a scroll bar has that a combo box or a list box asks (`m_nPosition`, `m_nPageSize`, `Scroll`): the probe is the bar of the case's box */
   m_nPosition = 0;
+  m_nPageSize = 0;
   constructor(w: ConstructorParameters<typeof CKTDGUIControl>[0], readonly label: string, private readonly log: string[]) {
     super(w);
     this.m_Name = label;
@@ -142,6 +157,8 @@ export function runScene(ops: Op[]): void {
       let seen = watchDropped && lParam instanceof CKTDGUISlot ? `[dropped=${lParam.m_pDroppedSlot === null ? "none" : labelOf(lParam.m_pDroppedSlot)}]` : "";
       // a combo box's message is written down with its selection of that moment (the handler may ask for it)
       if (lParam instanceof CKTDGUIComboBox) seen = `[sel=${lParam.m_iSelected} foc=${lParam.m_iFocused} open=${+lParam.m_bOpened}]`;
+      // a list box's message with its selection and the rows' flags of that moment
+      if (lParam instanceof CKTDGUIListBox) seen = `[sel=${lParam.m_nSelected} start=${lParam.m_nSelStart} rows=${lParam.m_Items.map((r) => +r.bSelected).join("")}]`;
       log.push(`stage(${msg},${wParam},${labelOf(lParam)})${seen}`);
       return true;
     },
@@ -383,6 +400,45 @@ export function runScene(ops: Op[]): void {
           controls.set(label, c);
           break;
         }
+        case "list": {
+          const [label, , o] = a as [string, string, {
+            sel: number[]; text: number[]; th: number; items: [boolean, string | null, boolean, number][]; bar: string | null; style: number; selected: number;
+            start: number; drag: boolean; atMove: boolean; disappear: boolean; ignore: boolean; enable: boolean; show: boolean; selMsg: number; dblMsg: number;
+            endMsg: number; rMsg: number; sound: boolean;
+          }];
+          const c = new CKTDGUIListBox(w);
+          c.m_Name = label;
+          const rect4 = (v: number[]): [number, number, number, number] => [v[0]!, v[1]!, v[2]!, v[3]!];
+          setRect(c.m_rcSelection, ...rect4(o.sel));
+          setRect(c.m_rcText, ...rect4(o.text));
+          c.m_nTextHeight = o.th;
+          for (const [flag, control, shown, left] of o.items) {
+            c.addItem("", null, 0, 0, false, 0);
+            const row = c.getLastItem()!;
+            row.bSelected = flag;
+            row.pControl = control === null ? null : controls.get(control)!;
+            row.m_bShow = shown;
+            row.m_fTimeLeftShow = left;
+          }
+          c.m_pScrollBar = o.bar === null ? null : (controls.get(o.bar) as unknown as CKTDGUIScrollBar);
+          c.m_dwStyle = o.style;
+          c.m_nSelected = o.selected;
+          c.m_nSelStart = o.start;
+          c.m_bDrag = o.drag;
+          c.m_bIsSelectItemAtMouseMove = o.atMove;
+          c.m_bUseItemDisappear = o.disappear;
+          c.m_bIgnoreListClick = o.ignore;
+          c.m_bEnable = o.enable;
+          c.m_bShow = o.show;
+          c.m_CustomMsgSelection = o.selMsg;
+          c.m_CustomMsgItemDoubleClick = o.dblMsg;
+          c.m_CustomMsgSelection_End = o.endMsg;
+          c.m_CustomMsgSelectionByRButton = o.rMsg;
+          c.m_pSndMouseDown = o.sound ? SOUND_DOWN : undefined;
+          c.playSound = (s) => void log.push(`${label}.sound(${s === SOUND_DOWN ? "down" : "none"})`);
+          controls.set(label, c);
+          break;
+        }
         case "wheel": // the operating system's lines per notch; asking is written down
           w.wheelScrollLines = () => {
             log.push("spi");
@@ -597,6 +653,14 @@ export function runScene(ops: Op[]): void {
           log.length = 0;
           c.onHotkey();
           expect([name, 0, log.slice(), stateOf(w, c, want.state, focusLabel(), labelOf)]).toEqual([name, want.ret, want.events, want.state]);
+          break;
+        }
+        case "act_listproc": { // the list box's own MsgProc(uMsg, wParam, lParam)
+          const [name, label, args, want] = a as [string, string, number[], Expect];
+          const c = controls.get(label) as CKTDGUIListBox;
+          log.length = 0;
+          const ret = c.listBoxMsgProc(args[0]!, args[1]!, args[2]!);
+          expect([name, +ret, log.slice(), stateOf(w, c, want.state, focusLabel(), labelOf)]).toEqual([name, want.ret, want.events, want.state]);
           break;
         }
         case "act_guide": { // GetGuideDescPos() as the point `x,y`, or GetIsGuideDescAbsolutePos() as 0 / 1

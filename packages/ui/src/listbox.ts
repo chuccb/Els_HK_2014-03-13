@@ -19,21 +19,22 @@
  * GetSelectedIndex, ClearSelect, SelectItem, RemoveItem, RemoveItemByText, RemoveAllItems, SetScrollBarEndPos, SetShowAllItems,
  * SetShowTimeAllItems, GetPos and the `SetDialog` override.
  *
- * `OnFrameMove` (32943980), `OnFrameRender` (32943BA0, see `onFrameRender`) and `ContainsPoint` (32942D10: the quadrilateral, then the
- * bounding box of the scroll bar) are ported.  Not ported: what the box does with the input while the game runs (`HandleMouse` 32942EA0,
- * `MsgProc` 32943960) and `SetMaximize`.  The virtual functions the Lua methods of the base class reach are the base class's: the box overrides only those and
+ * `OnFrameMove` (32943980), `OnFrameRender` (32943BA0, see `onFrameRender`), `ContainsPoint` (32942D10: the quadrilateral, then the
+ * bounding box of the scroll bar), what the box does with the mouse (`HandleMouse` 32942EA0, see `handleMouse`) and `MsgProc` 32943960 (`listBoxMsgProc`)
+ * are ported.  Not ported: `SetMaximize`.  The virtual functions the Lua methods of the base class reach are the base class's (so the box has no
+ * `HandleKeyboard` and its `OnFocusOut` is the base's): the box overrides only those, `HandleMouse` (slot 8), `MsgProc` (slot 41),
  * `UpdateRects` (vtable slot 42, which is where the setters go), `SetDialog` (slot 15) and `GetPos` (slot 27).
  */
 import { Color, Vec2 } from "@els/host";
 import type { CKTDGUIListBox_Methods } from "@els/host";
-import { CKTDGUIControl, CPictureData, UCT, UIM, UIPointData, destroyTexture, readStringData, wcharText } from "./control.ts";
+import { CKTDGUIControl, CPictureData, UCT, UIM, UIPointData, destroyTexture, readStringData, requestFocus, wcharText } from "./control.ts";
 import type { CKTDGUIDialog } from "./dialog.ts";
 import type { UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
 import { packColor } from "./font.ts";
 import type { ColorF, UKFont } from "./font.ts";
 import { pick2DRect, pick2DRectOfRect } from "./pick.ts";
-import { copyRect, ftoi, idiv, inflateRect, newRect, offsetRect, setRect } from "./rect.ts";
+import { copyRect, ftoi, idiv, inflateRect, newRect, offsetRect, ptInRect, setRect } from "./rect.ts";
 import type { Rect } from "./rect.ts";
 import { VertexUI4 } from "./render.ts";
 import { CKTDGUIScrollBar } from "./scrollbar.ts";
@@ -564,6 +565,206 @@ export class CKTDGUIListBox extends CKTDGUIControl implements Partial<CKTDGUILis
       this.m_pScrollBar?.showItem(now);
     }
     if (sendMessage) this.sendSelection(1);
+  }
+
+  // ---- the mouse ----------------------------------------------------------------------------------------------------------------
+
+  /**
+   * the row under the height `y` as `HandleMouse` works it out: the scroll bar's position plus the whole rows between the top of the text and `y`
+   * (`idiv`: cut towards zero, so the line above the text is still row 0 of the page), all in 32 bits; -1 (no row) for a box without a text height
+   * or without a scroll bar
+   */
+  private rowAt(y: number): number {
+    const bar = this.m_pScrollBar;
+    const height = this.m_nTextHeight;
+    if (height === 0 || bar === null) return -1;
+    return (bar.m_nPosition + idiv((y - this.m_rcText.top) | 0, height)) | 0;
+  }
+
+  /**
+   * what a button down does to the selection once it hit the row `index` of the page (the left and the right button do the same): the row is the
+   * selected one, and the start of the range unless the shift key (4) is down; in the multi selection style (`m_dwStyle & 1`) the rows' flags follow the
+   * keys: control (8) toggles the row; shift (4) selects the rows from the start of the range to the row and no others; both keys select the row and copy
+   * the start row's flag to the rows strictly between (the selected row becomes the start of the range); no key selects the row alone.
+   */
+  private pressRow(index: number, wParam: number): void {
+    this.m_nSelected = index;
+    if ((wParam & 4) === 0) this.m_nSelStart = index;
+    if ((this.m_dwStyle & 1) === 0) return;
+    const rows = this.m_Items;
+    const row = rows[index]!;
+    const start = this.m_nSelStart;
+    const lo = Math.min(start, index);
+    const hi = Math.max(start, index);
+    // a start that is no row (the list got shorter since it was set) is read and written through past the array in the exe; without shift the
+    // start is the pressed row, so only the shift cases get here with a start that is none
+    if (start < 0 || start >= rows.length) throw new Error(`CKTDGUIListBox::HandleMouse: the start of the range, ${start}, is not a row of the list (the exe reads and writes past the array)`);
+    switch (wParam & 0xc) {
+      case 8:
+        row.bSelected = !row.bSelected;
+        break;
+      case 4:
+        for (let i = 0; i < lo; i++) rows[i]!.bSelected = false;
+        for (let i = hi + 1; i < rows.length; i++) rows[i]!.bSelected = false;
+        for (let i = lo; i <= hi; i++) rows[i]!.bSelected = true;
+        break;
+      case 0xc: {
+        const flag = rows[start]!.bSelected;
+        for (let i = lo + 1; i < hi; i++) rows[i]!.bSelected = flag;
+        row.bSelected = true;
+        this.m_nSelected = start;
+        break;
+      }
+      default:
+        for (const other of rows) other.bSelected = false;
+        row.bSelected = true;
+        break;
+    }
+  }
+
+  /**
+   * the first half of a button up: the window gives the mouse back and the drag is over; then, when a row is selected and the range from the start to
+   * it lies inside the list, the rows strictly between the two and the selected row take the start row's flag (false: nothing was done after the
+   * release: no selection, or the range reaches past the list)
+   */
+  private finishRange(): boolean {
+    this.ctx.releaseCapture();
+    const selected = this.m_nSelected;
+    this.m_bDrag = false;
+    if (selected === -1) return false;
+    const rows = this.m_Items;
+    const start = this.m_nSelStart;
+    if (Math.max(start, selected) >= rows.length) return false;
+    if (selected < 0 || start < 0) throw new Error(`CKTDGUIListBox::HandleMouse: the range from ${start} to ${selected} starts before the first row (the exe reads the memory before the array)`);
+    const flag = rows[start]!.bSelected;
+    for (let i = Math.min(start, selected) + 1; i < Math.max(start, selected); i++) rows[i]!.bSelected = flag;
+    rows[selected]!.bSelected = flag;
+    return true;
+  }
+
+  /** the message a button down or up sends: the script's custom message when it set one (0x467), else the control event 0x466 with `wParam` */
+  private sendOrCustom(custom: number, wParam: number): void {
+    if (custom === -1) this.sendInternelEvent(UIM.CONTROL_EVENT, wParam);
+    else this.sendInternelEvent(UIM.CUSTOM_MSG, custom);
+  }
+
+  /**
+   * `HandleMouse(uMsg, pt, wParam, lParam)` (32942EA0), virtual slot 8.  A box that is not shown or not enabled takes nothing.  The first left button
+   * down (0x201) asks for the focus when the box has none (no `CheckDlg`).  The scroll bar is asked next, for every message: when it takes it, the
+   * rows come back into view when `m_bUseItemDisappear` is set (every row shown, then every row's time left set to 50) and the message is taken.
+   * Then, by message (`pt` in `m_rcSelection` is "in the box"; the row is `rowAt`; a row counts when it lies on the scroll bar's page):
+   *  - 0x200 (move): with `m_bIsSelectItemAtMouseMove`: in the box and rows in the list: the row under the mouse becomes the selected one (a row that
+   *    does not exist: taken, nothing else; a row off the page: nothing is selected); outside the box or with no rows: nothing is selected (-1).  A
+   *    point in the box is taken, whatever the flag says; any other goes to the rows' controls.
+   *  - 0x201 (left button down) and 0x203 (double click) in the box: no rows: nothing is selected; a row that does not exist: taken; a row on the page: the
+   *    window takes the mouse and the drag starts; a double click plays the mouse down sound and sends the double click message (0x467, or 0x466 with 0),
+   *    taken; a click selects (`pressRow`), plays the sound and sends the selection message (0x467, or 0x466 with 1).  The answer is `!m_bIgnoreListClick`.
+   *  - 0x204 (right button down) in the box: the same without the double click and the focus: no rows: nothing is selected, taken; every miss is taken
+   *    (also a row off the page); the message is the right button's (0x467, or 0x466 with 3); taken.
+   *  - 0x202 / 0x205 (button up): `finishRange`; the left button sends the selection message (0x466 with 1) when the range has more than the one row and
+   *    then always the selection end message (0x466 with 2, or 0x467 with `m_CustomMsgSelection_End`); the right button sends 0x466 with 3 when the range has
+   *    more than the one row (the exe asks whether `m_CustomMsgSelection` is -1 and sends `m_CustomMsgSelectionByRButton`); never taken.
+   *  - 0x20A (wheel): the scroll bar scrolls by the lines per notch of the system (asked even without a bar) times minus the notches (the high word of
+   *    `wParam` / 120, cut towards zero); taken.
+   * Every other message, and what is not taken above, goes to the control of every row (in order, the answers dropped); not taken.  (A press whose row
+   * does not exist is `-1` without a scroll bar, so the scroll bar is there wherever the code below looks at it.)
+   */
+  override handleMouse(uMsg: number, x: number, y: number, wParam: number, lParam: number): boolean {
+    if (!this.m_bShow || !this.m_bEnable) return false;
+    if (uMsg === 0x201 && !this.m_bHasFocus) requestFocus(this.ctx, this);
+    const bar = this.m_pScrollBar;
+    if (bar !== null && bar.handleMouse(uMsg, x, y, wParam, lParam)) {
+      if (this.m_bUseItemDisappear) {
+        for (const row of this.m_Items) {
+          row.m_bShow = true;
+          row.m_fTimeLeftShow = -1;
+        }
+        for (const row of this.m_Items) row.m_fTimeLeftShow = 50;
+      }
+      return true;
+    }
+    const pt = { x, y };
+    switch (uMsg) {
+      case 0x200:
+        if (this.m_bIsSelectItemAtMouseMove) {
+          if (ptInRect(this.m_rcSelection, pt) && this.m_Items.length > 0) {
+            const index = this.rowAt(y);
+            if (this.getItem(index) === null) return true;
+            const position = bar!.m_nPosition;
+            if (index >= position && index < this.m_Items.length && index < ((position + bar!.m_nPageSize) | 0)) this.m_nSelected = index;
+          } else this.m_nSelected = -1;
+        }
+        if (ptInRect(this.m_rcSelection, pt)) return true;
+        break;
+      case 0x201:
+      case 0x203:
+        if (!ptInRect(this.m_rcSelection, pt)) break;
+        if (this.m_Items.length <= 0) this.m_nSelected = -1;
+        else {
+          const index = this.rowAt(y);
+          if (this.getItem(index) === null) return true;
+          const position = bar!.m_nPosition;
+          if (index >= position && index < this.m_Items.length && index < ((position + bar!.m_nPageSize) | 0)) {
+            this.ctx.setCapture();
+            this.m_bDrag = true;
+            if (uMsg === 0x203) {
+              this.playSound(this.m_pSndMouseDown);
+              this.sendOrCustom(this.m_CustomMsgItemDoubleClick, 0);
+              return true;
+            }
+            this.pressRow(index, wParam);
+            this.playSound(this.m_pSndMouseDown);
+            this.sendOrCustom(this.m_CustomMsgSelection, 1);
+          }
+        }
+        return !this.m_bIgnoreListClick;
+      case 0x202:
+        if (!this.finishRange()) return false;
+        if (this.m_nSelStart !== this.m_nSelected) this.sendOrCustom(this.m_CustomMsgSelection, 1);
+        this.sendOrCustom(this.m_CustomMsgSelection_End, 2);
+        return false;
+      case 0x204: {
+        if (!ptInRect(this.m_rcSelection, pt)) break;
+        if (this.m_Items.length <= 0) {
+          this.m_nSelected = -1;
+          return true;
+        }
+        const index = this.rowAt(y);
+        if (this.getItem(index) === null) return true;
+        const position = bar!.m_nPosition;
+        if (index < position || index >= this.m_Items.length || index >= ((position + bar!.m_nPageSize) | 0)) return true;
+        this.ctx.setCapture();
+        this.m_bDrag = true;
+        this.pressRow(index, wParam);
+        this.playSound(this.m_pSndMouseDown);
+        this.sendOrCustom(this.m_CustomMsgSelectionByRButton, 3);
+        return true;
+      }
+      case 0x205:
+        if (!this.finishRange()) return false;
+        if (this.m_nSelStart === this.m_nSelected) return false;
+        if (this.m_CustomMsgSelection === -1) this.sendInternelEvent(UIM.CONTROL_EVENT, 3);
+        else this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgSelectionByRButton);
+        return false;
+      case 0x20a: {
+        const lines = this.ctx.wheelScrollLines(); // asked even when there is no bar
+        if (bar !== null) bar.scroll(Math.imul(lines, idiv(wParam >> 16, -120)));
+        return true;
+      }
+      default:
+        break;
+    }
+    for (let i = 0; i < this.m_Items.length; i++) this.m_Items[i]!.pControl?.handleMouse(uMsg, x, y, wParam, lParam);
+    return false;
+  }
+
+  /**
+   * `MsgProc(uMsg, wParam, lParam)` (32943960), a virtual of its own in slot 41 (the control's `MsgProc(hWnd, ...)` of slot 6 stays the base's, so
+   * `listBoxMsgProc` here): the capture was lost (0x215, `WM_CAPTURECHANGED`) and a drag is over.  Never taken.
+   */
+  listBoxMsgProc(uMsg: number, _wParam: number, _lParam: number): boolean {
+    if (uMsg === 0x215) this.m_bDrag = false;
+    return false;
   }
 
   /** `if (row->pControl != nullptr) { delete row->pControl; row->pControl = nullptr; }` of the three removals and the destructor */
