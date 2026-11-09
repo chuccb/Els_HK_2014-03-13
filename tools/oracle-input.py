@@ -286,7 +286,7 @@ class InputOracle(om.MouseOracle):
             self.emu.write(a + 0x58, struct.pack("<2f", *value))
         else:
             off, fmt = (CONTROL_FIELDS if a in self.owner else DIALOG_FIELDS)[field]
-            self.poke(a + off, "<" + fmt, value)
+            self.poke(a + off, "<" + fmt, *(value if isinstance(value, (list, tuple)) else (value,)))
         self.op("set", label, field, value)
 
     def focus(self, label):

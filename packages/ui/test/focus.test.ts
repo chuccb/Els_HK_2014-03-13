@@ -93,6 +93,21 @@ describe("RequestFocus (3295B490 and 32925390)", () => {
   });
 });
 
+describe("SetCapture / ReleaseCapture (the window's hold on the mouse)", () => {
+  test("a press takes the mouse and a release gives it back; the world only keeps the flag", () => {
+    const { w } = setup();
+    expect(w.mouseCaptured).toBe(false);
+    w.setCapture();
+    expect(w.mouseCaptured).toBe(true);
+    w.setCapture();
+    expect(w.mouseCaptured).toBe(true);
+    w.releaseCapture();
+    expect(w.mouseCaptured).toBe(false);
+    w.releaseCapture();
+    expect(w.mouseCaptured).toBe(false);
+  });
+});
+
 describe("CKTDGUIDialog::GetControl(int) (329572D0) and GetRadioButtonGroupInfo (3294A630)", () => {
   test("the control at an index of the list; null below 0 and from the size on", () => {
     const { w } = setup();

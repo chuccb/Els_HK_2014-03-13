@@ -110,11 +110,16 @@ export interface UIContext {
 }
 
 /**
- * The `static bool`s the exe's combo box and list box `OnFrameRender`s keep in their .bss (`bSBInit` 388113, `bSBInit_0` 393019): each sets
- * the page size of its scroll bar the FIRST time any box of its class is drawn and never again, so a second box keeps the page size it was
- * given when it was made.
+ * The function-level statics the exe keeps in its .bss for the life of its process:
+ *  - `bSBInit` 388113 and `bSBInit_0` 393019, the `static bool`s of the combo box's and the list box's `OnFrameRender`s: each sets the page
+ *    size of its scroll bar the FIRST time any box of its class is drawn and never again, so a second box keeps the page size it was given
+ *    when it was made;
+ *  - `ThumbOffsetY` (0x33643688), the `static int` of `CKTDGUIScrollBar::HandleMouse`: where in the thumb the mouse took hold of it.  Every
+ *    scroll bar shares it (a move that drags a bar uses the offset of the last press on any bar).
  */
 export class RenderStatics {
+  /** `ThumbOffsetY`: `CKTDGUIScrollBar::HandleMouse` (32985B00) */
+  thumbOffsetY = 0;
   /** `bSBInit`: `CKTDGUIComboBox::OnFrameRender` (3293DB00) has run once */
   bSBInit = false;
   /** `bSBInit_0`: `CKTDGUIListBox::OnFrameRender` (32943BA0) has run once */

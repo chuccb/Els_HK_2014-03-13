@@ -3,7 +3,7 @@
  * a minimum and a maximum.  `CKTDGUIDialog::CreateSlider` 328C18D0 (sizeof 0x344).
  *
  * Constructor 3294C6B0: no sounds; a range of 0..100 with the value 50, a position, size and button of 0, no textures, not pressed, no
- * custom message.  `UpdateRects` (3294D290, virtual slot 42, so every setter that moves something goes through it) does nothing until the
+ * custom message.  `UpdateRects` (3294D290, virtual slot 41, so every setter that moves something goes through it) does nothing until the
  * slider has a width and a height; then a button of no size is as high and as wide as the slider is high (a square), the button is centred
  * vertically and put where the value is: `(int)((float)(value - min) * (float)width / (float)(max - min))` from the left, its middle there
  * (an empty range divides by zero in floating point: the conversion gives 0x80000000).
@@ -13,13 +13,12 @@
  * `SetValueInternal` (3294D210) clamps the value into the range and, if that changes it, updates the rectangles and sends the custom
  * message, or without one the control event 0x466 with 0.
  *
- * `OnFrameRender` (3294CD20) draws the background and the button.  Not ported: what the slider does while the game runs (`HandleMouse`,
- * `OnFrameMove`).
+ * `OnFrameRender` (3294CD20) draws the background and the button; `HandleMouse` (3294C9F0) is the mouse input.
  */
 import type { CKTDGUISlider_Methods } from "@els/host";
-import { CKTDGUIControl, UCT, UIM, UIPointData, destroyTexture } from "./control.ts";
+import { CKTDGUIControl, UCT, UIM, UIPointData, destroyTexture, requestFocus } from "./control.ts";
 import type { UIContext, UITextureData } from "./control.ts";
-import { ftoi, idiv, newRect, offsetRect, setRect } from "./rect.ts";
+import { ftoi, idiv, newRect, offsetRect, ptInRect, setRect } from "./rect.ts";
 import type { Rect } from "./rect.ts";
 import { VertexUI4 } from "./render.ts";
 
@@ -142,6 +141,78 @@ export class CKTDGUISlider extends CKTDGUIControl implements Partial<CKTDGUISlid
 
   SetCustomMsgValueChanged(msg: number): void {
     this.m_CustomMsgValueChanged = msg | 0;
+  }
+
+  /**
+   * `HandleMouse(uMsg, pt, wParam, lParam)` (3294C9F0), virtual: a shown and enabled slider takes
+   *  - 0x200 (move) while the button is held (`m_bPressed`): the value follows the mouse, `(int)((float)min + 0.5 + (float)(max - min) /
+   *    (float)(right - left) * (float)(pt.x + m_x + m_nDragOffset - left))` in single precision (`left` and `right` are the bounding box's;
+   *    an empty box divides by zero: the conversion gives 0x80000000 and the value is clamped to the minimum), set by input; taken.  Not held: not taken.
+   *  - 0x201 / 0x203 (left button down, double click) on the button (`m_rcButton`): the button is held (`m_bPressed`), the window captures the mouse,
+   *    the point is the drag start (`m_nDragX`) and the offset of the button from it (`m_nDragOffset`), the slider takes the focus when it has none;
+   *    taken.  On the bar (`m_rcBoundingBox`) but not on the button: the same without holding the button (the offset is 0), then the value moves a
+   *    step towards the point (one more when it is right of the button's place `m_nButtonX + m_x`, one less when left of it; at that very place the
+   *    message is not taken).  Elsewhere: not taken.
+   *  - 0x202 (left button up): not taken when the button was not held; otherwise it is let go, the capture is given back and the stage is told
+   *    (0x467 with the custom message, or without one 0x466 with 0); taken.
+   *  - 0x20A (wheel): the value moves by the wheel turns (`HIWORD(wParam)` as a signed number of notches of 120, cut towards zero) the other way;
+   *    taken, wherever the mouse is.
+   * Every other message is not taken.  The value is clamped, and told to the stage, by `setValueInternal`.
+   */
+  override handleMouse(uMsg: number, x: number, y: number, wParam: number, _lParam: number): boolean {
+    if (!this.m_bShow || !this.m_bEnable) return false;
+    const pt = { x, y };
+    switch (uMsg) {
+      case 0x200: {
+        if (!this.m_bPressed) return false;
+        const box = this.m_rcBoundingBox;
+        const along = (x + this.m_x + this.m_nDragOffset - box.left) | 0;
+        const range = f(((this.m_nMax - this.m_nMin) | 0));
+        const value = f(f(f(this.m_nMin) + 0.5) + f(f(range / f((box.right - box.left) | 0)) * f(along)));
+        this.setValueInternal(ftoi(value), true);
+        return true;
+      }
+      case 0x201:
+      case 0x203:
+        if (ptInRect(this.m_rcButton, pt)) {
+          this.m_bPressed = true;
+          this.ctx.setCapture();
+          this.m_nDragX = x;
+          this.m_nDragOffset = (this.m_nButtonX - x) | 0;
+          if (!this.m_bHasFocus) requestFocus(this.ctx, this);
+          return true;
+        }
+        if (!ptInRect(this.m_rcBoundingBox, pt)) return false;
+        this.m_nDragX = x;
+        this.m_nDragOffset = 0;
+        if (!this.m_bHasFocus) requestFocus(this.ctx, this);
+        {
+          const place = (this.m_nButtonX + this.m_x) | 0;
+          if (x > place) {
+            this.setValueInternal((this.m_nValue + 1) | 0, true);
+            return true;
+          }
+          if (x < place) {
+            this.setValueInternal((this.m_nValue - 1) | 0, true);
+            return true;
+          }
+        }
+        return false;
+      case 0x202:
+        if (!this.m_bPressed) return false;
+        this.m_bPressed = false;
+        this.ctx.releaseCapture();
+        if (this.m_CustomMsgValueChanged === -1) this.sendInternelEvent(UIM.CONTROL_EVENT, 0);
+        else this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgValueChanged);
+        return true;
+      case 0x20a: {
+        const notches = idiv(((wParam >>> 16) << 16) >> 16, 120);
+        this.setValueInternal((this.m_nValue - notches) | 0, true);
+        return true;
+      }
+      default:
+        return false;
+    }
   }
 
   /** `SetValueInternal(nValue, bFromInput)` (3294D210): `min(max, max(nValue, min))`; a value that moves updates the rectangles and tells the stage */

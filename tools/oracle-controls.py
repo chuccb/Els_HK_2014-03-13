@@ -41,8 +41,11 @@ SOUND_UP, SOUND_DOWN = 0x5550, 0x5554
 SOUNDS = {0: "none", SOUND_UP: "up", SOUND_DOWN: "down"}
 STATIC_HANDLE_MOUSE, BUTTON_HANDLE_MOUSE = 0x32929E60, 0x3292E520
 # what `act_ctl` calls (virtual slot 8 of the control's class) and which fields it writes down, by kind of control; `down` is the dialog's
-# m_bMouseDownForDrag, the others are bytes of the control at the offset of FIELD_OFFSETS (the toggles' fields)
+# m_bMouseDownForDrag, the others are fields of the control at the offset of FIELD_OFFSETS: an offset (a byte), or (offset, format) with the
+# format "B" (byte), "i" (int), "d" (double, printed the way JavaScript prints a number: `12.375`, `12`), "pt" (two ints, `x,y`) or "rect"
+# (four ints, `l,t,r,b`), or a function (oracle, control address) -> text
 HANDLERS = {"button": BUTTON_HANDLE_MOUSE, "static": STATIC_HANDLE_MOUSE}
+MSG_PROCS = {}  # the MsgProc `act_msg` calls, by kind of control: (the virtual slot, the exe's function)
 STATE_KEYS = {"button": ("hasFocus", "focus", "down"), "static": ("hasFocus", "focus", "down")}
 FIELD_OFFSETS = {}
 
@@ -155,9 +158,23 @@ class ControlOracle(oi.InputOracle):
             elif key == "down":
                 v = self.b(d + 0x77)
             else:
-                v = self.b(c + FIELD_OFFSETS[kind][key])
+                v = self.read_field(c, FIELD_OFFSETS[kind][key])
             out.append("%s=%s" % (key, v))
         return " ".join(out)
+
+    def read_field(self, c, spec):
+        if callable(spec):
+            return spec(self, c)
+        off, fmt = spec if isinstance(spec, tuple) else (spec, "B")
+        if fmt == "B":
+            return self.b(c + off)
+        if fmt == "i":
+            return self.i(c + off)
+        if fmt == "d":
+            text = repr(struct.unpack("<d", self.emu.read(c + off, 8))[0])
+            return text[:-2] if text.endswith(".0") else text
+        n = {"pt": 2, "rect": 4}[fmt]
+        return ",".join(str(v) for v in struct.unpack("<%di" % n, self.emu.read(c + off, 4 * n)))
 
     def act_ctl(self, case, label, uMsg, x, y, wParam=0, lParam=0):
         """send `HandleMouse(uMsg, (x, y), wParam, lParam)` to the control through its vtable"""
@@ -170,6 +187,22 @@ class ControlOracle(oi.InputOracle):
         state = self.state_of(label)
         print("%-100s -> %d | %s | %s" % (case, ret, ",".join(events), state))
         self.op("act_ctl", case, label, [uMsg, x, y, wParam, lParam], {"ret": ret, "events": events, "state": state})
+        return ret
+
+    def act_msg(self, case, label, uMsg, wParam=0, lParam=0):
+        """send `MsgProc(hWnd, uMsg, wParam, lParam)` to the control through its vtable (slot 6; the scroll bar's own `MsgProc(uMsg, wParam,
+        lParam)` is slot 41)"""
+        c = self.addr[label]
+        self.events = []
+        slot, fn = MSG_PROCS[self.kind[c]]
+        handler = self.emu.u32(self.emu.u32(c) + 4 * slot)
+        assert handler == fn, hex(handler)
+        args = [uMsg, wParam, lParam] if slot != 6 else [oi.APP_HWND, uMsg, wParam, lParam]
+        ret = self.thiscall(handler, c, args) & 0xFF
+        events = list(self.events)
+        state = self.state_of(label)
+        print("%-100s -> %d | %s | %s" % (case, ret, ",".join(events), state))
+        self.op("act_msg", case, label, [uMsg, wParam, lParam], {"ret": ret, "events": events, "state": state})
         return ret
 
 
