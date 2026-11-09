@@ -6,8 +6,8 @@ import { HostWorld, KGCMassFileManager } from "@els/host";
 import type { HostOptions, MassFileSource } from "@els/host";
 import type { StringTable } from "@els/assets";
 import type { Direct3DDevice9 } from "@els/d3d9";
-import { CKTDGUIControl, CPictureData, RenderStatics } from "./control.ts";
-import type { UIContext } from "./control.ts";
+import { CKTDGUIControl, CPictureData, RenderStatics, STAGE_STATE } from "./control.ts";
+import type { UIContext, UIGameStage } from "./control.ts";
 import { CKTDGUIButton } from "./button.ts";
 import { CKTDGUICheckBox } from "./checkbox.ts";
 import { CKTDGUIRadioButton } from "./radiobutton.ts";
@@ -106,6 +106,10 @@ export class UIWorld implements UIContext {
   readonly mouse = new UIMouse();
   /** the statics of the `OnFrameRender`s (`bSBInit`, `bSBInit_0`) */
   readonly statics = new RenderStatics();
+  /** `g_pKTDXApp->m_vecStageChain`: the game states (the first one is asked first) */
+  readonly stageChain: UIGameStage[] = [];
+  /** `g_pKTDXApp->m_GameMsgQ`: the game messages that were queued, not processed at once (the main loop of the exe takes them one by one) */
+  readonly gameMessages: { uMsg: number; wParam: number; lParam: unknown }[] = [];
 
   constructor(opts: UIWorldOptions) {
     const massFiles = new KGCMassFileManager();
@@ -137,6 +141,28 @@ export class UIWorld implements UIContext {
   /** `_clock()`: milliseconds, from the same source as `GetTickCount` */
   clock(): number {
     return this.devices.massFiles.tickCount();
+  }
+
+  /**
+   * `CKTDXApp::SendGameMessage(uMsg, wParam, lParam, bDirectProcess)` (328CCCD0).  Direct: every stage of the chain that is active
+   * (`m_eStageState == SS_ACTIVE`) has its `MsgProc(m_hWnd, ...)` called in turn, until one answers yes (the chain is read again after each
+   * call: a message proc may add or remove stages); the answer is the last one (no for an empty chain or one without an active stage).  The
+   * exe then frees the heap block the message 0x46A carries in `lParam` when nobody took it: no control sends that one, so it is not modelled.
+   * Not direct: the message is queued, the answer is yes.
+   */
+  sendGameMessage(uMsg: number, wParam: number, lParam: unknown, bDirectProcess: boolean): boolean {
+    if (!bDirectProcess) {
+      this.gameMessages.push({ uMsg, wParam, lParam });
+      return true;
+    }
+    let answer = false;
+    for (let i = 0; i < this.stageChain.length; i++) {
+      const stage = this.stageChain[i]!;
+      if (stage.m_eStageState !== STAGE_STATE.ACTIVE) continue;
+      answer = stage.MsgProc?.(uMsg, wParam, lParam) ?? false;
+      if (answer) break;
+    }
+    return answer;
   }
 
   /** `LoadLuaEnum`: Enum.lua, DungeonEnum.lua, MassFileMappingList_HK.lua, StringID_def.lua */

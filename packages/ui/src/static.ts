@@ -5,7 +5,7 @@
  */
 import { D3DRS } from "@els/d3d9";
 import type { Color } from "@els/host";
-import { CKTDGUIControl, UCT, readStringData } from "./control.ts";
+import { CKTDGUIControl, UCT, UIM, readStringData } from "./control.ts";
 import type { CPictureData, UIContext, UIPointData, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceTexture } from "./device.ts";
 import type { CMovieData } from "./movie.ts";
@@ -64,6 +64,56 @@ export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStat
       if (p && pick2DRect(x, y, p.leftTopPoint, p.rightTopPoint, p.leftBottomPoint, p.rightBottomPoint)) return true;
     }
     return false;
+  }
+
+  /**
+   * `HandleMouse(uMsg, pt, wParam, lParam)` (32929E60), virtual: a static that is enabled and shown takes the mouse messages 0x200 (move),
+   * 0x201 / 0x202 (left button down / up), 0x204 / 0x205 / 0x206 (right button down / up / double click) when the point is in one of its
+   * pictures, and 0x203 (left double click) when it is and a message id was set.  Button down: the dialog (when its handle is valid)
+   * starts a drag (`m_bMouseDownForDrag = true`) and the message is taken; if the static has no valid dialog it is still taken, nothing
+   * more.  Button up: the stage is sent the custom message `m_CustomMsgMouseUp` (when it is not -1), and then the drag ends like it does
+   * for the right button messages (`m_bMouseDownForDrag = false`): the exe's code of 0x202 runs on into the code of 0x204 / 0x205 / 0x206
+   * (Hex-Rays shows a `break` there; the disassembly at 32929EF0..32929F49 and the emulator's run say otherwise).  Move: nothing.
+   * Double click: `m_CustomMsgMouseDblClk` is sent and the message taken, and a static without one does not take it.  Any other message
+   * is not taken.  `wParam` and `lParam` are not read.
+   */
+  override handleMouse(uMsg: number, x: number, y: number, _wParam: number, _lParam: number): boolean {
+    if (!this.m_bEnable || !this.m_bShow) return false;
+    const dialog = this.m_pDialog !== null && !this.m_pDialog.destroyed ? this.m_pDialog : null;
+    switch (uMsg) {
+      case 0x200:
+      case 0x201:
+      case 0x202:
+      case 0x204:
+      case 0x205:
+      case 0x206:
+        if (!this.containsPoint(x, y)) return false;
+        switch (uMsg) {
+          case 0x201:
+            if (dialog !== null) {
+              dialog.m_bMouseDownForDrag = true;
+              return true;
+            }
+            break;
+          case 0x202:
+            if (this.m_CustomMsgMouseUp !== -1) this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgMouseUp);
+            if (dialog !== null) dialog.m_bMouseDownForDrag = false; // (the code runs on into the default case)
+            break;
+          case 0x200:
+            break;
+          default:
+            if (dialog !== null) dialog.m_bMouseDownForDrag = false;
+            break;
+        }
+        return true;
+      case 0x203:
+        if (!this.containsPoint(x, y)) return false;
+        if (this.m_CustomMsgMouseDblClk === -1) return false;
+        this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgMouseDblClk);
+        return true;
+      default:
+        return false;
+    }
   }
 
   override textureData(out: UITextureData[]): void {

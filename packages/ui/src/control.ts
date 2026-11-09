@@ -57,6 +57,14 @@ export interface UIStage {
   MsgProc?(msg: number, wParam: number | string, lParam: unknown): boolean;
 }
 
+/** `CKTDXStage::STAGE_STATE`: only an active stage is handed a direct game message */
+export const STAGE_STATE = { NULL: 0, ACTIVE: 1, DEACTIVE: 2, READY_TO_DELETE: 3 } as const;
+
+/** a game state in `g_pKTDXApp->m_vecStageChain`: its state (`m_eStageState`, offset 0xC) and its message proc (virtual slot 3) */
+export interface UIGameStage extends UIStage {
+  m_eStageState: number;
+}
+
 /** what the C++ code reaches through its globals: `g_pKTDXApp->m_pDeviceManager`, `CKTDXStringTable::GetInstance()`, `CKTDXApp::ms_pLuaBinder` */
 export interface UIContext {
   readonly devices: DeviceManager;
@@ -80,6 +88,11 @@ export interface UIContext {
   readonly dialogManager: CKTDGUIDialogManager;
   /** `_clock()` in milliseconds: the CRT's clock the `boost::timer` of a dialog counts from */
   clock(): number;
+  /**
+   * `g_pKTDXApp->SendGameMessage(uMsg, wParam, lParam, bDirectProcess)` (328CCCD0): a direct message goes to the active stages of the stage
+   * chain one after the other until one answers yes, and the answer is the last one given; any other message is queued (the answer is yes).
+   */
+  sendGameMessage(uMsg: number, wParam: number, lParam: unknown, bDirectProcess: boolean): boolean;
   /** `g_pKTDXApp->m_pDIManager`: the input manager's flag the dialog manager sets (`m_bEnabled`) */
   readonly diManager: UIInputManager;
   /** `g_pKTDXApp->m_pDIManager->m_KTDIKeyboard`: the keys the controls ask for (a focused button answers the Enter key) */
@@ -1373,10 +1386,12 @@ export class CKTDGUIControl implements Partial<CKTDGUIControl_Methods> {
 
   /**
    * `SendInternelEvent(hWnd, uMsg, wParam, lParam)` (329253D0): the control's dialog hands the message to its stage (when there is a
-   * stage and it is alive); false when the control has no dialog or the dialog no stage.
+   * stage and it is alive); false when the control has no dialog (a handle that is null or stale: the dialog is gone) or the dialog no stage.
    */
   sendInternelEvent(msg: number, wParam: number | string, lParam: unknown = this): boolean {
-    const stage = this.m_pDialog?.m_pStage as UIStage | undefined | null;
+    const dialog = this.m_pDialog;
+    if (dialog === null || dialog.destroyed) return false;
+    const stage = dialog.m_pStage as UIStage | undefined | null;
     if (!stage) return false;
     stage.MsgProc?.(msg, wParam, lParam);
     return true;

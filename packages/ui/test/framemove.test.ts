@@ -10,7 +10,7 @@ import { StringTable } from "@els/assets";
 import {
   BCS, CBCS, CKTDGUIButton, CKTDGUICheckBox, CKTDGUIComboBox, CKTDGUIContolList, CKTDGUIDialog, CKTDGUIDialogManager, CKTDGUIEditBox, CKTDGUIIMEEditBox,
   CKTDGFreeTypeFont, CKTDGUIListBox, CKTDGUINavigation, CKTDGUIRadioButton, CKTDGUIScrollBar, CKTDGUISlider, CKTDGUISlot, CKTDGUIStatic, CMovieData, CPictureData, DeviceSound,
-  RBCS, SCS, TA, TexChangeData, UIInputManager, UIKeyboard, UIM, UIPointData, UIStringData, UKFont, newRect, setTexureData, setRect,
+  RBCS, SCS, STAGE_STATE, TA, TexChangeData, UIInputManager, UIKeyboard, UIM, UIPointData, UIStringData, UKFont, newRect, setTexureData, setRect,
 } from "../src/index.ts";
 import type { CKTDGUIControl, ListBoxItem } from "../src/index.ts";
 import { wstringFind } from "../src/static.ts";
@@ -837,7 +837,7 @@ describe("CKTDGUIButton::OnFrameMove (3292EA10)", () => {
     b.onFrameMove(0, 0.1);
   });
 
-  test("the Enter key: a button with the focus and an edge answers it with a click (not ported: it throws) and takes the key's lock; any other case leaves the key alone", () => {
+  test("the Enter key: a button with the focus and an edge answers it with a click (LButtonMouseUp) and takes the key's lock; any other case leaves the key alone", () => {
     const { b, w } = button();
     const key = 0x1c;
     w.keyboard.m_State[key] = -128;
@@ -858,10 +858,19 @@ describe("CKTDGUIButton::OnFrameMove (3292EA10)", () => {
     w.keyboard.m_State[key] = 0; // the key is up
     b.onFrameMove(0, 0.1);
     expect(w.keyboard.m_Locks[key]).toBe(0);
+    // the click: no mouse up message, so the game gets the control message 0x466 (2, the button) at once; the mouse up sound plays
+    const sent: [number, number, boolean][] = [];
+    w.stageChain.push({ m_eStageState: STAGE_STATE.ACTIVE, MsgProc: (m, wParam, lParam) => { sent.push([m, wParam as number, lParam === b]); return true; } });
+    const up = new DeviceSound("UP.OGG", false);
+    b.m_pSndMouseUp = up;
     w.keyboard.m_State[key] = -128;
-    expect(() => b.onFrameMove(0, 0.1)).toThrow("LButtonMouseUp");
+    b.onFrameMove(0, 0.1);
     expect(w.keyboard.m_Locks[key]).toBe(1);
+    expect(sent).toEqual([[0x466, 2, true]]);
+    expect(up.plays).toBe(1);
     b.onFrameMove(0, 0.1); // the lock: the same press answers once
+    expect(sent.length).toBe(1);
+    expect(up.plays).toBe(1);
   });
 });
 

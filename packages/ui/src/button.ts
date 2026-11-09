@@ -154,7 +154,7 @@ export class CKTDGUIButton extends CKTDGUIControl implements Partial<CKTDGUIButt
 
   /**
    * `OnFrameMove` (3292EA10): a shown button runs the control's, answers the Enter key when it has the focus and an edge (`LButtonMouseUp`:
-   * not ported, it throws), moves its current point towards its end point (`ChangePoint`), loses `m_bMouseOver` when a dialog in front of it is not
+   * as if it was clicked), moves its current point towards its end point (`ChangePoint`), loses `m_bMouseOver` when a dialog in front of it is not
    * modal (`CheckFrontModalDlg`), runs the texture animation of the state it is in (`UpdateTexChangeData` with the step of the sequence id; a step
    * with another texture gives the state's point that texture, sized from it, and the state is entered again), and then follows the mouse:
    * normal goes to mouse over (or mouse down with `m_bDownStateAtNormal`: both play the over sound) or, when it is disabled, to disable; mouse over
@@ -166,7 +166,7 @@ export class CKTDGUIButton extends CKTDGUIControl implements Partial<CKTDGUIButt
     super.onFrameMove(fTime, fElapsedTime);
     const manager = this.ctx.dialogManager;
     if (this.m_bHasFocus && this.m_EdgeWidth > 0 && !manager.checkFrontModalDlg(this.m_pDialog) && this.ctx.keyboard.getKeyState(KEY_ENTER) === 1) {
-      throw new Error("CKTDGUIButton::LButtonMouseUp (3292E6D0: the click messages of the Enter key) is not ported");
+      this.lButtonMouseUp();
     }
     this.m_fElapsedTime = f(fElapsedTime);
     if (this.m_EndPoint.fChangeTime !== this.m_NowPoint.fChangeTime) this.changePoint(this.m_NowPoint, this.m_EndPoint);
@@ -227,6 +227,65 @@ export class CKTDGUIButton extends CKTDGUIControl implements Partial<CKTDGUIButt
       default:
         return 0;
     }
+  }
+
+  /**
+   * `HandleMouse(uMsg, pt, wParam, lParam)` (3292E520), virtual: a button that is enabled, shown and `m_bEnableClick` takes
+   *  - 0x201 / 0x204 (left / right button down) in its area: it asks its dialog for the focus (when it has none and the dialog manager
+   *    knows the dialog: `CheckDlg`), plays the mouse-down sound and enters the state mouse down; taken.
+   *  - 0x202 (left button up): `LButtonMouseUp` when the point is in its area and it has the focus; TAKEN in every case, wherever the point.
+   *  - 0x203 (left double click) in its area: the custom message `m_CustomMsgMouseDblClk` (when it is not -1) and the mouse-up sound; taken.
+   *  - 0x205 (right button up): when the point is in its area and it has the focus, the custom message `m_CustomMsgMouseRightUp` (when
+   *    not -1), the state mouse over and the mouse-up sound; TAKEN in every case.
+   * Every other message (0x200 move included) and a point outside for the down messages and the double click: not taken.
+   */
+  override handleMouse(uMsg: number, x: number, y: number, _wParam: number, _lParam: number): boolean {
+    if (!this.m_bEnable || !this.m_bShow || !this.m_bEnableClick) return false;
+    switch (uMsg) {
+      case 0x201:
+      case 0x204: {
+        if (!this.containsPoint(x, y)) return false;
+        const dialog = this.m_pDialog;
+        if (!this.m_bHasFocus && this.ctx.dialogManager.checkDlg(dialog)) dialog.requestFocus(this);
+        this.playSound(this.m_pSndMouseDown);
+        this.ChangeState(BCS.MOUSEDOWN, false);
+        return true;
+      }
+      case 0x202:
+        if (this.containsPoint(x, y) && this.m_bHasFocus) this.lButtonMouseUp();
+        return true;
+      case 0x203:
+        if (!this.containsPoint(x, y)) return false;
+        if (this.m_CustomMsgMouseDblClk !== -1) this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgMouseDblClk);
+        this.playSound(this.m_pSndMouseUp);
+        return true;
+      case 0x205:
+        if (this.containsPoint(x, y) && this.m_bHasFocus) {
+          if (this.m_CustomMsgMouseRightUp !== -1) this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgMouseRightUp);
+          this.ChangeState(BCS.MOUSEOVER, false);
+          this.playSound(this.m_pSndMouseUp);
+        }
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * `LButtonMouseUp()` (3292E6D0): a click.  The focus is cleared when the button's dialog handle is valid (`CKTDGUIDialog::ClearFocus`,
+   * a static: it takes the focus from whatever control has it); then the stage is told: the custom message `m_CustomMsgMouseUp` (0x467), or
+   * without one the game's own control message 0x466 with the parameter 2 and the button as `lParam`, handed to the stages at once
+   * (`SendGameMessage`, direct); then the custom function name `m_CustomFuncMouseUp` (0x468) when there is one; the state goes to normal and
+   * the mouse-up sound plays.
+   */
+  lButtonMouseUp(): void {
+    const dialog = this.m_pDialog;
+    if (dialog !== null && !dialog.destroyed) dialog.clearFocus();
+    if (this.m_CustomMsgMouseUp === -1) this.ctx.sendGameMessage(UIM.CONTROL_EVENT, 2, this, true);
+    else this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgMouseUp);
+    if (this.m_CustomFuncMouseUp.length !== 0) this.sendInternelEvent(UIM.CUSTOM_FUNC, this.m_CustomFuncMouseUp);
+    this.ChangeState(BCS.NORMAL, false);
+    this.playSound(this.m_pSndMouseUp);
   }
 
   /**
