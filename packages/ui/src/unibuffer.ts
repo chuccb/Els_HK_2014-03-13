@@ -64,6 +64,16 @@ export function iswdigit(c: number): boolean {
   return /^\p{Nd}$/u.test(String.fromCharCode(c));
 }
 
+/**
+ * What the exe makes of an array of `wchar_t`: its text ends at the first NUL (`lstrlenW`, `wcslen`), and what lies behind that is no part of
+ * the text (the edits move the NUL along and never read past it).  A NUL that is put into the text (`InsertChar(n, 0)`, `buffer[n] = 0`)
+ * therefore cuts the text off there.
+ */
+export function untilNul(text: string): string {
+  const at = text.indexOf("\0");
+  return at < 0 ? text : text.slice(0, at);
+}
+
 export class CKTDGUIUniBuffer {
   /** capacity in characters (the terminating NUL included) */
   m_nBufferSize = 0;
@@ -126,8 +136,7 @@ export class CKTDGUIUniBuffer {
 
   /** `SetText(wszText)` (329659E0): false when the text is too long for the limits (the buffer is left as it was) */
   SetText(text: string): boolean {
-    const nz = text.indexOf("\0");
-    const wsz = nz < 0 ? text : text.slice(0, nz); // wcslen
+    const wsz = untilNul(text);
     const need = wsz.length + 1;
     if (need >= 0xffff || need > this.m_nLengthLimit + 1 || (this.m_bOneCharMode && need >= 3)) return false;
     if (this.m_nBufferSize < need) while (this.SetBufferSize(-1) && this.m_nBufferSize < need);
@@ -327,7 +336,7 @@ export class CKTDGUIUniBuffer {
     const text = this.m_pwszBuffer;
     this.m_bAnalyseRequired = true;
     if (text === null || n < 0 || n >= text.length) throw new Error("CKTDGUIUniBuffer::operator[]: a write outside the text; the exe writes through the pointer all the same");
-    this.m_pwszBuffer = text.slice(0, n) + String.fromCharCode(wChar & 0xffff) + text.slice(n + 1);
+    this.m_pwszBuffer = untilNul(text.slice(0, n) + String.fromCharCode(wChar & 0xffff) + text.slice(n + 1));
   }
 
   /**
@@ -353,7 +362,7 @@ export class CKTDGUIUniBuffer {
     if (this.m_bOneCharMode) {
       if (this.m_nBufferSize > 2 || this.SetBufferSize(-1)) {
         const text = this.m_pwszBuffer ?? "";
-        this.m_pwszBuffer = String.fromCharCode(c & 0xffff) + text.slice(1);
+        this.m_pwszBuffer = untilNul(String.fromCharCode(c & 0xffff) + text.slice(1));
         this.m_bAnalyseRequired = true;
         return false;
       }
@@ -371,7 +380,7 @@ export class CKTDGUIUniBuffer {
         return false;
       }
       const text = this.m_pwszBuffer ?? "";
-      this.m_pwszBuffer = text.slice(0, nIndex) + String.fromCharCode(c & 0xffff) + text.slice(nIndex);
+      this.m_pwszBuffer = untilNul(text.slice(0, nIndex) + String.fromCharCode(c & 0xffff) + text.slice(nIndex));
       this.m_bAnalyseRequired = true;
       return true;
     }
@@ -392,8 +401,7 @@ export class CKTDGUIUniBuffer {
   InsertString(nIndex: number, pStr: string, nCount: number): boolean {
     const len = this.GetTextSize();
     if (nIndex > len) return false;
-    const nz = pStr.indexOf("\0");
-    const source = nz < 0 ? pStr : pStr.slice(0, nz);
+    const source = untilNul(pStr);
     const count = nCount === -1 ? source.length : nCount;
     const ins = this.m_bAutoChangeBigEnglish ? source.split("").map((ch) => String.fromCharCode(towupper(ch.charCodeAt(0)))).join("") : source;
     if (count + len >= 0xffff) return false;

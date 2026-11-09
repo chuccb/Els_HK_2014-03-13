@@ -7,49 +7,18 @@
  * line height is `fontSize / enlarge + 1`.
  */
 import { describe, expect, test } from "bun:test";
-import { CKTDGUIUniBuffer, ansiLength, iswdigit, towupper, type UniBufferFont } from "../src/unibuffer.ts";
-import { idiv } from "../src/rect.ts";
+import { CKTDGUIUniBuffer, ansiLength, iswdigit, towupper } from "../src/unibuffer.ts";
 import cases from "./unibuffer-cases.json";
+import { configureBuffer, dec, stubFont } from "./unifont.ts";
+import type { BufferSpec, Enc } from "./unifont.ts";
 
 type Json = unknown;
 type Op = Json[];
 const script = cases as unknown as Op[];
 
-/** a text of the script: a string, or (long ones) its runs */
-function dec(v: Json): string | null {
-  if (v === null || typeof v === "string") return v;
-  return (v as { runs: [string, number][] }).runs.map(([c, n]) => c.repeat(n)).join("");
-}
-
-function stubFont(size: number, enlarge: number, scale: [number, number]): UniBufferFont {
-  const charWidth = (c: number) => (c === 10 ? 0 : 5 + (c % 7));
-  return {
-    GetWidth: (text) =>
-      Math.max(...text.split("\n").map((line) => Array.from(line, (_, i) => charWidth(line.charCodeAt(i))).reduce((a, b) => a + b, 0))),
-    GetHeight: (text) => 11 + (text.length % 5) + 6 * (text.split("\n").length - 1),
-    lineHeight: () => (idiv(size, enlarge) + 1) | 0,
-    scale: { x: scale[0], y: scale[1] },
-  };
-}
-
-interface BufferCase {
-  text: Json;
-  size: number;
-  lengthLimit: number;
-  oneChar: boolean;
-  onlyNum: boolean;
-  widthLimit: number;
-  lineLimit: number;
-  onlyNumEnglish: boolean;
-  checkCase: boolean;
-  big: boolean;
-  byteLimit: boolean;
-  byteMax: number;
-  autoUpper: boolean;
-  hide: [boolean, number];
-  font: [number, number] | null;
+/** the buffer's case of the script: the settings of `unifont.ts` and the resolution scale of the app */
+interface BufferCase extends BufferSpec {
   scale: [number, number];
-  analyse: boolean;
 }
 
 interface Result {
@@ -67,22 +36,7 @@ let buf: CKTDGUIUniBuffer;
 function build(c: BufferCase): void {
   log = [];
   buf = new CKTDGUIUniBuffer({ push: (id, text) => log.push(text === undefined ? `error ${id}` : `error ${id} ${text}`) }, 0);
-  buf.m_pwszBuffer = dec(c.text);
-  buf.m_nBufferSize = c.size;
-  buf.m_nLengthLimit = c.lengthLimit;
-  buf.m_bOneCharMode = c.oneChar;
-  buf.m_bOnlyNumMode = c.onlyNum;
-  buf.m_WidthLimit = c.widthLimit;
-  buf.m_LineLimit = c.lineLimit;
-  buf.m_bOnlyNumAndEnglishMode = c.onlyNumEnglish;
-  buf.m_bCheckEnglishBigAndSmall = c.checkCase;
-  buf.m_bBigEnglish = c.big;
-  buf.m_bByteLimit = c.byteLimit;
-  buf.m_ByteLimit = c.byteMax;
-  buf.m_bAutoChangeBigEnglish = c.autoUpper;
-  buf.SetHideChar(c.hide[0], c.hide[1]);
-  buf.m_pFontNode = c.font ? stubFont(c.font[0], c.font[1], c.scale) : null;
-  buf.m_bAnalyseRequired = c.analyse;
+  configureBuffer(buf, c, { x: c.scale[0], y: c.scale[1] });
 }
 
 function run(name: string, args: Json[]): { ret: boolean | number | null; out: number[] } {
@@ -113,11 +67,11 @@ function run(name: string, args: Json[]): { ret: boolean | number | null; out: n
     case "InsertChar":
       return { ret: buf.InsertChar(n, args[1] as number), out: [] };
     case "InsertString":
-      return { ret: buf.InsertString(n, dec(args[1]) as string, args[2] as number), out: [] };
+      return { ret: buf.InsertString(n, dec(args[1] as Enc) as string, args[2] as number), out: [] };
     case "RemoveChar":
       return { ret: buf.RemoveChar(n), out: [] };
     case "SetText":
-      return { ret: buf.SetText(dec(args[0]) as string), out: [] };
+      return { ret: buf.SetText(dec(args[0] as Enc) as string), out: [] };
     case "SetBufferSize":
       return { ret: buf.SetBufferSize(n), out: [] };
     case "Clear":
@@ -156,7 +110,7 @@ describe("CKTDGUIUniBuffer against the exe's own answers (tools/oracle-unibuf.py
         typeof got !== "string" &&
         got.ret === want.ret &&
         got.out.join() === want.out.join() &&
-        got.text === dec(want.text) &&
+        got.text === dec(want.text as Enc) &&
         got.size === want.size &&
         got.analyse === want.analyse &&
         got.errors.join("|") === want.errors.join("|");
@@ -189,7 +143,7 @@ describe("outside the buffer", () => {
     const b = new CKTDGUIUniBuffer(quiet, 0);
     b.m_pwszBuffer = text;
     b.m_nBufferSize = 4096;
-    b.m_pFontNode = font ? stubFont(17, 1, [1, 1]) : null;
+    b.m_pFontNode = font ? stubFont(17, 1, { x: 1, y: 1 }) : null;
     return b;
   };
 

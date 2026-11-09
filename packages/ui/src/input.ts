@@ -57,3 +57,53 @@ export class UIMouse {
     return this.m_YPos;
   }
 }
+
+/**
+ * The clipboard of the window system as the edit boxes use it (`CKTDGUIEditBox::CopyToClipboard` 32933460, `PasteFromClipboard` 32934970): text of the
+ * format `CF_UNICODETEXT` (0xD) between `OpenClipboard(NULL)` and `CloseClipboard()`.  The block of global memory the exe fills (`GlobalAlloc`,
+ * `GlobalLock`, `memcpy`, `GlobalUnlock`) or reads is the text here; a failing `GlobalAlloc` or `GlobalLock` is not modelled (for a paste: no text).
+ */
+export interface UIClipboard {
+  /** `OpenClipboard(NULL)`: false when another program has the clipboard open */
+  open(): boolean;
+  /** `EmptyClipboard()`: whatever the clipboard held is gone */
+  empty(): void;
+  /** `SetClipboardData(CF_UNICODETEXT, block)`: the text goes on the clipboard (the block holds it and a terminating NUL) */
+  setText(text: string): void;
+  /** `GetClipboardData(CF_UNICODETEXT)` and `GlobalLock`: the text on the clipboard; null when it holds none (or a block that cannot be locked) */
+  getText(): string | null;
+  /** `CloseClipboard()` */
+  close(): void;
+}
+
+/** the clipboard in memory: what a world has until a host plugs in the real one */
+export class MemoryClipboard implements UIClipboard {
+  /** the text on the clipboard (null: none) */
+  text: string | null = null;
+  /** another program has the clipboard open: `open()` fails */
+  busy = false;
+  /** the box that called `open()` has not called `close()` yet */
+  opened = false;
+
+  open(): boolean {
+    if (this.busy) return false;
+    this.opened = true;
+    return true;
+  }
+
+  empty(): void {
+    this.text = null;
+  }
+
+  setText(text: string): void {
+    this.text = text;
+  }
+
+  getText(): string | null {
+    return this.text;
+  }
+
+  close(): void {
+    this.opened = false;
+  }
+}

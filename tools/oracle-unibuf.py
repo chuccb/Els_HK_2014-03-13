@@ -96,12 +96,15 @@ def height_of(text):
     return 11 + len(text) % 5 + 6 * text.count("\n")
 
 
-class UniOracle:
-    def __init__(self, exe=EXE):
-        self.emu = emu = PEEmu(exe)
+class UniRuntime:
+    """What the buffer's functions need and the emulator has not: the C runtime, `lstrlenW` and `WideCharToMultiByte`, the UK font's measuring and
+    the error log (see the top of this file).  Mixed into an oracle that has `emu`, `hooked` and `replace` (tools/oracle-edits.py puts it on the
+    chain of the input oracles); `note_error(text)` is where the log goes."""
+
+    def install_runtime(self):
+        emu = self.emu
         pe = emu.pe
         pe.parse_data_directories()
-        self.script, self.errors = [], []
         self.blocks = {}
         self.seh = patch_seh(emu)
         # the C runtime: a `ret` per import, a hook that does the work
@@ -122,26 +125,49 @@ class UniOracle:
         emu.hook(emu.stub(0x3362EA90, b"\xC2\x20\x00"), self._wctmb)
         self.replace(0x328B7150, lambda e: self._ret(width_of(self.wstr(e.args(1)[0]))), b"\xC2\x04\x00")
         self.replace(0x328B6EF0, lambda e: self._ret(height_of(self.wstr(e.args(1)[0]))), b"\xC2\x04\x00")
-        self.replace(0x328B0E20, lambda e: self.errors.append("error %d" % e.args(1)[0]), b"\xC2\x04\x00")
-        self.replace(0x328B10A0, lambda e: self.errors.append("error %d %s" % (e.args(2)[0], self.cstr(e.args(2)[1]))), b"\xC2\x08\x00")
-        # the application block (+0x178 m_ResolutionScale), the UK font and the glyph font it has
-        self.app = emu.alloc(0x400)
-        emu.w32(APP_PTR, self.app)
+        self.replace(0x328B0E20, lambda e: self.note_error("error %d" % e.args(1)[0]), b"\xC2\x04\x00")
+        self.replace(0x328B10A0, lambda e: self.note_error("error %d %s" % (e.args(2)[0], self.cstr(e.args(2)[1]))), b"\xC2\x08\x00")
+
+    def make_font(self):
+        """the UK font and the glyph font it has: the buffer reads `m_iFontSize` (+0x30 of the glyph font) and `m_EnlargeNum` (+0x1000AC) of it"""
+        emu = self.emu
         self.font = emu.alloc(0x40)
         self.inner = emu.alloc(0x100100)
         emu.w32(self.font + 4, self.inner)
-        self.this = emu.alloc(0x200)
-        self.mark = emu.heap_ptr
 
-    # ---- plumbing
-    def hooked(self, fn, ret=b"\xC3"):
-        stub = self.emu.stub(None, ret)
-        self.emu.hook(stub, fn)
-        return stub
+    def fill_buffer(self, p, text, size, length_limit, one_char, only_num, width_limit, line_limit, only_num_english, check_case, big, byte_limit, byte_max,
+                    auto_upper, hide, font, analyse):
+        """a `CKTDGUIUniBuffer` at `p` (0x1CC bytes: an edit box has one at +0x268) with `text` in room for `size` characters (text None: never
+        allocated); `font`: (m_iFontSize, m_EnlargeNum) or None for no font"""
+        emu = self.emu
+        emu.write(p, bytes(0x1CC))
+        if text is not None:
+            assert size > len(text), "the text fills the buffer"
+            data = emu.alloc(2 * size + 16)
+            emu.write(data, bytes(2 * size))
+            emu.write(data, text.encode("utf-16-le", "surrogatepass"))
+            hc = emu.alloc(2 * size + 16)
+            emu.write(hc, bytes(2 * size))
+            emu.w32(p + 0xC, data)
+            emu.w32(p + 0x10, hc)
+            emu.w32(p, size)
+        emu.write(p + 4, struct.pack("<i", length_limit))
+        emu.write(p + 8, bytes([1 if one_char else 0]))
+        emu.write(p + 0x14, bytes([1 if only_num else 0]))
+        emu.write(p + 0x18, struct.pack("<ii", width_limit, line_limit))
+        emu.write(p + 0x20, bytes([1 if only_num_english else 0, 1 if check_case else 0, 1 if big else 0, 1 if byte_limit else 0]))
+        emu.write(p + 0x24, struct.pack("<i", byte_max))
+        emu.write(p + 0x28, bytes([1 if auto_upper else 0]))
+        emu.write(p + 0x2A, struct.pack("<H", hide[1]))
+        emu.write(p + 0x2C, bytes([1 if hide[0] else 0]))
+        emu.write(p + 0xFC, bytes([1 if analyse else 0]))
+        if font is not None:
+            emu.w32(p + 0xF8, self.font)
+            emu.write(self.inner + FONT_SIZE, struct.pack("<i", font[0]))
+            emu.write(self.inner + ENLARGE, struct.pack("<i", font[1]))
 
-    def replace(self, addr, fn, ret=b"\xC3"):
-        stub = self.hooked(fn, ret)
-        self.emu.write(addr, b"\xE9" + struct.pack("<i", stub - (addr + 5)))
+    def note_error(self, text):
+        self.errors.append(text)
 
     def _arg(self, n):
         return self.emu.u32(self.emu.reg(UC_X86_REG_ESP) + 4 + 4 * n)
@@ -219,6 +245,29 @@ class UniOracle:
         else:
             self._ret(0)
 
+
+class UniOracle(UniRuntime):
+    def __init__(self, exe=EXE):
+        self.emu = emu = PEEmu(exe)
+        self.script, self.errors = [], []
+        self.install_runtime()
+        # the application block (+0x178 m_ResolutionScale), the UK font and the glyph font it has
+        self.app = emu.alloc(0x400)
+        emu.w32(APP_PTR, self.app)
+        self.make_font()
+        self.this = emu.alloc(0x200)
+        self.mark = emu.heap_ptr
+
+    # ---- plumbing
+    def hooked(self, fn, ret=b"\xC3"):
+        stub = self.emu.stub(None, ret)
+        self.emu.hook(stub, fn)
+        return stub
+
+    def replace(self, addr, fn, ret=b"\xC3"):
+        stub = self.hooked(fn, ret)
+        self.emu.write(addr, b"\xE9" + struct.pack("<i", stub - (addr + 5)))
+
     # ---- the buffer
     def reset(self):
         self.emu.heap_ptr = self.mark
@@ -232,32 +281,8 @@ class UniOracle:
         """a buffer with `text` in room for `size` characters (text None: never allocated); `font`: (m_iFontSize, m_EnlargeNum) or None for no font"""
         emu = self.emu
         emu.heap_ptr = self.mark
-        p = self.this
-        emu.write(p, bytes(0x1CC))
-        if text is not None:
-            assert size > len(text), "the text fills the buffer"
-            data = emu.alloc(2 * size + 16)
-            emu.write(data, bytes(2 * size))
-            emu.write(data, text.encode("utf-16-le", "surrogatepass"))
-            hc = emu.alloc(2 * size + 16)
-            emu.write(hc, bytes(2 * size))
-            emu.w32(p + 0xC, data)
-            emu.w32(p + 0x10, hc)
-            emu.w32(p, size)
-        emu.write(p + 4, struct.pack("<i", length_limit))
-        emu.write(p + 8, bytes([1 if one_char else 0]))
-        emu.write(p + 0x14, bytes([1 if only_num else 0]))
-        emu.write(p + 0x18, struct.pack("<ii", width_limit, line_limit))
-        emu.write(p + 0x20, bytes([1 if only_num_english else 0, 1 if check_case else 0, 1 if big else 0, 1 if byte_limit else 0]))
-        emu.write(p + 0x24, struct.pack("<i", byte_max))
-        emu.write(p + 0x28, bytes([1 if auto_upper else 0]))
-        emu.write(p + 0x2A, struct.pack("<H", hide[1]))
-        emu.write(p + 0x2C, bytes([1 if hide[0] else 0]))
-        emu.write(p + 0xFC, bytes([1 if analyse else 0]))
-        if font is not None:
-            emu.w32(p + 0xF8, self.font)
-            emu.write(self.inner + FONT_SIZE, struct.pack("<i", font[0]))
-            emu.write(self.inner + ENLARGE, struct.pack("<i", font[1]))
+        self.fill_buffer(self.this, text, size, length_limit, one_char, only_num, width_limit, line_limit, only_num_english, check_case, big, byte_limit,
+                         byte_max, auto_upper, hide, font, analyse)
         emu.write(self.app + 0x178, struct.pack("<2f", *scale))
         self.op("buf", {"text": enc(text), "size": size, "lengthLimit": length_limit, "oneChar": one_char, "onlyNum": only_num, "widthLimit": width_limit,
                         "lineLimit": line_limit, "onlyNumEnglish": only_num_english, "checkCase": check_case, "big": big, "byteLimit": byte_limit,
@@ -564,6 +589,51 @@ def run(o):
     o.reset()
     o.buffer("a", length_limit=5, auto_upper=True, size=256)
     call("U5 auto upper outside the letters: the character stays", "InsertChar", 0, ord("5"))
+    # a NUL goes in like any character, but the text ends at it (lstrlenW): what lay behind it is no part of the text any more, and the next
+    # insert moves the NUL on, it never sees what was there
+    for n in (0, 1, 2, 3):
+        o.reset()
+        o.buffer("abc")
+        call("U5 InsertChar(%d, NUL) into abc: the text ends there" % n, "InsertChar", n, 0)
+        call("U5 ... a character goes in behind the cut text (index %d)" % n, "InsertChar", n, X)
+        call("U5 ... a string after it", "InsertString", n + 1, "yz", -1)
+        call("U5 ... the character at the cut is removed", "RemoveChar", n)
+        call("U5 ... and the one before it", "RemoveChar", max(n - 1, 0))
+    for n in (0, 1, 3):
+        o.reset()
+        o.buffer("abc")
+        call("U5 InsertChar(%d, NUL) twice" % n, "InsertChar", n, 0)
+        call("U5 ... the second NUL, at the end of the cut text", "InsertChar", n, 0)
+    o.reset()
+    o.buffer("abc", only_num=True)
+    call("U5 only numbers: a NUL is no digit", "InsertChar", 1, 0)
+    o.reset()
+    o.buffer("abc", only_num_english=True)
+    call("U5 digits and letters: a NUL is neither", "InsertChar", 1, 0)
+    o.reset()
+    o.buffer("abc", auto_upper=True)
+    call("U5 auto upper: the upper case of NUL is NUL", "InsertChar", 1, 0)
+    o.reset()
+    o.buffer("abc", byte_limit=True, byte_max=4)
+    call("U5 byte limit 4, 3 bytes: a NUL goes in", "InsertChar", 2, 0)
+    o.reset()
+    o.buffer("abc", length_limit=3)
+    call("U5 length limit 3, 3 characters: no NUL", "InsertChar", 2, 0)
+    for n in (1, 3):
+        o.reset()
+        o.buffer("abc", width_limit=14)
+        call("U5 width limit 14: a NUL at %d (too wide) is a line break, then the NUL" % n, "InsertChar", n, 0)
+        call("U5 ... a character goes in behind them", "InsertChar", n + 1, X)
+    o.reset()
+    o.buffer("abc", line_limit=1)
+    call("U5 line limit 1, 1 line: a NUL goes in", "InsertChar", 1, 0)
+    # (a text of two characters or more in the one character mode is left out: the exe's array keeps what stood behind the NUL, and the mode's
+    # next character puts the first of those back into the text: "abc", NUL, then X is "Xbc" there; the port keeps the text only)
+    for text, size in (("a", 256), ("", 256), ("a", 2), ("", 3)):
+        o.reset()
+        o.buffer(text, size=size, one_char=True)
+        call("U5 one character mode, %r in room for %d: a NUL is the first character, the text is empty, the answer is no" % (text, size), "InsertChar", 0, 0)
+        call("U5 ... a character after it", "InsertChar", 0, X)
 
     # ---- U6: InsertString
     for n in (-1, 0, 1, 2, 3, 4):
@@ -660,6 +730,14 @@ def run(o):
         o.write_char(n, ord("Z"))
         call("U7 ... the line count still sees the new text (index %d)" % n, "GetLineCount", 3)
         call("U7 ... and the width of its line", "GetLineWidth", 0)
+    for n in (0, 1, 2):
+        o.reset()
+        o.buffer("abc")
+        o.write_char(n, 0)
+        call("U7 a NUL stored with the operator ends the text: its line count (index %d)" % n, "GetLineCount", 3)
+        call("U7 ... the width of its line", "GetLineWidth", n)
+        call("U7 ... a character goes in at the end", "InsertChar", n, X)
+        call("U7 ... a string behind it", "InsertString", n + 1, "yz", -1)
     o.reset()
     o.buffer("abc", analyse=False)
     o.write_char(1, 10)

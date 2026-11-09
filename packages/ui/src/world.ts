@@ -14,7 +14,8 @@ import { CKTDGUIRadioButton } from "./radiobutton.ts";
 import { CKTDGUIDialog } from "./dialog.ts";
 import { DeviceManager } from "./device.ts";
 import { CKTDGUIDialogManager } from "./dialogmanager.ts";
-import { UIInputManager, UIKeyboard, UIMouse } from "./input.ts";
+import { MemoryClipboard, UIInputManager, UIKeyboard, UIMouse } from "./input.ts";
+import type { UIClipboard } from "./input.ts";
 import { UIRender } from "./render.ts";
 import { CKTDGUIItem, CKTDGUIStatic } from "./static.ts";
 import { CKTDGUISlot, CX2CouponBox, CX2PostBox, CX2Slot, CX2SlotManager } from "./slot.ts";
@@ -149,6 +150,17 @@ export class UIWorld implements UIContext {
   wheelScrollLines(): number {
     return this.scrollLines;
   }
+
+  /** the virtual keys the window system says are down (`GetKeyState(vk) < 0`): a host puts them here as the keys go down and up */
+  readonly virtualKeysDown = new Set<number>();
+
+  /** `GetKeyState(vk)`: the SHORT 0x8000 (as a signed number) for a key that is down, 0 for one that is up */
+  getKeyState(vk: number): number {
+    return this.virtualKeysDown.has(vk) ? -0x8000 : 0;
+  }
+
+  /** the window system's clipboard, kept in memory until a host puts the real one here */
+  clipboard: UIClipboard = new MemoryClipboard();
 
   /** whether the window holds the mouse (`SetCapture` was called and `ReleaseCapture` was not) */
   mouseCaptured = false;

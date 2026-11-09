@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Mutation check of the editing half of CKTDGUIUniBuffer (packages/ui/src/unibuffer.ts: GetLineCount, GetNextItemPos, GetPriorItemPos, RemoveChar, setCharAt,
-InsertChar, InsertString, XYtoCP, GetCaretLineMove and the three tables the buffer takes from the C runtime, `ansiLength`, `towupper`, `iswdigit`).  The
+InsertChar, InsertString, XYtoCP, GetCaretLineMove and the three tables the buffer takes from the C runtime, `ansiLength`, `towupper`, `iswdigit`, and `untilNul`, which cuts a text at its first NUL).  The
 measuring half (CPtoX, CPtoY, GetLineWidth, XtoCP) has its mutants in tools/mutate-edit.py.  The mutants are made from the source by operator, like those of
 imeeditbox.ts there (every comparison, logical and arithmetic operator, number, `!`, condition, `?:`, `.left` / ..., statement, one at a time), so their names are
 the text of the line.  The test that runs for each is packages/ui/test/unibuffer-ops.test.ts, which replays what the exe answered (tools/oracle-unibuf.py).
@@ -24,9 +24,9 @@ me.TESTS[UB] = [T + 'unibuffer-ops.test.ts']
 me.TIMEOUT.clear()
 me.TIMEOUT[UB] = 20  # the test takes a second; a mutant that loops for ever is a kill
 
-# the three functions that stand alone are told apart by name (`operator_mutants` names a mutant after the last method it saw: the indented ones)
+# the four functions that stand alone are told apart by name (`operator_mutants` names a mutant after the last method it saw: the indented ones)
 FREE = [('ansiLength', 'export function ansiLength(', '/** `towupper`'), ('towupper', 'export function towupper(', '/**\n * `iswdigit`'),
-        ('iswdigit', 'export function iswdigit(', 'export class CKTDGUIUniBuffer')]
+        ('iswdigit', 'export function iswdigit(', '/**\n * What the exe makes of an array'), ('untilNul', 'export function untilNul(', 'export class CKTDGUIUniBuffer')]
 REGIONS = [('  private plain(): string {', '\n}\n')]
 
 WHY = {}

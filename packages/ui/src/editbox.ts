@@ -16,23 +16,27 @@
  * Drawing: `OnFrameRender` 32934400 (with `PlaceCaret` 32934A00, `DrawTextW` 329339F0 and `DrawRect` 329335A0): the background, the selection,
  * the text (and the selected part of it again in the selection's colour), the blinking caret.
  *
- * Not ported: what the box does while the game runs (`MsgProc`, `HandleKeyboard`, `HandleMouse`, `OnFocusOut`, the clipboard helpers).
+ * Input: `HandleKeyboard` 32933AB0 (the keys that move the caret, Insert, Delete), `MsgProc` 32933F70 (the characters: typing, backspace, Enter,
+ * Ctrl+A, copy, cut, paste), `HandleMouse` 32933D80 (the caret goes where the left button goes down; drag), `OnFocusOut` 32934290, and the helpers
+ * `CopyToClipboard` 32933460, `PasteFromClipboard` 32934970, `DeleteSelectionText` 32933540, `ClearText` 32933190 (a C++ member only) and
+ * `ContainPTForEditBox` 329331C0.  The window system is `UIContext`'s: the state of Shift and Control (`getKeyState`) and the clipboard.
  */
 import { D3DTOP, D3DTSS } from "@els/d3d9";
 import { STATE_TYPE } from "@els/engine";
 import type { KStateID } from "@els/engine";
 import { Color } from "@els/host";
 import type { CKTDGUIEditBox_Methods } from "@els/host";
-import { CKTDGUIControl, UCT, destroyTexture, readPointData } from "./control.ts";
+import { CKTDGUIControl, UCT, UIM, destroyTexture, readPointData, requestFocus } from "./control.ts";
 import type { UIContext, UIPointData, UITextureData } from "./control.ts";
 import { byte, channel, d3dColor, ONE_OVER_255, packArgb } from "./d3dcolor.ts";
 import type { DeviceSound } from "./device.ts";
 import type { UKFont } from "./font.ts";
 import { wcslen } from "./freetypefont.ts";
+import { pick2DRect, resolutionScale } from "./pick.ts";
 import { ftoi, intersectRect, newRect, offsetRect, setRect } from "./rect.ts";
 import type { Rect } from "./rect.ts";
 import { VertexUI4 } from "./render.ts";
-import { CKTDGUIUniBuffer } from "./unibuffer.ts";
+import { CKTDGUIUniBuffer, untilNul } from "./unibuffer.ts";
 
 const f = Math.fround;
 
@@ -295,6 +299,292 @@ export class CKTDGUIEditBox extends CKTDGUIControl implements Partial<CKTDGUIEdi
 
   override textureData(out: UITextureData[]): void {
     for (const t of [this.m_pNormalTex, this.m_pDisableTex]) if (t) out.push(t);
+  }
+
+  // ---- the input
+
+  /** `m_bCaretOn = true; m_dfLastBlink = DXUTGetGlobalTimer()->GetAbsoluteTime()`: the caret shows at once and blinks from now on */
+  private blink(): void {
+    this.m_bCaretOn = true;
+    this.m_dfLastBlink = this.ctx.devices.absoluteTime();
+  }
+
+  /** what an edit of the text tells the stage: the custom message of `SetCustomMsgChange` (0x467), without one the control event 0x466 with 0 */
+  private sendChange(): void {
+    const msg = this.m_CustomMsgEditBoxChange;
+    if (msg === -1) this.sendInternelEvent(UIM.CONTROL_EVENT, 0);
+    else this.sendInternelEvent(UIM.CUSTOM_MSG, msg);
+  }
+
+  /** the end of Home, End, Left and Right: without Shift the selection collapses to the caret; the caret shows and blinks anew; the key is taken */
+  private caretMoved(): true {
+    if (this.ctx.getKeyState(0x10) >= 0) this.m_nSelStart = this.m_nCaret;
+    this.blink();
+    return true;
+  }
+
+  /**
+   * `HandleKeyboard(uMsg, wParam, lParam)` (32933AB0), virtual slot 7: a key going down (0x100) of a box that is enabled.  A box that does not
+   * take input takes every key.  Tab is left to the dialog and so are the keys the box has no use for, except Escape (27), which the box takes.
+   * - Home / End: the caret goes to the start / the end; Left / Right: one character (a word with Ctrl, `GetPriorItemPos` / `GetNextItemPos`),
+   *   not past the text; then, for these four, the selection collapses to the caret unless Shift is down, and the caret blinks anew.  Ctrl is asked
+   *   first (Left, Right), Shift after the move; Home and End ask Shift only.  Up and Down are taken and do nothing.
+   * - Insert: with Ctrl the selection is copied, else with Shift the clipboard is pasted, else the insert mode is toggled.  Never taken.
+   * - Delete: the selection is deleted, else the character at the caret; then the change message goes out (a failed `RemoveChar` sends nothing)
+   *   and the caret blinks anew either way.
+   */
+  override handleKeyboard(uMsg: number, wParam: number, _lParam: number): boolean {
+    if (!this.m_bEnable) return false;
+    if (uMsg !== 0x100) return false;
+    if (!this.m_bEnableInput) return true;
+    const buffer = this.m_Buffer;
+    const ctx = this.ctx;
+    switch (wParam) {
+      case 9: // VK_TAB
+        return false;
+      case 0x23: // VK_END
+        this.PlaceCaret(buffer.GetTextSize());
+        return this.caretMoved();
+      case 0x24: // VK_HOME
+        this.PlaceCaret(0);
+        return this.caretMoved();
+      case 0x25: // VK_LEFT
+        if (ctx.getKeyState(0x11) >= 0) {
+          if (this.m_nCaret > 0) this.PlaceCaret(this.m_nCaret - 1);
+        } else {
+          this.m_nCaret = buffer.GetPriorItemPos(this.m_nCaret);
+          this.PlaceCaret(this.m_nCaret);
+        }
+        return this.caretMoved();
+      case 0x26: // VK_UP
+      case 0x28: // VK_DOWN
+        return true;
+      case 0x27: // VK_RIGHT
+        if (ctx.getKeyState(0x11) >= 0) {
+          if (this.m_nCaret < buffer.GetTextSize()) this.PlaceCaret(this.m_nCaret + 1);
+        } else {
+          this.m_nCaret = buffer.GetNextItemPos(this.m_nCaret);
+          this.PlaceCaret(this.m_nCaret);
+        }
+        return this.caretMoved();
+      case 0x2d: // VK_INSERT
+        if (ctx.getKeyState(0x11) >= 0) {
+          if (ctx.getKeyState(0x10) >= 0) this.m_bInsertMode = !this.m_bInsertMode;
+          else this.PasteFromClipboard();
+        } else this.CopyToClipboard();
+        return false;
+      case 0x2e: // VK_DELETE
+        if (this.m_nCaret !== this.m_nSelStart) {
+          this.DeleteSelectionText();
+          this.sendChange();
+        } else if (buffer.RemoveChar(this.m_nCaret)) this.sendChange();
+        this.blink();
+        return true;
+      default:
+        return wParam !== 27;
+    }
+  }
+
+  /**
+   * `MsgProc(hWnd, uMsg, wParam, lParam)` (32933F70), virtual slot 6: a character (`WM_CHAR`, 0x102) of a box that is enabled and shown; a box
+   * that does not take input takes all of them.  Only the low 16 bits of `wParam` are the character.  The control characters:
+   * - 1 (Ctrl+A): with no selection, everything is selected (the selection starts at 0, the caret goes to the end); with one, nothing happens;
+   * - 3 (Ctrl+C) copies, 24 (Ctrl+X) copies and deletes the selection (the change message goes out even when nothing was selected);
+   * - 8 (backspace): the key's sound; the selection goes, else the character before the caret (nothing at the start of the text); the change message
+   *   goes out for all but the start of the text; the caret blinks anew;
+   * - 13 (Enter): the control event 0x466 with 1, or the custom message of `SetCustomMsgEnter`; 22 (Ctrl+V) pastes and sends the change message;
+   * - the others below 32 that are not a character of a text (2, 4 to 7, 9 to 12, 14 to 21, 23, 25 to 29): taken, nothing happens.
+   * Anything else (0, 30 and above) is typed: the key's sound, the selection is replaced; in the insert mode, or with the caret at the end, the
+   * character is inserted (a refused one moves nothing), else it takes the place of the character at the caret; the caret moves behind it and
+   * the selection collapses to it; the caret blinks anew and the change message goes out in every case.
+   */
+  override msgProc(_hWnd: unknown, uMsg: number, wParam: number, _lParam: number): boolean {
+    if (!this.m_bEnable || !this.m_bShow || uMsg !== 0x102) return false;
+    if (!this.m_bEnableInput) return true;
+    const ch = wParam & 0xffff;
+    const buffer = this.m_Buffer;
+    switch (ch) {
+      case 1:
+        if (this.m_nSelStart === this.m_nCaret) {
+          this.m_nSelStart = 0;
+          this.PlaceCaret(buffer.GetTextSize());
+        }
+        return true;
+      case 2: case 4: case 5: case 6: case 7: case 9: case 10: case 11: case 12:
+      case 14: case 15: case 16: case 17: case 18: case 19: case 20: case 21:
+      case 23: case 25: case 26: case 27: case 28: case 29:
+        return true;
+      case 3:
+      case 24:
+        this.CopyToClipboard();
+        if (ch !== 24) return true;
+        this.DeleteSelectionText();
+        this.sendChange();
+        return true;
+      case 8:
+        this.playSound(this.m_pSndKeyDown);
+        if (this.m_nCaret !== this.m_nSelStart) {
+          this.DeleteSelectionText();
+          this.sendChange();
+        } else if (this.m_nCaret > 0) {
+          this.PlaceCaret(this.m_nCaret - 1);
+          this.m_nSelStart = this.m_nCaret;
+          buffer.RemoveChar(this.m_nCaret);
+          this.sendChange();
+        }
+        this.blink();
+        return true;
+      case 13:
+        if (this.m_CustomMsgEditBoxEnter === -1) this.sendInternelEvent(UIM.CONTROL_EVENT, 1);
+        else this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgEditBoxEnter);
+        return true;
+      case 22:
+        this.PasteFromClipboard();
+        this.sendChange();
+        return true;
+      default:
+        this.playSound(this.m_pSndKeyDown);
+        if (this.m_nCaret !== this.m_nSelStart) this.DeleteSelectionText();
+        let moved = true;
+        if (this.m_bInsertMode || this.m_nCaret >= buffer.GetTextSize()) moved = buffer.InsertChar(this.m_nCaret, ch);
+        else buffer.setCharAt(this.m_nCaret, ch);
+        if (moved) {
+          this.PlaceCaret(this.m_nCaret + 1);
+          this.m_nSelStart = this.m_nCaret;
+        }
+        this.blink();
+        this.sendChange();
+        return true;
+    }
+  }
+
+  /**
+   * `HandleMouse(uMsg, pt, wParam, lParam)` (32933D80), virtual slot 8, of an enabled box.  The point the dialog hands it is not looked at: the
+   * position comes from `lParam` (the signed low and high words, in the pixels of the back buffer, divided by the resolution scale and cut), as in
+   * DXUT.  The character under it is `XtoCP` of that x plus the x of the first visible character minus the text rectangle's left (`XtoCP`'s
+   * trailing flag is always 0, so the branch that would move the caret one on is never taken).
+   * - 0x200 (move): while the box is dragging, the caret follows the mouse (the selection keeps its start); not taken;
+   * - 0x201 / 0x203 (left button down, double click): a box without the focus asks for it (before it knows whether the point is on it); a point
+   *   outside the box (`ContainPTForEditBox`) is not taken; else the mouse is captured, the box is dragging, the caret goes under the point, the
+   *   selection collapses to it, the caret blinks anew; taken;
+   * - 0x202 (left button up): the capture is released, the drag ends; not taken.
+   */
+  override handleMouse(uMsg: number, _x: number, _y: number, _wParam: number, lParam: number): boolean {
+    if (!this.m_bEnable) return false;
+    const scale = resolutionScale(this.ctx);
+    const x = ftoi(f(f((lParam << 16) >> 16) / scale.x));
+    const y = ftoi(f(f(lParam >> 16) / scale.y));
+    switch (uMsg) {
+      case 0x200:
+        if (!this.m_bMouseDrag) return false;
+        this.PlaceCaret(this.charAt(x));
+        return false;
+      case 0x201:
+      case 0x203:
+        if (!this.m_bHasFocus) requestFocus(this.ctx, this);
+        if (!this.ContainPTForEditBox(x, y)) return false;
+        this.m_bMouseDrag = true;
+        this.ctx.setCapture();
+        this.PlaceCaret(this.charAt(x));
+        this.m_nSelStart = this.m_nCaret;
+        this.blink();
+        return true;
+      case 0x202:
+        this.ctx.releaseCapture();
+        this.m_bMouseDrag = false;
+        return false;
+      default:
+        return false;
+    }
+  }
+
+  /** the character of the text under the layout x `x` of the mouse: `XtoCP(CPtoX(m_nFirstVisible) + x - m_rcText.left)` */
+  private charAt(x: number): number {
+    const buffer = this.m_Buffer;
+    return buffer.XtoCP((buffer.CPtoX(this.m_nFirstVisible, false) + x - this.m_rcText.left) | 0).cp;
+  }
+
+  /**
+   * `OnFocusOut()` (32934290), virtual slot 10: the focus flag goes; a box that had the focus tells the stage with the custom message of
+   * `m_CustomMsgEditBoxFocusOut` (0x467), if it has one.  (The base class's `OnFocusOut` is not called: it only clears the flag, too.)
+   */
+  override onFocusOut(): void {
+    const had = this.m_bHasFocus;
+    this.m_bHasFocus = false;
+    if (had && this.m_CustomMsgEditBoxFocusOut !== -1) this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgEditBoxFocusOut);
+  }
+
+  /**
+   * `ContainPTForEditBox(pt)` (329331C0): the point (the position `HandleMouse` worked out, in layout pixels) is inside the box's current quad: its
+   * four corners moved by the dialog's position (the global null dialog's, (0, 0), for a box in no dialog) and the box's offset, each sum rounded to
+   * a float; the test of `Pick2DRect`, with every step in single precision (`Pick2DRect`'s own code is not called: the edit box has its copy).
+   */
+  ContainPTForEditBox(x: number, y: number): boolean {
+    const pos = this.dialogPos();
+    const offset = this.m_OffsetPos;
+    const corner = (p: { readonly x: number; readonly y: number }) => ({ x: f(f(pos.x + p.x) + offset.x), y: f(f(pos.y + p.y) + offset.y) });
+    const q = this.m_NowPoint;
+    return pick2DRect(x, y, corner(q.leftTopPoint), corner(q.rightTopPoint), corner(q.leftBottomPoint), corner(q.rightBottomPoint));
+  }
+
+  /**
+   * `CopyToClipboard()` (32933460): with a selection, the clipboard is opened (a box that cannot do that does nothing), emptied, and given the
+   * selected text as `CF_UNICODETEXT`.  The exe asks `GlobalAlloc` for room for the whole text and a NUL, locks it, copies the selection and sets the
+   * block as the clipboard's data; it then frees the block, which the clipboard owns (an error, not modelled), and closes the clipboard.  A selection
+   * that is not inside the text reads (and writes) outside the arrays: an error here (a selection that is the whole text and one more writes a
+   * terminating NUL behind the block, too).
+   */
+  CopyToClipboard(): void {
+    const caret = this.m_nCaret, start = this.m_nSelStart;
+    if (caret === start) return;
+    const clipboard = this.ctx.clipboard;
+    if (!clipboard.open()) return;
+    clipboard.empty();
+    const text = this.m_Buffer.m_pwszBuffer;
+    if (text === null) throw new Error("CKTDGUIEditBox::CopyToClipboard: the buffer is gone; the exe copies from a null pointer");
+    const lo = Math.min(caret, start), hi = Math.max(caret, start);
+    if (lo < 0 || hi > text.length + 1 || hi - lo > text.length) {
+      throw new Error(`CKTDGUIEditBox::CopyToClipboard: the selection ${lo}..${hi} is not inside the text of ${text.length} characters; the exe reads and writes outside its arrays`);
+    }
+    clipboard.setText(untilNul(`${text}\0`.slice(lo, hi)));
+    clipboard.close();
+  }
+
+  /**
+   * `DeleteSelectionText()` (32933540): the caret goes to the start of the selection (`PlaceCaret`, which may move the first visible character),
+   * the selection collapses to it, and the selected characters are removed.  Called with no selection it re-places the caret and removes nothing.
+   */
+  DeleteSelectionText(): void {
+    const lo = Math.min(this.m_nCaret, this.m_nSelStart), hi = Math.max(this.m_nCaret, this.m_nSelStart);
+    this.PlaceCaret(lo);
+    this.m_nSelStart = this.m_nCaret;
+    for (let i = lo; i < hi; i++) this.m_Buffer.RemoveChar(lo);
+  }
+
+  /**
+   * `PasteFromClipboard()` (32934970): the selection is deleted first, whatever the clipboard holds.  Then the clipboard is opened (if it cannot be,
+   * that is all); if it holds `CF_UNICODETEXT` that can be locked, the text goes in at the caret (`InsertString`, all of it: its limits may refuse)
+   * and, when it was taken, the caret moves behind it; the selection collapses to the caret either way.  The clipboard is closed.
+   */
+  PasteFromClipboard(): void {
+    this.DeleteSelectionText();
+    const clipboard = this.ctx.clipboard;
+    if (!clipboard.open()) return;
+    const text = clipboard.getText();
+    if (text !== null) {
+      const caret = this.m_nCaret;
+      if (this.m_Buffer.InsertString(caret, text, -1)) this.PlaceCaret(caret + wcslen(text));
+      this.m_nSelStart = this.m_nCaret;
+    }
+    clipboard.close();
+  }
+
+  /** `ClearText()` (32933190), a member the scripts do not reach: the text is cleared, the first visible character, the caret and the selection are at the start */
+  ClearText(): void {
+    this.m_Buffer.Clear();
+    this.m_nFirstVisible = 0;
+    this.PlaceCaret(0);
+    this.m_nSelStart = 0;
   }
 
   /** `SetNormalTex_LUA(file, key)` (32935020): the texture of the background; a point that exists is handed it */

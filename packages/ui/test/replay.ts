@@ -9,18 +9,23 @@
  * `returnDrag`, `modalCount(D)`, `resetComp`, `capture` / `release` (the window takes and gives back the mouse), `A.setChecked(b,double,input)`
  * (a radio button's `SetCheckedInternal`, replaced on both sides by its first statement `m_bChecked = b` and the call written down; a slot's
  `ChangeState` is written down the same way as a button's, `A.change(state,force)`, and `ReturnDraggingItem` as `returnDrag`).
+ * The window system under an edit box is written down the same way: `ks(16)` (`GetKeyState`: the script's `keys` say what it answers), `clip.open`,
+ * `clip.empty`, `clip.set(text)`, `clip.get`, `clip.close` (the clipboard: the script's `clip` says what it holds and whether it can be opened or locked), and
+ * `time` (`DXUTGetGlobalTimer()->GetAbsoluteTime()`: the script's `timer` gives the base and the step it advances by for every call).
  * The state after a message is a list of `key=value` the oracle chooses by the kind of control (`STATE_MEMBERS` maps a key to the member of the port
  * that holds it; a rectangle is `l,t,r,b`, a point `x,y`, a flag 0 or 1).
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
-  CKTDGUIButton, CKTDGUICheckBox, CKTDGUIComboBox, CKTDGUIContolList, CKTDGUIControl, CKTDGUIDialog, CKTDGUIListBox, CKTDGUINavigation, CKTDGUIRadioButton,
-  CKTDGUIScrollBar, CKTDGUISlider, CKTDGUISlot, CKTDGUIStatic, CPictureData, RadioButtonGroupInfo, UCT, UIPointData, newRect, setRect,
+  CKTDGUIButton, CKTDGUICheckBox, CKTDGUIComboBox, CKTDGUIContolList, CKTDGUIControl, CKTDGUIDialog, CKTDGUIEditBox, CKTDGUIListBox, CKTDGUINavigation,
+  CKTDGUIRadioButton, CKTDGUIScrollBar, CKTDGUISlider, CKTDGUISlot, CKTDGUIStatic, CPictureData, RadioButtonGroupInfo, UCT, UIPointData, newRect, setRect,
 } from "../src/index.ts";
-import type { DeviceSound, UIStage } from "../src/index.ts";
+import type { DeviceSound, UIClipboard, UIStage } from "../src/index.ts";
 import { rig } from "./rig.ts";
 import { setup } from "./harness.ts";
+import { configureBuffer, dec } from "./unifont.ts";
+import type { Enc } from "./unifont.ts";
 
 export type Op = [string, ...unknown[]];
 interface Expect { ret: number; events: string[]; state: string }
@@ -47,7 +52,27 @@ const STATE_MEMBERS: Record<string, string> = {
   state: "m_eControlState",
   opened: "m_bOpened", selected: "m_iSelected", focused: "m_iFocused", adjust: "m_bMousePointAdjust",
   sel: "m_nSelected", start: "m_nSelStart",
+  caret: "m_nCaret", selstart: "m_nSelStart", first: "m_nFirstVisible", insert: "m_bInsertMode", caretOn: "m_bCaretOn", blink: "m_dfLastBlink", mdrag: "m_bMouseDrag",
 };
+
+/** a text as the oracle writes it into a state: the printable ASCII but the space and `%` as they are, every UTF-16 unit else as `%XXXX` (null: `null`) */
+function escText(t: string | null): string {
+  if (t === null) return "null";
+  let out = "";
+  for (let i = 0; i < t.length; i++) {
+    const c = t.charCodeAt(i);
+    out += c >= 0x21 && c <= 0x7e && c !== 0x25 ? t[i]! : `%${c.toString(16).toUpperCase().padStart(4, "0")}`;
+  }
+  return out;
+}
+
+/** what the script says of an edit box (`EditOracle.edit_`) */
+interface EditSpec {
+  rect: number[]; quad: number[][] | null; offset: number[]; text: Enc; size: number; caret: number; sel: number; first: number; insert: boolean; caretOn: boolean;
+  blink: number; drag: boolean; enable: boolean; show: boolean; enableInput: boolean; change: number; enter: number; focusOut: number; sound: boolean;
+  rcText: number[]; lengthLimit: number; oneChar: boolean; onlyNum: boolean; widthLimit: number; lineLimit: number; autoUpper: boolean; byteLimit: boolean;
+  byteMax: number; hasFocus: boolean;
+}
 
 function showField(v: unknown): string {
   if (typeof v === "boolean") return String(+v);
@@ -59,10 +84,15 @@ function showField(v: unknown): string {
 }
 
 /** the text of the state the oracle wrote (`want`), as the port reads it: the same keys, in the same order */
-function stateOf(w: ReturnType<typeof setup>["w"], c: CKTDGUIControl, want: string, focus: string, labelOf: (v: unknown) => string): string {
+function stateOf(w: ReturnType<typeof setup>["w"], c: CKTDGUIControl, want: string, focus: string, labelOf: (v: unknown) => string, clip = "null"): string {
   return want.split(" ").map((kv) => {
     const key = kv.slice(0, kv.indexOf("="));
     if (key === "focus") return `focus=${focus}`;
+    // an edit box: its buffer's text, room and flag, and what is on the clipboard
+    if (key === "text") return `text=${escText((c as CKTDGUIEditBox).m_Buffer.m_pwszBuffer)}`;
+    if (key === "size") return `size=${(c as CKTDGUIEditBox).m_Buffer.m_nBufferSize}`;
+    if (key === "analyse") return `analyse=${+(c as CKTDGUIEditBox).m_Buffer.m_bAnalyseRequired}`;
+    if (key === "clip") return `clip=${clip}`;
     // a slot: the slot that was dropped on it and the one that is being dragged (`s_pDragSlot`), by label (none: null)
     if (key === "dropped") return `dropped=${(c as CKTDGUISlot).m_pDroppedSlot === null ? "none" : labelOf((c as CKTDGUISlot).m_pDroppedSlot)}`;
     if (key === "dragSlot") return `dragSlot=${CKTDGUISlot.s_pDragSlot === null ? "none" : labelOf(CKTDGUISlot.s_pDragSlot)}`;
@@ -140,9 +170,11 @@ export function runScene(ops: Op[]): void {
   const log: string[] = [];
   let now = 0;
   let dxutTime = 0;
-  const scaled = ops.some((op) => op[0] === "scale");
-  // a scale other than 1 needs a render (the back buffer 1536 x 1536 makes (1.5, 2)); without one the layout is not scaled
-  const { w } = scaled ? rig({ tickCount: () => now }) : setup(undefined, { tickCount: () => now });
+  const scaleOp = ops.find((op) => op[0] === "scale") as [string, number, number] | undefined;
+  // a scale other than 1 needs a render: the back buffer of (1024 * x, 768 * y) pixels makes the scale (x, y) (1536 x 1536: (1.5, 2)); without one the layout is not scaled
+  const { w } = scaleOp
+    ? rig({ backBuffer: { width: scaleOp[1] * 1024, height: scaleOp[2] * 768 }, tickCount: () => now })
+    : setup(undefined, { tickCount: () => now });
   const dialogs = new Map<string, CKTDGUIDialog>();
   const controls = new Map<string, CKTDGUIControl>();
   const labelOf = (v: unknown): string => {
@@ -159,6 +191,10 @@ export function runScene(ops: Op[]): void {
       if (lParam instanceof CKTDGUIComboBox) seen = `[sel=${lParam.m_iSelected} foc=${lParam.m_iFocused} open=${+lParam.m_bOpened}]`;
       // a list box's message with its selection and the rows' flags of that moment
       if (lParam instanceof CKTDGUIListBox) seen = `[sel=${lParam.m_nSelected} start=${lParam.m_nSelStart} rows=${lParam.m_Items.map((r) => +r.bSelected).join("")}]`;
+      // an edit box's message with its text, caret, selection, first visible character, caret flag and blink time of that moment
+      if (lParam instanceof CKTDGUIEditBox) {
+        seen = `[text=${escText(lParam.m_Buffer.m_pwszBuffer)} caret=${lParam.m_nCaret} sel=${lParam.m_nSelStart} first=${lParam.m_nFirstVisible} on=${+lParam.m_bCaretOn} blink=${lParam.m_dfLastBlink}]`;
+      }
       log.push(`stage(${msg},${wParam},${labelOf(lParam)})${seen}`);
       return true;
     },
@@ -170,7 +206,43 @@ export function runScene(ops: Op[]): void {
     log.push(`gameMsg(${uMsg},${wParam},${labelOf(lParam)},${+direct})`);
     return false;
   };
-  w.devices.absoluteTime = () => dxutTime;
+  // the timer of an edit box's scene: the n-th call answers base + step * n (and is written down); a scene without one has the fixed time of `time`
+  let timer: { base: number; step: number; calls: number } | null = null;
+  w.devices.absoluteTime = () => {
+    if (timer === null) return dxutTime;
+    log.push("time");
+    return timer.base + timer.step * timer.calls++;
+  };
+  // GetKeyState: the SHORT the script says for a key (up: 0), written down
+  const keyStates = new Map<number, number>();
+  w.getKeyState = (vk: number) => {
+    log.push(`ks(${vk})`);
+    return ((keyStates.get(vk) ?? 0) << 16) >> 16;
+  };
+  // the clipboard: what it holds, whether another program has it open, whether the block it holds cannot be locked
+  const clip = { text: null as string | null, busy: false, lockFails: false };
+  const clipboard: UIClipboard = {
+    open: () => {
+      log.push("clip.open");
+      return !clip.busy;
+    },
+    empty: () => {
+      log.push("clip.empty");
+      clip.text = null;
+    },
+    setText: (text: string) => {
+      clip.text = text;
+      log.push(`clip.set(${escText(text)})`);
+    },
+    getText: () => {
+      log.push("clip.get");
+      return clip.lockFails ? null : clip.text;
+    },
+    close: () => void log.push("clip.close"),
+  };
+  w.clipboard = clipboard;
+  // the errors a text buffer writes to the log: `error 42` or `error 42 text`
+  (w.devices.massFiles.log as { push: (id: number, text?: string) => void }).push = (id, text) => void log.push(text === undefined ? `error ${id}` : `error ${id} ${text}`);
   w.setCapture = () => void log.push("capture");
   w.releaseCapture = () => void log.push("release");
   const slotClass = CKTDGUISlot as unknown as { returnDraggingItem: () => void };
@@ -497,6 +569,56 @@ export function runScene(ops: Op[]): void {
         case "thumbOffset":
           w.statics.thumbOffsetY = a[0] as number;
           break;
+        case "timer": // the n-th call of GetAbsoluteTime from now on answers base + step * n
+          timer = { base: a[0] as number, step: a[1] as number, calls: 0 };
+          break;
+        case "keys": // the SHORT GetKeyState answers for each key (the others: 0)
+          keyStates.clear();
+          for (const [vk, value] of Object.entries(a[0] as Record<string, number>)) keyStates.set(Number(vk), value);
+          break;
+        case "clip": // what the clipboard holds (null: no text), whether it is busy, whether the block cannot be locked
+          clip.text = dec(a[0] as Enc);
+          clip.busy = a[1] as boolean;
+          clip.lockFails = a[2] as boolean;
+          break;
+        case "edit": {
+          const [label, , o] = a as [string, string, EditSpec];
+          const e = new CKTDGUIEditBox(w);
+          e.m_Name = label;
+          if (o.quad !== null) {
+            const [lt, rt, lb, rb] = o.quad as [number[], number[], number[], number[]];
+            e.m_NowPoint.leftTopPoint.set(lt[0]!, lt[1]!);
+            e.m_NowPoint.rightTopPoint.set(rt[0]!, rt[1]!);
+            e.m_NowPoint.leftBottomPoint.set(lb[0]!, lb[1]!);
+            e.m_NowPoint.rightBottomPoint.set(rb[0]!, rb[1]!);
+          } else setQuad(e, o.rect);
+          e.m_OffsetPos.set(o.offset[0]!, o.offset[1]!);
+          e.m_bShow = o.show;
+          e.m_bEnable = o.enable;
+          e.m_bHasFocus = o.hasFocus;
+          e.m_CustomMsgEditBoxChange = o.change;
+          e.m_CustomMsgEditBoxEnter = o.enter;
+          e.m_CustomMsgEditBoxFocusOut = o.focusOut;
+          e.m_bEnableInput = o.enableInput;
+          // the buffer the oracle builds: no number-and-letter mode, a font of 17 / 1, nothing hidden, nothing to analyse
+          configureBuffer(e.m_Buffer, {
+            text: o.text, size: o.size, lengthLimit: o.lengthLimit, oneChar: o.oneChar, onlyNum: o.onlyNum, widthLimit: o.widthLimit, lineLimit: o.lineLimit,
+            onlyNumEnglish: false, checkCase: false, big: true, byteLimit: o.byteLimit, byteMax: o.byteMax, autoUpper: o.autoUpper, hide: [false, 0], font: [17, 1],
+            analyse: false,
+          }, w.render?.resolutionScale ?? { x: 1, y: 1 });
+          Object.assign(e.m_rcText, { left: o.rcText[0], top: o.rcText[1], right: o.rcText[2], bottom: o.rcText[3] });
+          e.m_dfLastBlink = o.blink;
+          e.m_bCaretOn = o.caretOn;
+          e.m_nCaret = o.caret;
+          e.m_bInsertMode = o.insert;
+          e.m_nSelStart = o.sel;
+          e.m_nFirstVisible = o.first;
+          e.m_bMouseDrag = o.drag;
+          e.m_pSndKeyDown = o.sound ? SOUND_DOWN : undefined;
+          e.playSound = (s) => void log.push(`${label}.sound(${s === SOUND_DOWN ? "down" : "none"})`);
+          controls.set(label, e);
+          break;
+        }
         case "group": {
           const [dialog, id, max] = a as [string, number, number];
           const info = new RadioButtonGroupInfo(id);
@@ -661,6 +783,27 @@ export function runScene(ops: Op[]): void {
           log.length = 0;
           const ret = c.listBoxMsgProc(args[0]!, args[1]!, args[2]!);
           expect([name, +ret, log.slice(), stateOf(w, c, want.state, focusLabel(), labelOf)]).toEqual([name, want.ret, want.events, want.state]);
+          break;
+        }
+        case "act_edit": { // a call to an edit box: the virtual function `what` (key, msg, mouse, out) or a member (contain, clear, delete, copy, paste, place)
+          const [name, label, what, args, want] = a as [string, string, string, number[], Expect];
+          const e = controls.get(label) as CKTDGUIEditBox;
+          log.length = 0;
+          let ret = 0;
+          switch (what) {
+            case "key": ret = +e.handleKeyboard(args[0]!, args[1]!, args[2]!); break;
+            case "msg": ret = +e.msgProc(APP_HWND, args[0]!, args[1]!, args[2]!); break;
+            case "mouse": ret = +e.handleMouse(args[0]!, args[1]!, args[2]!, args[3]!, args[4]!); break;
+            case "out": e.onFocusOut(); break;
+            case "contain": ret = +e.ContainPTForEditBox(args[0]! | 0, args[1]! | 0); break;
+            case "clear": e.ClearText(); break;
+            case "delete": e.DeleteSelectionText(); break;
+            case "copy": e.CopyToClipboard(); break;
+            case "paste": e.PasteFromClipboard(); break;
+            case "place": e.PlaceCaret(args[0]! | 0); break;
+            default: throw new Error(`unknown call ${what}`);
+          }
+          expect([name, ret, log.slice(), stateOf(w, e, want.state, focusLabel(), labelOf, escText(clip.text))]).toEqual([name, want.ret, want.events, want.state]);
           break;
         }
         case "act_guide": { // GetGuideDescPos() as the point `x,y`, or GetIsGuideDescAbsolutePos() as 0 / 1

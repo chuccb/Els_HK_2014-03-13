@@ -23,7 +23,7 @@ import { DVB_TYPE } from "@els/engine";
 import type { DeviceManager, DeviceSound, DeviceTexture } from "./device.ts";
 import type { CKTDGUIDialog } from "./dialog.ts";
 import type { CKTDGUIDialogManager } from "./dialogmanager.ts";
-import type { UIInputManager, UIKeyboard, UIMouse } from "./input.ts";
+import type { UIClipboard, UIInputManager, UIKeyboard, UIMouse } from "./input.ts";
 import type { UIRender, VertexUI4 } from "./render.ts";
 import { ftoi } from "./rect.ts";
 import { pick2DRect } from "./pick.ts";
@@ -110,6 +110,13 @@ export interface UIContext {
    * many lines one notch of the wheel scrolls, a setting of the operating system (3 unless the user changed it).
    */
   wheelScrollLines(): number;
+  /**
+   * `GetKeyState(vk)` of USER32 (the edit boxes ask for Shift, 0x10, and Control, 0x11): a SHORT whose sign is the key's state, negative while the key is
+   * down; its low bit, the toggle state, is nothing the boxes look at.
+   */
+  getKeyState(vk: number): number;
+  /** the window system's clipboard (`OpenClipboard` ... `CloseClipboard`) as the edit boxes' copy and paste use it */
+  readonly clipboard: UIClipboard;
   /** the function-level statics of the `OnFrameRender`s: what the exe keeps for the life of its process, a world keeps here */
   readonly statics: RenderStatics;
 }
@@ -1339,6 +1346,15 @@ export class CKTDGUIControl implements Partial<CKTDGUIControl_Methods> {
   protected liveDialog(): CKTDGUIDialog | null {
     const dialog = this.m_pDialog;
     return dialog !== null && !dialog.destroyed ? dialog : null;
+  }
+
+  /**
+   * The position of the dialog the control's handle names, as `operator->` answers it: the global null object's, (0, 0), for a control in no
+   * dialog or in one that is gone (the hit tests of the edit boxes read it four times).
+   */
+  protected dialogPos(): { readonly x: number; readonly y: number } {
+    const dialog = this.liveDialog();
+    return dialog !== null ? dialog.m_Pos : NULL_DIALOG_POS;
   }
 
   /** `CanHaveFocus()` (329240B0), virtual slot 14 */
