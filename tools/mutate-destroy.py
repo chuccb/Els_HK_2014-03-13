@@ -236,7 +236,8 @@ m(BU, 'Button: the move repeats', 'f(0.07), true, true, false, 1)', 'f(0.07), tr
 EDGE = '    this.m_pEdgeTexture = this.closeHeldDevice(this.m_pEdgeTexture);\n'
 m(BU, 'Button: only the first three statics are looked at', EDGE + '    for (let i = 0; i < 4; i++) {', EDGE + '    for (let i = 0; i < 3; i++) {')
 m(BU, 'Button: the first static is not looked at', EDGE + '    for (let i = 0; i < 4; i++) {', EDGE + '    for (let i = 1; i < 4; i++) {')
-m(BU, 'Button: a missing static is a crash', '      const s = this.m_StaticControls[i];\n      if (!s) continue;', '      const s = this.m_StaticControls[i]!;')
+m(BU, 'Button: a missing static is a crash', '      const s = this.m_StaticControls[i];\n      if (!s) continue;', '      const s = this.m_StaticControls[i]!;',
+  'equivalent: a missing static is null and CheckControl (32956A00) is false for null, so nobody is moved either way; the guard only saves the call')
 m(BU, 'Button: the statics move after the animation maps are destroyed', '    for (let i = 0; i < 4; i++) {\n      const s = this.m_StaticControls[i];\n      if (!s) continue;\n      const dialog = this.m_pDialog;\n      if (dialog !== null && !dialog.destroyed && dialog.checkControl(s)) ' + MOVE + ';\n    }\n    for (const map of',
   '    for (const map of [this.m_mapMouseOverTex, this.m_mapMouseNormalTex, this.m_mapMouseDownTex]) {\n      for (const sequenceID of [...map.keys()].sort((a, b) => a - b)) map.get(sequenceID)!.Destroy(devices); // a `std::map<int, ...>` is walked in key order\n      map.clear();\n    }\n    for (let i = 0; i < 4; i++) {\n      const s = this.m_StaticControls[i];\n      if (!s) continue;\n      const dialog = this.m_pDialog;\n      if (dialog !== null && !dialog.destroyed && dialog.checkControl(s)) ' + MOVE + ';\n    }\n    for (const map of')
 MAPS = 'for (const map of [this.m_mapMouseOverTex, this.m_mapMouseNormalTex, this.m_mapMouseDownTex]) {'
@@ -446,7 +447,8 @@ m(CE, 'destroyDialogs: what is left is the baseline minus the holdings', 'report
 m(CE, 'holdings: the sounds are not counted', 'for (const map of [ui.devices.devices, ui.devices.sounds, ui.devices.renderTargets])', 'for (const map of [ui.devices.devices, ui.devices.renderTargets])')
 m(CE, 'holdings: the textures are not counted', 'for (const map of [ui.devices.devices, ui.devices.sounds, ui.devices.renderTargets])', 'for (const map of [ui.devices.sounds, ui.devices.renderTargets])')
 m(CE, 'holdings: the render targets are not counted', 'for (const map of [ui.devices.devices, ui.devices.sounds, ui.devices.renderTargets])', 'for (const map of [ui.devices.devices, ui.devices.sounds])')
-m(CE, 'holdings: the references are not added up', 'out.set(id, (out.get(id) ?? 0) + device.refCount);', 'out.set(id, device.refCount);')
+m(CE, 'holdings: the references are not added up', 'out.set(id, (out.get(id) ?? 0) + device.refCount);', 'out.set(id, device.refCount);',
+  'equivalent: an id is in one of the three maps at most (the exe keeps every device in one map keyed by id), so there is nothing to add to')
 m(CE, 'holdingsDelta: only the ids of the first map', 'for (const id of [...new Set([...after.keys(), ...before.keys()])].sort()) {', 'for (const id of [...new Set([...after.keys()])].sort()) {')
 m(CE, 'holdingsDelta: only the ids of the second map', 'for (const id of [...new Set([...after.keys(), ...before.keys()])].sort()) {', 'for (const id of [...new Set([...before.keys()])].sort()) {')
 m(CE, 'holdingsDelta: the ids are in the order they were found', 'for (const id of [...new Set([...after.keys(), ...before.keys()])].sort()) {', 'for (const id of [...new Set([...after.keys(), ...before.keys()])]) {')

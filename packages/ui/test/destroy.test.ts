@@ -91,9 +91,10 @@ describe("~UITextureData (32923950), ~TexChangeData (329238B0), ~CPictureData (3
 
   test("an animation step destroys its texture data (when it has a texture) and forgets it", () => {
     const { d, tex, take, held } = scene();
-    const a = step(tex("S.TGA"));
+    const data = tex("S.TGA");
+    const a = step(data);
     a.Destroy(d);
-    expect([take(), held(), some(a.m_pTexData)]).toEqual([["S.TGA"], [], ["none"]]);
+    expect([take(), held(), some(a.m_pTexData), some(data.pTexture)]).toEqual([["S.TGA"], [], ["none"], ["none"]]); // the data itself lets go of its texture, too
     a.Destroy(d); // no texture data
     const b = step(tex("T.TGA"));
     b.m_pTexData!.pTexture = null; // a data without a texture closes nothing, but the step still lets go of it
@@ -266,7 +267,7 @@ describe("~CKTDGUIEditBox (32932FE0) and ~CKTDGUIIMEEditBox (32935F90)", () => {
     ["the IME edit box", (w: ReturnType<typeof scene>["w"]) => new CKTDGUIIMEEditBox(w)],
   ] as const) {
     test(`${label}: two textures, three points, the key sound, and the text buffer`, () => {
-      const { w, dialog, tex, snd, take, held } = scene();
+      const { w, dialog, tex, snd, take, held, log } = scene();
       const e = make(w);
       e.m_Name = "edit";
       dialog.AddControl(e);
@@ -278,8 +279,13 @@ describe("~CKTDGUIEditBox (32932FE0) and ~CKTDGUIIMEEditBox (32935F90)", () => {
       e.m_pSndKeyDown = snd("key.wav");
       expect(e.m_Buffer.m_pwszBuffer).toBe("");
       expect(held()).toEqual(["KEY.WAV=1", "N.TGA=1", "X.TGA=1"]);
+      const destroyBuffer = e.m_Buffer.Destroy.bind(e.m_Buffer);
+      e.m_Buffer.Destroy = () => {
+        log.push("buffer"); // ~CKTDGUIUniBuffer comes after the CloseDevice of the key sound (32932FE0, 32935F90)
+        destroyBuffer();
+      };
       e.Destroy();
-      expect(take()).toEqual(["N.TGA", "X.TGA", "KEY.WAV"]);
+      expect(take()).toEqual(["N.TGA", "X.TGA", "KEY.WAV", "buffer"]);
       expect(held()).toEqual([]);
       expect(some(e.m_pNormalTex, e.m_pDisableTex, e.m_pNormalPoint, e.m_pDisablePoint, e.m_pTextPoint, e.m_pSndKeyDown)).toEqual(Array(6).fill("none"));
       expect([e.m_Buffer.m_pwszBuffer, e.m_Name, e.m_pDialog === null]).toEqual([null, "", true]);
@@ -426,6 +432,26 @@ describe("~CKTDGUIButton (3292C4C0)", () => {
     ]);
   });
 
+  test("all four statics of a button that are in its dialog are moved, in the order of the states, after the edge texture is closed and before the animation steps are destroyed", () => {
+    const s = scene();
+    const { w, dialog, tex, log } = s;
+    const b = new CKTDGUIButton(w);
+    b.m_Name = "btn";
+    dialog.AddControl(b);
+    for (const i of [0, 1, 2, 3]) {
+      const st = new CKTDGUIStatic(w);
+      st.m_Name = `st${i}`;
+      dialog.AddControl(st);
+      st.move = () => void log.push(`move st${i}`);
+      b.m_StaticControls[i] = st;
+    }
+    b.m_mapMouseOverTex.set(1, step(tex("O1.TGA")));
+    b.m_mapMouseNormalTex.set(1, step(tex("N1.TGA")));
+    s.take();
+    b.Destroy();
+    expect(s.take()).toEqual(["UIEDGE.TGA", "move st0", "move st1", "move st2", "move st3", "O1.TGA", "N1.TGA"]);
+  });
+
   test("the move is the real one: the static's goal is its own place and colour 0, reached in 0.07 s, then it is deleted", () => {
     const { b, statics } = buttonScene();
     const [st0, st1] = statics;
@@ -537,8 +563,10 @@ describe("~CKTDGUIListBox (329420E0)", () => {
   test("the rows are gone, nothing is selected and every field the destructor frees is null", () => {
     const s = scene();
     const { box, rows } = listBox(s);
+    const items = box.m_Items.slice();
     box.Destroy();
     expect([box.m_Items.length, box.m_nSelected, box.m_Name, box.m_pDialog === null]).toEqual([0, -1, "", true]);
+    expect(some(...items.map((r) => r.pControl))).toEqual(["none", "none", "none"]); // `row->pControl = nullptr` after the delete (the third row had none)
     expect(some(box.m_pBoudingBoxTex, box.m_pTextTex, box.m_pButtonMouseOverTex, box.m_pStringData, box.m_pGroupStringData, box.m_pScrollBar, box.m_pSndMouseDown, box.m_pGroupMark,
       box.m_pUKFont, box.m_pGroupUKFont)).toEqual(Array(10).fill("none"));
     expect(some(box.m_pScollBarUpButtonTex, box.m_pScollBarUpButtonDownTex, box.m_pScollBarDownButtonTex, box.m_pScollBarDownButtonDownTex, box.m_pScollBarTrackTex,
@@ -575,8 +603,9 @@ describe("the rows' controls of CKTDGUIListBox's RemoveItem (32946E90), RemoveIt
     box.removeItem(7);
     box.removeItem(-1);
     expect([events, box.m_Items.length]).toEqual([[], 4]);
+    const row = box.m_Items[1]!;
     box.removeItem(1);
-    expect([events, box.m_Items.map((r) => r.strText)]).toEqual([["b#1"], ["a", "c", "none"]]);
+    expect([events, box.m_Items.map((r) => r.strText), some(row.pControl)]).toEqual([["b#1"], ["a", "c", "none"], ["none"]]);
     box.removeItem(2); // a row without a control
     expect([events, box.m_Items.length]).toEqual([["b#1"], 2]);
   });
@@ -584,8 +613,10 @@ describe("the rows' controls of CKTDGUIListBox's RemoveItem (32946E90), RemoveIt
   test("RemoveItemByText deletes the control of each row with that text, in order, and no other", () => {
     const s = scene();
     const { box, events } = rowsBox(s, ["x", "y", "x", "x"]);
+    const rows = box.m_Items.filter((r) => r.strText === "x");
     expect(box.removeItemByText("x")).toBe(3);
     expect(events).toEqual(["x#0", "x#2", "x#3"]);
+    expect(some(...rows.map((r) => r.pControl))).toEqual(["none", "none", "none"]);
     expect(box.m_Items.map((r) => r.strText)).toEqual(["y", "none"]);
     expect(box.removeItemByText("nothing")).toBe(0);
     expect(events.length).toBe(3);
@@ -594,8 +625,10 @@ describe("the rows' controls of CKTDGUIListBox's RemoveItem (32946E90), RemoveIt
   test("RemoveAllItems deletes every row's control, in order", () => {
     const s = scene();
     const { box, controls, events } = rowsBox(s, ["a", "b", "c"]);
+    const rows = box.m_Items.slice();
     box.removeAllItems();
     expect([events, box.m_Items.length, controls.map((c) => c.m_Name)]).toEqual([["a#0", "b#1", "c#2"], 0, ["", "", ""]]);
+    expect(some(...rows.map((r) => r.pControl))).toEqual(["none", "none", "none", "none"]);
   });
 });
 
@@ -630,6 +663,7 @@ describe("~CKTDGUIComboBox (3293C440)", () => {
       spyOnDestroy(c, `row${i}`, log);
       return c;
     });
+    box.AddItem("plain"); // a row without a control
     box.m_iSelected = 1;
     box.m_iFocused = 1;
     spyOnBar(bar, log);
@@ -658,8 +692,10 @@ describe("~CKTDGUIComboBox (3293C440)", () => {
   test("the rows are gone, nothing is selected or focused and every field the destructor frees is null", () => {
     const s = scene();
     const { box, rows } = comboBox(s);
+    const items = box.m_Items.slice();
     box.Destroy();
     expect([box.m_Items.length, box.m_iSelected, box.m_iFocused, box.m_Name, box.m_pDialog === null]).toEqual([0, -1, -1, "", true]);
+    expect(some(...items.map((r) => r.pControl))).toEqual(["none", "none", "none"]);
     expect(some(box.m_pTextTex, box.m_pButtonTex, box.m_pButtonMouseDownTex, box.m_pButtonMouseOverTex, box.m_pDropdownTex, box.m_pDropdownTextTex, box.m_pStringData, box.m_pScrollBar,
       box.m_pSndButtonMouseDown, box.m_pSndButtonMouseOver)).toEqual(Array(10).fill("none"));
     expect(some(box.m_pScollBarUpButtonTex, box.m_pScollBarUpButtonDownTex, box.m_pScollBarDownButtonTex, box.m_pScollBarDownButtonDownTex, box.m_pScollBarTrackTex,
@@ -867,6 +903,67 @@ describe("~CKTDGUIDialog (329554D0) with the destructors of the controls", () =>
     expect(moves).toEqual(["late"]);
     expect([dialog.m_ControlsList.length, dialog.m_ControlsMap.size, held()]).toEqual([0, 0, []]);
     expect([early.m_Name, b.m_Name, late.m_Name]).toEqual(["", "", ""]); // every control was destroyed
+  });
+});
+
+describe("CKTDGUIDialog::CheckControl (32956A00) and the auto-delete of OnFrameMove (32958A00)", () => {
+  test("CheckControl finds the controls in the dialog's list and nothing else: not null, not a control of another dialog, not one that was taken out", () => {
+    const { w, dialog } = scene();
+    const a = new CKTDGUIStatic(w);
+    a.m_Name = "a";
+    const b = new CKTDGUIStatic(w);
+    b.m_Name = "b";
+    dialog.AddControl(a);
+    dialog.AddControl(b);
+    const stranger = new CKTDGUIStatic(w);
+    expect([dialog.checkControl(a), dialog.checkControl(b), dialog.checkControl(null), dialog.checkControl(stranger)]).toEqual([true, true, false, false]);
+    dialog.m_ControlsList.splice(0, 1);
+    expect([dialog.checkControl(a), dialog.checkControl(b)]).toEqual([false, true]);
+  });
+
+  test("an auto-delete control: its map entry is gone and it is still in the list while its destructor runs, and it has lost the focus by then", () => {
+    const { w, dialog } = scene();
+    const a = new CKTDGUIStatic(w);
+    a.m_Name = "a";
+    const b = new CKTDGUIStatic(w);
+    b.m_Name = "b";
+    dialog.AddControl(a);
+    dialog.AddControl(b);
+    const seen: string[] = [];
+    const destroy = a.Destroy.bind(a);
+    a.Destroy = () => {
+      seen.push(`destroy: map ${dialog.m_ControlsMap.has("a")}, list ${dialog.m_ControlsList.includes(a)}, focus ${is(w.controlFocus, a)}`);
+      destroy();
+    };
+    a.onFocusOut = () => void seen.push("focus out");
+    w.controlFocus = a;
+    a.m_bCheckAutoDeleteEnd = true;
+    dialog.onFrameMove(0, 0.1);
+    expect(seen).toEqual(["focus out", "destroy: map false, list true, focus false"]);
+    expect([dialog.m_ControlsList.map((c) => c === b), dialog.m_ControlsMap.has("a"), dialog.m_ControlsMap.has("b"), is(w.controlFocus, null), a.m_Name]).toEqual([[true], false, true, true, ""]);
+  });
+
+  test("the focus is the destroyed control's to lose: the one the map holds under the marked control's name, not the marked control; a marked control that has the focus keeps it", () => {
+    const { w, dialog } = scene();
+    const first = new CKTDGUIStatic(w);
+    first.m_Name = "x";
+    const second = new CKTDGUIStatic(w);
+    second.m_Name = "y";
+    dialog.AddControl(first);
+    dialog.AddControl(second);
+    second.m_Name = "x"; // the map holds `first` under this name
+    const out: string[] = [];
+    first.onFocusOut = () => void out.push("first");
+    second.onFocusOut = () => void out.push("second");
+    second.m_bCheckAutoDeleteEnd = true;
+    w.controlFocus = first;
+    dialog.onFrameMove(0, 0.1);
+    expect([out, is(w.controlFocus, null), dialog.m_ControlsList.map((c) => c === second)]).toEqual([["first"], true, [true]]);
+    // now the marked control has the focus, but the map no longer holds anything under its name: nobody is destroyed and the focus stays
+    w.controlFocus = second;
+    dialog.onFrameMove(0, 0.1);
+    expect([out, is(w.controlFocus, second), dialog.m_ControlsList.length]).toEqual([["first"], true, 1]);
+    w.controlFocus = null;
   });
 });
 
@@ -1142,5 +1239,51 @@ describe("destroyDialogs: what the census reports after it destroys the dialogs 
     expect(report.left).toEqual({ "DOWN.WAV": 1, "GONE.TGA": -3, "LEFT.TGA": 1, "OVER.WAV": 1 });
     expect(Object.keys(report.left)).toEqual(["DOWN.WAV", "GONE.TGA", "LEFT.TGA", "OVER.WAV"]);
     expect(Object.keys(report.leaked)).toEqual(["DOWN.WAV", "OVER.WAV"]);
+  });
+
+  test("every control of every dialog adds the sounds it leaked, and every stray close adds up, per device id", () => {
+    const s = scene();
+    const { w, snd } = s;
+    const d1 = new CKTDGUIDialog(w);
+    const d2 = new CKTDGUIDialog(w);
+    const leaky = (dialog: CKTDGUIDialog, name: string, sound: string): CKTDGUIButton => {
+      const b = new CKTDGUIButton(w);
+      b.m_Name = name;
+      dialog.AddControl(b);
+      b.m_pSndMouseOver = snd(sound);
+      b.setCustomMouseOverSound("custom.wav"); // the sound it opened is leaked
+      return b;
+    };
+    leaky(d1, "a", "over.wav");
+    leaky(d1, "b", "over.wav");
+    leaky(d1, "c", "up.wav");
+    leaky(d2, "d", "over.wav");
+    leaky(d2, "e", "up.wav");
+    leaky(d2, "f", "over.wav");
+    for (const [dialog, name] of [[d1, "g1"], [d1, "g2"], [d2, "g3"]] as const) { // statics that close a device the manager does not hold
+      const st = new CKTDGUIStatic(w);
+      st.m_Name = name;
+      dialog.AddControl(st);
+      s.d.closeDevice("UIEDGE.TGA"); // the edge texture the static opened is let go before the ghost takes its place
+      st.m_pEdgeTexture = new DeviceTexture("GHOST.TGA");
+    }
+    const strays: string[] = [];
+    s.d.onStrayClose = (id) => void strays.push(id);
+    const report = destroyDialogs({ ui: s.w, runs: [], dialogs: [d1, d2], baseline: new Map(), strayCloses: strays });
+    expect(report.leaked).toEqual({ "OVER.WAV": 4, "UP.WAV": 2 });
+    expect(report.left).toEqual({ "OVER.WAV": 4, "UP.WAV": 2 });
+    expect(report.strays).toEqual({ "GHOST.TGA": 3 });
+    expect([report.dialogs, report.controls, report.errors]).toEqual([2, 9, []]);
+  });
+
+  test("the render targets that stay open are reported, as the textures and sounds are", () => {
+    const s = scene();
+    const dialog = new CKTDGUIDialog(s.w);
+    s.d.openRenderTargetTexture("rt", 8, 8, 0);
+    s.d.openRenderTargetTexture("rt", 8, 8, 0);
+    s.tex("T.TGA");
+    const report = destroyDialogs({ ui: s.w, runs: [], dialogs: [dialog], baseline: new Map(), strayCloses: [] });
+    expect(report.left).toEqual({ RT: 2, "T.TGA": 1 });
+    expect(report.leaked).toEqual({});
   });
 });
