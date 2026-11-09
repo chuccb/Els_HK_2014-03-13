@@ -92,6 +92,38 @@ export class ImeSystem {
     this.s_CandList = new CandList(log);
   }
 
+  /** `ResetCompositionString()` (3293AA60): no composition string, the caret at 0, no attributes */
+  resetCompositionString(): void {
+    this.s_nCompCaret = 0;
+    this.s_CompString.SetText("");
+    this.s_abCompStringAttr.fill(0);
+  }
+
+  /**
+   * `StaticMsgProc(uMsg, wParam)` (3293AF10), the first thing a dialog asks of a window message: 1 when the IME took it.  Nothing is taken
+   * while the IME system is off (`s_bEnableImeSystem`, which a window without an IME never turns on) or for a message above 0x10D.
+   * `WM_IME_STARTCOMPOSITION` (0x10D) clears the composition string and hides the caret.  `WM_ACTIVATEAPP` (0x1C: the list of the
+   * keyboard layouts, `GetKeyboardLayoutList`, `GetLocaleInfoW`) and `WM_INPUTLANGCHANGE` (0x51: the IME's file, `LoadLibraryA`,
+   * `ImmGetContext`) ask the operating system, which is not modelled: with the IME system on they throw.
+   */
+  staticMsgProc(uMsg: number, wParam: number): number {
+    const msg = uMsg >>> 0;
+    if (!this.s_bEnableImeSystem || msg > 0x10d) return 0;
+    switch (msg) {
+      case 0x1c:
+        if (wParam === 0) return 0;
+        throw new Error("CKTDGUIIMEEditBox::StaticMsgProc (3293AF10): WM_ACTIVATEAPP lists the keyboard layouts of the operating system, which is not modelled");
+      case 0x51:
+        throw new Error("CKTDGUIIMEEditBox::StaticMsgProc (3293AF10): WM_INPUTLANGCHANGE loads the IME of the operating system, which is not modelled");
+      case 0x10d:
+        this.resetCompositionString();
+        this.s_bHideCaret = true;
+        return 1;
+      default:
+        return 0;
+    }
+  }
+
   /** `CKTDGUIIMEEditBox::Initialize()` (329384B0) */
   initialize(): void {
     if (this.s_bInitialised) return;

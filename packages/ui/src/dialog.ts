@@ -15,7 +15,8 @@
 import { LuaError } from "@els/lua";
 import { Color, KLuaManager, Vec2, Vec3 } from "@els/host";
 import type { CKTDGUIDialog_Methods } from "@els/host";
-import { CKTDGUIControl, CPictureData, UCT, approach } from "./control.ts";
+import { CKTDGUIControl, CPictureData, UCT, UIM, approach } from "./control.ts";
+import type { UIStage } from "./control.ts";
 import { CKTDGUIButton } from "./button.ts";
 import { CKTDGUICheckBox } from "./checkbox.ts";
 import { CKTDGUIRadioButton } from "./radiobutton.ts";
@@ -29,7 +30,7 @@ import { CKTDGUISlider } from "./slider.ts";
 import { CKTDGUIEditBox } from "./editbox.ts";
 import { CKTDGUINavigation } from "./navigation.ts";
 import type { RadioButtonGroupInfo } from "./radiobutton.ts";
-import { localPoint, resolutionScale } from "./pick.ts";
+import { localAxis, localPoint, resolutionScale } from "./pick.ts";
 import { ftoi } from "./rect.ts";
 import { DIALOG_SAMPLER_STATES, RSI_UI_DIALOG } from "./render.ts";
 import type { CKTDGUIDialogManager } from "./dialogmanager.ts";
@@ -106,6 +107,17 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
   m_bCheckAutoDeleteEnd = false;
   m_bEnableMoveByDrag = false;
   m_bMouseDownForDrag = false;
+  /** `m_bIsOverControl` (0x151): the mouse is over a shown control of this dialog (`MsgProc` and `HandleMouse` set it) */
+  m_bIsOverControl = false;
+  /** `m_bIsMouseOver` (0x10D): the mouse is over some control (shown or not): the change sends `m_CustomMsgMouseOver` / `m_CustomMsgMouseOut` */
+  m_bIsMouseOver = false;
+  /** `m_PrevMousePointX` / `m_PrevMousePointY` (0xE0, 0xE4): the local point of the last mouse move that was no drag */
+  m_PrevMousePointX = 0;
+  m_PrevMousePointY = 0;
+  /** `m_bDisableUnderWindow` (0x150): the dialog takes the mouse messages that fall on its controls (the game's code sets it, never a script) */
+  m_bDisableUnderWindow = false;
+  /** `m_bEnableShortCutEnter`: a button reads it for the Enter key (the game's code sets it) */
+  m_bEnableShortCutEnter = false;
   /**
    * `m_pControlMouseOver`: the control the mouse is over, the last of the list that is not a static, holds the point and is shown (`OnMouseMove`);
    * `m_pControlMouseOverStatic`: the last control of any kind that holds the point and is shown; `m_pControlMouseOverShowDlg`: the last control
@@ -493,12 +505,191 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
     else this.m_iLayer = layer;
   }
 
+  /** `GetIsOverControl()` (32957790): the mouse is over a control, for a dialog that takes the messages under it */
+  getIsOverControl(): boolean {
+    return this.m_bDisableUnderWindow && this.m_bIsOverControl;
+  }
+
+  /** `SetIsOverControl(val)` (3295B770): only a dialog that takes the messages under it keeps it */
+  setIsOverControl(val: boolean): void {
+    if (this.m_bDisableUnderWindow) this.m_bIsOverControl = val;
+  }
+
   /**
-   * `MsgProc(hWnd, uMsg, wParam, lParam)` (32958350): the dialog's share of the window messages (the mouse and the keyboard of its controls).
-   * Not ported: the input.
+   * `SendInternelEvent(hWnd, uMsg, wParam, lParam)` (3295B610): the dialog hands the message to its stage; false when it has none.
+   * (`CKTDXApp::CheckStage`, which asks whether the stage is still alive, is always true here.)
    */
-  msgProc(_hWnd: unknown, _uMsg: number, _wParam: number, _lParam: number): boolean {
-    throw new Error("CKTDGUIDialog::MsgProc (32958350: the dialog's input) is not ported");
+  sendInternelEvent(msg: number, wParam: number | string, lParam: unknown = this): boolean {
+    const stage = this.m_pStage as UIStage | undefined | null;
+    if (!stage) return false;
+    stage.MsgProc?.(msg, wParam, lParam);
+    return true;
+  }
+
+  /**
+   * `HandleMouse(uMsg, pt, wParam, lParam)` (32957AA0): a mouse message at `(x, y)` (the mouse less the dialog's position, in pixels of the
+   * back buffer).  A combo box or IME edit box of this dialog that has the focus is asked first, with its own local point.  Otherwise
+   * the controls are walked from the last (the one drawn on top): each that holds the point and is shown makes `m_bIsOverControl` true; the
+   * first that holds the point, is enabled and shown and is not out of the list gets `OnMouseMove` for the dialog and then its own
+   * `HandleMouse`; the walk stops when one answers true.
+   */
+  handleMouse(uMsg: number, x: number, y: number, wParam: number, lParam: number): boolean {
+    const ctx = this.ctx;
+    const focus = ctx.controlFocus;
+    if (
+      focus !== null && focus.m_pDialog === this && focus.m_bEnable && focus.m_bShow &&
+      (focus.m_ControlType === UCT.COMBOBOX || focus.m_ControlType === UCT.IME_EDITBOX)
+    ) {
+      const p = localPoint(ctx, focus, x, y);
+      if (focus.handleMouse(uMsg, p.x, p.y, wParam, lParam)) return true;
+    }
+    const list = this.m_ControlsList;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const control = list[i];
+      if (!control) continue;
+      const p = localPoint(ctx, control, x, y);
+      const holds = control.containsPoint(p.x, p.y);
+      if (holds && control.m_bShow) this.m_bIsOverControl = true;
+      if (holds && control.m_bEnable && control.m_bShow && !control.m_bOutofList) {
+        this.onMouseMove(x, y);
+        if (control.handleMouse(uMsg, p.x, p.y, wParam, lParam)) return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * `MsgProc(hWnd, uMsg, wParam, lParam)` (32958350): the dialog's share of the window messages; true when the dialog took the message.
+   *
+   * A dialog that is disabled or hidden, or whose self-delete time is up, takes nothing; the IME's static message proc comes next.  The
+   * keyboard messages (0x100, 0x101, 0x104, 0x105): a key up of Tab, Right or Down moves the focus to the control the focused control's
+   * `m_TabControlName` names in this dialog's map, Left or Up to its `m_PrevTabControlName`; every other key goes to the focused control's
+   * `HandleKeyboard`.  The mouse messages (0x200 .. 0x20D) are the dialog's own: with the dialogs hidden (`GetHideDialog`) they are taken
+   * and nothing else happens; otherwise the mouse over / out message of the dialog (`m_CustomMsgMouseOver` / `m_CustomMsgMouseOut`), the
+   * drag of the dialog (`m_bEnableMoveByDrag`), `HandleMouse`, and, when no control took the message, the click outside (the focus is
+   * lost, the dialog may close, `m_CustomMsgFocusOutEventID`), `OnMouseMove`, the start and the stop of a drag (`m_CustomMsgStartDragging`,
+   * `m_CustomMsgStopDragging`), the right button up (`m_CustomMsgRMouseUp`); the answer is whether the dialog takes the messages under it
+   * (`m_bDisableUnderWindow`) and the mouse is over one of its controls.  Every other message goes to the focused control's `MsgProc`.
+   */
+  msgProc(hWnd: unknown, uMsg: number, wParam: number, lParam: number): boolean {
+    if (!this.m_bEnable) return false;
+    if (!this.m_bShow) return false;
+    const ctx = this.ctx;
+    if (this.m_fTimeForSelfDelete > 0) {
+      if (((ctx.clock() - this.m_TimerToSelfDelete._start_time) | 0) / 1000 > this.m_fTimeForSelfDelete) return false;
+    }
+    if (ctx.ime.staticMsgProc(uMsg, wParam) === 1) return true;
+    const msg = uMsg >>> 0;
+    if (msg === 0x200 || (msg > 0x200 && msg - 0x201 <= 0xc)) return this.mouseMsgProc(msg, wParam, lParam);
+    const kind = msg - 0x100;
+    if (kind >= 0 && kind <= 5 && kind !== 2 && kind !== 3) {
+      // WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP
+      let focus = ctx.controlFocus;
+      if (msg === 0x101) {
+        if (focus === null) return false;
+        let name: string | null = null;
+        if (wParam === 9 || wParam === 0x27 || wParam === 0x28) name = focus.m_TabControlName;
+        else if (wParam === 0x25 || wParam === 0x26) name = focus.m_PrevTabControlName;
+        if (name !== null) {
+          const target = this.m_ControlsMap.get(name);
+          if (target !== undefined) {
+            this.requestFocus(target);
+            return true;
+          }
+        }
+        focus = ctx.controlFocus;
+      }
+      if (focus === null || focus.m_pDialog !== this || !focus.m_bEnable || !focus.m_bShow) return false;
+      return focus.handleKeyboard(msg, wParam, lParam);
+    }
+    const focus = ctx.controlFocus;
+    return focus !== null && focus.m_pDialog === this && focus.m_bEnable && focus.m_bShow && focus.msgProc(hWnd, msg, wParam, lParam);
+  }
+
+  /** the mouse half of `MsgProc` (32958350): `uMsg` is 0x200 .. 0x20D */
+  private mouseMsgProc(uMsg: number, wParam: number, lParam: number): boolean {
+    const ctx = this.ctx;
+    if (ctx.dialogManager.getHideDialog()) return true;
+    this.m_bIsOverControl = false;
+    const scale = resolutionScale(ctx);
+    const px = (ctx.mouse.GetXPos() - ftoi(f(this.m_Pos.x * scale.x))) | 0;
+    const py = (ctx.mouse.GetYPos() - ftoi(f(this.m_Pos.y * scale.y))) | 0;
+    // the mouse over / out message of the dialog: when the mouse comes onto a control (shown or not) and when it leaves them all
+    const onControl = this.getControlAtPointAbsolute(px, py) !== null;
+    let overMsg = -1;
+    if (onControl) {
+      if (!this.m_bIsMouseOver) {
+        overMsg = this.m_CustomMsgMouseOver;
+        this.m_bIsMouseOver = true;
+      }
+    } else if (this.m_bIsMouseOver) {
+      overMsg = this.m_CustomMsgMouseOut;
+      this.m_bIsMouseOver = false;
+    }
+    if (overMsg !== -1) this.sendInternelEvent(UIM.CUSTOM_MSG, overMsg, 0);
+    // the drag of the dialog: the control with the focus (of any dialog), else the control under the mouse, gives the local point
+    if (this.m_bEnableMoveByDrag && uMsg === 0x200) {
+      const target = ctx.controlFocus ?? this.getControlAtPointForStatic(px, py);
+      if (target !== null) {
+        const lx = localAxis(px, scale.x, target.m_OffsetPos.x);
+        const ly = localAxis(py, scale.y, target.m_OffsetPos.y);
+        const dx = (lx - this.m_PrevMousePointX) | 0;
+        const dy = (ly - this.m_PrevMousePointY) | 0;
+        if (this.m_bMouseDownForDrag) {
+          this.setPos(new Vec2(f(f(dx) + this.m_Pos.x), f(f(dy) + this.m_Pos.y)));
+          return true;
+        }
+        this.m_PrevMousePointX = lx;
+        this.m_PrevMousePointY = ly;
+      }
+    }
+    if (this.handleMouse(uMsg, px, py, wParam, lParam)) return true;
+    if (uMsg === 0x201) {
+      // a click that no control took: the control with the focus loses it, and the dialog may close
+      const focus = ctx.controlFocus;
+      if (focus !== null && focus.m_pDialog === this) {
+        focus.onFocusOut();
+        ctx.controlFocus = null;
+      }
+      if (this.m_bCloseOnFocusOut) {
+        if (this.m_bShow) {
+          const guide = this.m_pDialogGuideDesc;
+          this.m_bShow = false;
+          if (guide !== null) guide.setShow(false);
+          if (!this.m_bModal && this.m_pkUIDialogManager !== null) this.m_pkUIDialogManager.countModalDialog(null);
+        }
+        if (CKTDGUISlot.s_pDragSlot !== null && CKTDGUISlot.s_pDragSlot.m_pDialog === this) CKTDGUISlot.returnDraggingItem();
+        this.m_bEnable = false;
+        const stage = this.m_pStage as UIStage | undefined | null;
+        stage?.MsgProc?.(UIM.CUSTOM_MSG, this.m_CloseCustomUIEventID, this);
+      }
+      const focusOutMsg = this.m_CustomMsgFocusOutEventID;
+      const stage = this.m_pStage as UIStage | undefined | null;
+      if (focusOutMsg !== -1 && stage) stage.MsgProc?.(UIM.CUSTOM_MSG, focusOutMsg, this);
+    }
+    this.m_bMouseDownForDrag = false;
+    switch (uMsg - 0x200) {
+      case 0: // WM_MOUSEMOVE
+        this.onMouseMove(px, py);
+        break;
+      case 1: { // WM_LBUTTONDOWN: a drag of the dialog starts on a shown control that is in it
+        const control = this.getControlAtPointForStatic(px, py);
+        if (control !== null && control.m_pDialog === this && control.m_bShow) {
+          this.m_bMouseDownForDrag = true;
+          if (this.m_CustomMsgStartDragging !== -1) this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgStartDragging, this);
+        }
+        break;
+      }
+      case 2: // WM_LBUTTONUP
+        if (this.m_CustomMsgStopDragging !== -1) this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgStopDragging, this);
+        break;
+      case 5: // WM_RBUTTONUP: not even the messages under the dialog are taken
+        if (this.m_CustomMsgRMouseUp !== -1) this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgRMouseUp, this);
+        return false;
+      default: // WM_LBUTTONDBLCLK, WM_RBUTTONDOWN and all above WM_RBUTTONUP
+        break;
+    }
+    return this.m_bDisableUnderWindow && this.m_bIsOverControl;
   }
 
   /**
