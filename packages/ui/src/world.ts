@@ -143,6 +143,17 @@ export class UIWorld implements UIContext {
     return this.devices.massFiles.tickCount();
   }
 
+  /** whether the window holds the mouse (`SetCapture` was called and `ReleaseCapture` was not) */
+  mouseCaptured = false;
+
+  setCapture(): void {
+    this.mouseCaptured = true;
+  }
+
+  releaseCapture(): void {
+    this.mouseCaptured = false;
+  }
+
   /**
    * `CKTDXApp::SendGameMessage(uMsg, wParam, lParam, bDirectProcess)` (328CCCD0).  Direct: every stage of the chain that is active
    * (`m_eStageState == SS_ACTIVE`) has its `MsgProc(m_hWnd, ...)` called in turn, until one answers yes (the chain is read again after each

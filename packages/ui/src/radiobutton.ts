@@ -17,7 +17,7 @@
  */
 import { Color } from "@els/host";
 import type { CKTDGUIRadioButton_Methods } from "@els/host";
-import { CKTDGUIControl, UCT, UIM, UIPointData, destroyTexture, readStringData } from "./control.ts";
+import { CKTDGUIControl, UCT, UIM, UIPointData, destroyTexture, readStringData, requestFocus } from "./control.ts";
 import type { UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceSound, DeviceTexture } from "./device.ts";
 import { ftoi } from "./rect.ts";
@@ -265,6 +265,85 @@ export class CKTDGUIRadioButton extends CKTDGUIControl implements Partial<CKTDGU
       this.m_MyNowPoint.fChangeTime = 0;
     }
     if (this.m_MyEndPoint.fChangeTime === 0) this.m_MyNowPoint.assign(this.m_MyEndPoint);
+  }
+
+  /**
+   * `HandleMouse(uMsg, pt, wParam, lParam)` (3294A680), virtual: an enabled, shown button takes
+   *  - 0x201 (left button down) in its area, unless it is checked and does not toggle: it is pressed, then `ButtonDown`.
+   *  - 0x204 (right button down) in its area: `m_bRButtonDown`, then `ButtonDown` (the window captures the mouse, the button asks for the
+   *    focus when it has none; taken).
+   *  - 0x202 (left button up): not taken when it was not pressed; otherwise the capture is given back and the message taken; with the point in
+   *    its area the check sound plays, the group is cleared (see below) and the button is checked by input, or toggled with `m_bEnableCheckToggle`.
+   *  - 0x203 (left double click): taken and nothing more without `m_bEnableDoubleClick`; with it, in the area: the focus, the sound, the group
+   *    cleared except this button, and the button is checked by a double click (`SetCheckedInternal(true, true, true)`).
+   *  - 0x205 (right button up): not taken when the right button was not down; otherwise the capture is given back, taken, and with the point
+   *    in the area, the focus and a message id other than -1 the stage is sent the custom message `m_CustomMsgRButtonUp`.
+   * Every other message is not taken.
+   *
+   * "The group is cleared" is done only for a group without a record or with `m_iMaxCheckCount == 1` (a group that takes more is left to the
+   * record, `RadioButtonGroupInfo::SetChecked`): every radio button of the dialog with the group's id is unchecked without input.  On a
+   * left button up the button itself is among them (so a toggling button of such a group, unchecked first, is always checked again: the
+   * exe's behaviour), on a double click it is not.  A handle that names no dialog answers the null object: no record and no controls.
+   */
+  override handleMouse(uMsg: number, x: number, y: number, _wParam: number, _lParam: number): boolean {
+    if (!this.m_bEnable || !this.m_bShow) return false;
+    switch (uMsg) {
+      case 0x201:
+        if ((!this.m_bEnableCheckToggle && this.m_bChecked) || !this.containsPoint(x, y)) return false;
+        this.m_bPressed = true;
+        return this.buttonDown();
+      case 0x202:
+        if (!this.m_bPressed) return false;
+        this.m_bPressed = false;
+        this.ctx.releaseCapture();
+        if (!this.containsPoint(x, y)) return true;
+        this.playSound(this.m_pSndCheck);
+        this.clearGroup(true);
+        this.setCheckedInternal(this.m_bEnableCheckToggle ? !this.m_bChecked : true, false, true);
+        return true;
+      case 0x203:
+        if (!this.m_bEnableDoubleClick) return true;
+        if (!this.containsPoint(x, y)) return false;
+        if (!this.m_bHasFocus) requestFocus(this.ctx, this);
+        this.playSound(this.m_pSndCheck);
+        this.clearGroup(false);
+        this.setCheckedInternal(true, true, true);
+        return true;
+      case 0x204:
+        if (!this.containsPoint(x, y)) return false;
+        this.m_bRButtonDown = true;
+        return this.buttonDown();
+      case 0x205:
+        if (!this.m_bRButtonDown) return false;
+        this.m_bRButtonDown = false;
+        this.ctx.releaseCapture();
+        if (!this.containsPoint(x, y) || !this.m_bHasFocus || this.m_CustomMsgRButtonUp === -1) return true;
+        this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgRButtonUp);
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /** the end of the button down cases of `HandleMouse` (`LABEL_15`): the capture, the focus; taken */
+  private buttonDown(): boolean {
+    this.ctx.setCapture();
+    if (!this.m_bHasFocus) requestFocus(this.ctx, this);
+    return true;
+  }
+
+  /** the loop of `HandleMouse` that unchecks the radio buttons of this button's group (`includeThis`: this button too) */
+  private clearGroup(includeThis: boolean): void {
+    const dialog = this.liveDialog();
+    const info = dialog?.getRadioButtonGroupInfo(this.m_GroupID) ?? null;
+    if (info !== null && info.m_iMaxCheckCount !== 1) return;
+    if (dialog === null) return;
+    for (let i = 0; i < dialog.m_ControlsList.length; i++) {
+      const control = dialog.getControl(i);
+      if (control === null || control.m_ControlType !== UCT.RADIOBUTTON) continue;
+      const radio = control as CKTDGUIRadioButton;
+      if (radio.m_GroupID === this.m_GroupID && (includeThis || radio !== this)) radio.setCheckedInternal(false, false, false);
+    }
   }
 
   /**

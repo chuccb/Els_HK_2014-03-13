@@ -40,6 +40,11 @@ oi.CONTROL_FIELDS["m_bHasFocus"] = (0xB0, "B")
 SOUND_UP, SOUND_DOWN = 0x5550, 0x5554
 SOUNDS = {0: "none", SOUND_UP: "up", SOUND_DOWN: "down"}
 STATIC_HANDLE_MOUSE, BUTTON_HANDLE_MOUSE = 0x32929E60, 0x3292E520
+# what `act_ctl` calls (virtual slot 8 of the control's class) and which fields it writes down, by kind of control; `down` is the dialog's
+# m_bMouseDownForDrag, the others are bytes of the control at the offset of FIELD_OFFSETS (the toggles' fields)
+HANDLERS = {"button": BUTTON_HANDLE_MOUSE, "static": STATIC_HANDLE_MOUSE}
+STATE_KEYS = {"button": ("hasFocus", "focus", "down"), "static": ("hasFocus", "focus", "down")}
+FIELD_OFFSETS = {}
 
 
 class ControlOracle(oi.InputOracle):
@@ -140,14 +145,26 @@ class ControlOracle(oi.InputOracle):
     def state_of(self, label):
         c = self.addr[label]
         d = self.owner[c]
-        return "hasFocus=%d focus=%s down=%d" % (self.b(c + 0xB0), self.get_focus(), self.b(d + 0x77))
+        kind = self.kind[c]
+        out = []
+        for key in STATE_KEYS[kind]:
+            if key == "hasFocus":
+                v = self.b(c + 0xB0)
+            elif key == "focus":
+                v = self.get_focus()
+            elif key == "down":
+                v = self.b(d + 0x77)
+            else:
+                v = self.b(c + FIELD_OFFSETS[kind][key])
+            out.append("%s=%s" % (key, v))
+        return " ".join(out)
 
     def act_ctl(self, case, label, uMsg, x, y, wParam=0, lParam=0):
         """send `HandleMouse(uMsg, (x, y), wParam, lParam)` to the control through its vtable"""
         c = self.addr[label]
         self.events = []
         handler = self.emu.u32(self.emu.u32(c) + 4 * 8)
-        assert handler == (BUTTON_HANDLE_MOUSE if self.kind[c] == "button" else STATIC_HANDLE_MOUSE), hex(handler)
+        assert handler == HANDLERS[self.kind[c]], hex(handler)
         ret = self.thiscall(handler, c, [uMsg, x, y, wParam, lParam]) & 0xFF
         events = list(self.events)
         state = self.state_of(label)

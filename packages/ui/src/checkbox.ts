@@ -10,7 +10,7 @@
  * and the checked texture are handed on to a point (the over and disable textures are taken from the box by `ChangeState`).
  */
 import type { CKTDGUICheckBox_Methods } from "@els/host";
-import { CKTDGUIControl, UCT, UIM, UIPointData, destroyTexture } from "./control.ts";
+import { CKTDGUIControl, UCT, UIM, UIPointData, destroyTexture, requestFocus } from "./control.ts";
 import type { UIContext, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
 import { VertexUI4 } from "./render.ts";
@@ -140,6 +140,37 @@ export class CKTDGUICheckBox extends CKTDGUIControl implements Partial<CKTDGUICh
         break;
       default:
         break;
+    }
+  }
+
+  /**
+   * `HandleMouse(uMsg, pt, wParam, lParam)` (32931830), virtual: an enabled, shown box takes
+   *  - 0x201 / 0x203 (left button down, double click) in its area: it is pressed, the window captures the mouse, the box asks for the focus
+   *    when it has none; taken.
+   *  - 0x202 (left button up): not taken when it was not pressed; otherwise it is no longer pressed, the capture is given back and the
+   *    message is taken; when the point is in the area the box is toggled by input (`SetCheckedInternal(!m_bChecked, true)`: the stage's
+   *    message, the custom function, the sound).
+   * Every other message is not taken.  (`DXUTGetHWND` is the window of the current device; the port has one world.)
+   */
+  override handleMouse(uMsg: number, x: number, y: number, _wParam: number, _lParam: number): boolean {
+    if (!this.m_bEnable || !this.m_bShow) return false;
+    switch (uMsg) {
+      case 0x201:
+      case 0x203:
+        if (!this.containsPoint(x, y)) return false;
+        this.m_bPressed = true;
+        this.ctx.setCapture();
+        if (!this.m_bHasFocus) requestFocus(this.ctx, this);
+        return true;
+      case 0x202:
+        if (!this.m_bPressed) return false;
+        this.m_bPressed = false;
+        this.ctx.releaseCapture();
+        if (!this.containsPoint(x, y)) return true;
+        this.setCheckedInternal(!this.m_bChecked, true);
+        return true;
+      default:
+        return false;
     }
   }
 

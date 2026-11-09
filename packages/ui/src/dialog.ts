@@ -15,7 +15,7 @@
 import { LuaError } from "@els/lua";
 import { Color, KLuaManager, Vec2, Vec3 } from "@els/host";
 import type { CKTDGUIDialog_Methods } from "@els/host";
-import { CKTDGUIControl, CPictureData, UCT, UIM, approach } from "./control.ts";
+import { CKTDGUIControl, CPictureData, UCT, UIM, approach, requestFocus } from "./control.ts";
 import type { UIStage } from "./control.ts";
 import { CKTDGUIButton } from "./button.ts";
 import { CKTDGUICheckBox } from "./checkbox.ts";
@@ -860,7 +860,12 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
    * `_GetControl(const wchar_t*)` (3295C090): the control of that name; in a dialog that has controls a name that is not there is
    * error log 0x24 (an empty dialog answers null silently).
    */
-  getControl(name: string): CKTDGUIControl | undefined {
+  getControl(name: string): CKTDGUIControl | undefined;
+  /** `GetControl(int index)` (329572D0): the control at that place of the list, null for an index out of range */
+  getControl(index: number): CKTDGUIControl | null;
+  getControl(key: string | number): CKTDGUIControl | undefined | null {
+    if (typeof key === "number") return this.m_ControlsList[key] ?? null;
+    const name = key;
     if (this.m_ControlsMap.size === 0) return undefined;
     const found = this.m_ControlsMap.get(name);
     if (found) return found;
@@ -917,14 +922,14 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
 
   // ---- focus -----------------------------------------------------------------------------------------------------------------
 
+  /** `GetRadioButtonGroupInfo(iGroupID)` (3294A630): the group, null when there is none of that id */
+  getRadioButtonGroupInfo(groupID: number): RadioButtonGroupInfo | null {
+    return this.m_mapRadioButtonGroupInfo.get(groupID) ?? null;
+  }
+
   /** `RequestFocus(CKTDGUIControl*)` (3295B490): the control takes the focus from the one that has it, if it can have it */
   requestFocus(control: CKTDGUIControl): void {
-    const ctx = this.ctx;
-    if (ctx.controlFocus !== control && control.canHaveFocus()) {
-      ctx.controlFocus?.onFocusOut();
-      control.onFocusIn();
-      ctx.controlFocus = control;
-    }
+    requestFocus(this.ctx, control);
   }
 
   /** `CKTDGUIDialog::ClearFocus()` (32956B90), a static function: the control that has the focus loses it */

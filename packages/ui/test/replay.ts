@@ -6,12 +6,14 @@
  * the same fields, answers the same way, sends the same message, and compares all three.  The calls are written the way the oracle writes them:
  * `A.mouse(513,20,20,0,0)`, `A.key(257,9,1)`, `A.msg(...)`, `A.in`, `A.out`, `A.change(state,force)`, `A.sound(up)`, `stage(1127,5,A)` (a message
  * to the stage: 0x467, the custom message 5, lParam the control A; for 0x468 the second number is the function name), `gameMsg(1126,2,A,1)`,
- * `returnDrag`, `modalCount(D)`, `resetComp`.
+ * `returnDrag`, `modalCount(D)`, `resetComp`, `capture` / `release` (the window takes and gives back the mouse), `A.setChecked(b,double,input)`
+ * (a radio button's `SetCheckedInternal`, replaced on both sides by its first statement `m_bChecked = b` and the call written down).
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
-  CKTDGUIButton, CKTDGUIControl, CKTDGUIDialog, CKTDGUISlot, CKTDGUIStatic, CPictureData, UCT, UIPointData,
+  CKTDGUIButton, CKTDGUICheckBox, CKTDGUIControl, CKTDGUIDialog, CKTDGUIRadioButton, CKTDGUISlot, CKTDGUIStatic, CPictureData, RadioButtonGroupInfo,
+  UCT, UIPointData,
 } from "../src/index.ts";
 import type { DeviceSound, UIStage } from "../src/index.ts";
 import { rig } from "./rig.ts";
@@ -26,10 +28,21 @@ const DIALOG_BOOLS = new Set([
   "m_bModal", "m_bEnable", "m_bShow", "m_bCloseOnFocusOut", "m_bEnableMoveByDrag", "m_bMouseDownForDrag", "m_bIsMouseOver",
   "m_bDisableUnderWindow", "m_bIsOverControl",
 ]);
-const CONTROL_BOOLS = new Set(["m_bEnable", "m_bShow", "m_bOutofList", "m_bMouseOver", "m_bHasFocus"]);
+const CONTROL_BOOLS = new Set(["m_bEnable", "m_bShow", "m_bOutofList", "m_bMouseOver", "m_bHasFocus", "m_bChecked", "m_bPressed"]);
 /** the two sounds a button holds (the oracle's fake pointers 0x5550 and 0x5554) */
 const SOUND_UP = { id: "up" } as unknown as DeviceSound;
 const SOUND_DOWN = { id: "down" } as unknown as DeviceSound;
+const SOUND_CHECK = { id: "check" } as unknown as DeviceSound;
+
+/** what `act_ctl` writes down of a control after the message, by the key the oracle names it with */
+const STATE_GETTERS: Record<string, (c: CKTDGUIControl, focus: string) => string> = {
+  hasFocus: (c) => String(+c.m_bHasFocus),
+  focus: (_c, focus) => focus,
+  down: (c) => String(+c.m_pDialog!.m_bMouseDownForDrag),
+  checked: (c) => String(+(c as CKTDGUICheckBox).m_bChecked),
+  pressed: (c) => String(+(c as CKTDGUICheckBox).m_bPressed),
+  rdown: (c) => String(+(c as CKTDGUIRadioButton).m_bRButtonDown),
+};
 
 /** a control whose input is written down and answered as the case says (the exe's stub of the same name) */
 class Probe extends CKTDGUIControl {
@@ -96,6 +109,8 @@ export function runScene(ops: Op[]): void {
     log.push(`gameMsg(${uMsg},${wParam},${labelOf(lParam)},${+direct})`);
     return false;
   };
+  w.setCapture = () => void log.push("capture");
+  w.releaseCapture = () => void log.push("release");
   const slotClass = CKTDGUISlot as unknown as { returnDraggingItem: () => void };
   const realReturn = slotClass.returnDraggingItem;
   slotClass.returnDraggingItem = () => void log.push("returnDrag");
@@ -183,6 +198,60 @@ export function runScene(ops: Op[]): void {
           controls.set(label, st);
           break;
         }
+        case "checkbox": {
+          const [label, , o] = a as [string, string, {
+            rect: number[]; enable: boolean; show: boolean; checked: boolean; pressed: boolean; msgChecked: number; msgUnchecked: number;
+            funcChecked: string; funcUnchecked: string;
+          }];
+          const c = new CKTDGUICheckBox(w);
+          c.m_Name = label;
+          setQuad(c, o.rect);
+          c.m_bEnable = o.enable;
+          c.m_bShow = o.show;
+          c.m_bChecked = o.checked;
+          c.m_bPressed = o.pressed;
+          c.m_CustomMsgChecked = o.msgChecked;
+          c.m_CustomMsgUnChecked = o.msgUnchecked;
+          c.m_CustomFuncChecked = o.funcChecked;
+          c.m_CustomFuncUnChecked = o.funcUnchecked;
+          c.m_pSndCheck = SOUND_CHECK;
+          c.playSound = (s) => void log.push(`${label}.sound(${s === SOUND_CHECK ? "check" : "none"})`);
+          controls.set(label, c);
+          break;
+        }
+        case "radio": {
+          const [label, , o] = a as [string, string, {
+            rect: number[]; group: number; enable: boolean; show: boolean; checked: boolean; pressed: boolean; rdown: boolean; dbl: boolean;
+            toggle: boolean; rmsg: number;
+          }];
+          const c = new CKTDGUIRadioButton(w);
+          c.m_Name = label;
+          setQuad(c, o.rect);
+          c.m_GroupID = o.group;
+          c.m_bEnable = o.enable;
+          c.m_bShow = o.show;
+          c.m_bChecked = o.checked;
+          c.m_bPressed = o.pressed;
+          c.m_bRButtonDown = o.rdown;
+          c.m_bEnableDoubleClick = o.dbl;
+          c.m_bEnableCheckToggle = o.toggle;
+          c.m_CustomMsgRButtonUp = o.rmsg;
+          c.m_pSndCheck = SOUND_CHECK;
+          c.playSound = (s) => void log.push(`${label}.sound(${s === SOUND_CHECK ? "check" : "none"})`);
+          c.setCheckedInternal = (checked, double, input) => {
+            c.m_bChecked = checked;
+            log.push(`${label}.setChecked(${+checked},${+double},${+input})`);
+          };
+          controls.set(label, c);
+          break;
+        }
+        case "group": {
+          const [dialog, id, max] = a as [string, number, number];
+          const info = new RadioButtonGroupInfo(id);
+          info.m_iMaxCheckCount = max;
+          dialogOf(dialog).m_mapRadioButtonGroupInfo.set(id, info);
+          break;
+        }
         case "register": {
           const [dialog, labels] = a as [string, string[]];
           const d = dialogOf(dialog);
@@ -267,7 +336,11 @@ export function runScene(ops: Op[]): void {
           const c = controls.get(label)!;
           log.length = 0;
           const ret = c.handleMouse(args[0]!, args[1]!, args[2]!, args[3]!, args[4]!);
-          const state = `hasFocus=${+c.m_bHasFocus} focus=${focusLabel()} down=${+c.m_pDialog!.m_bMouseDownForDrag}`;
+          // the keys of the state are the ones the oracle wrote down for this kind of control
+          const state = want.state.split(" ").map((kv) => {
+            const key = kv.slice(0, kv.indexOf("="));
+            return `${key}=${STATE_GETTERS[key]!(c, focusLabel())}`;
+          }).join(" ");
           expect([name, +ret, log.slice(), state]).toEqual([name, want.ret, want.events, want.state]);
           break;
         }

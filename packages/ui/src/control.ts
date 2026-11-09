@@ -89,6 +89,12 @@ export interface UIContext {
   /** `_clock()` in milliseconds: the CRT's clock the `boost::timer` of a dialog counts from */
   clock(): number;
   /**
+   * `SetCapture(DXUTGetHWND())` / `ReleaseCapture()`: the window takes (gives back) the mouse while a button is held, so that the release
+   * is seen outside the window too.  The mouse capture is a state of the window system; the world keeps it as a flag (`mouseCaptured`).
+   */
+  setCapture(): void;
+  releaseCapture(): void;
+  /**
    * `g_pKTDXApp->SendGameMessage(uMsg, wParam, lParam, bDirectProcess)` (328CCCD0): a direct message goes to the active stages of the stage
    * chain one after the other until one answers yes, and the answer is the last one given; any other message is queued (the answer is yes).
    */
@@ -116,6 +122,19 @@ export class RenderStatics {
 }
 
 const f = Math.fround;
+
+/**
+ * `CKTDGUIDialog::RequestFocus(pControl)` (3295B490): the control takes the focus from the one that has it, if it can have it.  The
+ * function reads nothing of the dialog it is called on (`s_pControlFocus` is a static), so a control whose handle names no dialog (the
+ * handle's `operator->` answers the null object) asks all the same.
+ */
+export function requestFocus(ctx: UIContext, control: CKTDGUIControl): void {
+  if (ctx.controlFocus !== control && control.canHaveFocus()) {
+    ctx.controlFocus?.onFocusOut();
+    control.onFocusIn();
+    ctx.controlFocus = control;
+  }
+}
 
 /** the position of `fs_uiDialogNullObject` (a dialog made by the plain constructor, 328776F0, at 0x336434B8), the dialog a handle that resolves to nothing answers */
 const NULL_DIALOG_POS = { x: 0, y: 0 };
@@ -1278,7 +1297,16 @@ export class CKTDGUIControl implements Partial<CKTDGUIControl_Methods> {
 
   /** `RequestFocus()` (32925390), virtual: a control in a dialog asks the dialog */
   RequestFocus(): void {
-    this.m_pDialog?.requestFocus(this);
+    if (this.liveDialog() !== null) requestFocus(this.ctx, this);
+  }
+
+  /**
+   * `operator!=(m_pDialog, nullptr)` followed by `m_pDialog.operator->()`: the dialog the control's handle names, or null when the handle is
+   * null or stale (a dialog that was destroyed: the exe's `operator->` then answers the null object, an empty dialog the handlers read).
+   */
+  protected liveDialog(): CKTDGUIDialog | null {
+    const dialog = this.m_pDialog;
+    return dialog !== null && !dialog.destroyed ? dialog : null;
   }
 
   /** `CanHaveFocus()` (329240B0), virtual slot 14 */
