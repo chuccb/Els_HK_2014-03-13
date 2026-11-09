@@ -229,7 +229,7 @@ export class CKTDGUISlider extends CKTDGUIControl implements Partial<CKTDGUISlid
     else this.sendInternelEvent(UIM.CUSTOM_MSG, custom);
   }
 
-  /** `UpdateRects()` (3294D290), virtual slot 42 */
+  /** `UpdateRects()` (3294D290), virtual slot 41 */
   updateRects(): void {
     if (this.m_width === 0 || this.m_height === 0) return;
     if (this.m_iButtonHeight === 0) this.m_iButtonHeight = this.m_height;

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Mutation check of the mouse input of the controls (E5b): the focus helpers of control.ts and dialog.ts, and the `handleMouse` /
-`scrollBarMsgProc` of the check box, the radio button, the slider and the scroll bar (checkbox.ts, radiobutton.ts, slider.ts, scrollbar.ts).  One
-small change at a time is applied to a source file, the tests that replay the exe's answers (toggles-input, bars-input, focus) are run and the
-script reports whether a test notices (killed) or not (SURVIVED).
+`scrollBarMsgProc` of the check box, the radio button, the slider and the scroll bar (checkbox.ts, radiobutton.ts, slider.ts, scrollbar.ts) and
+the `handleMouse` of the navigation and the control list (navigation.ts with its three rectangle helpers and `navigationMsgProc`, controllist.ts).  One
+small change at a time is applied to a source file, the tests that replay the exe's answers (toggles-input, bars-input, containers-input, focus) are
+run and the script reports whether a test notices (killed) or not (SURVIVED).
 
     python3 tools/mutate-input.py [--list] [--check] [--survivors=LOG] [substring of a mutant name ...]
 
@@ -20,7 +21,7 @@ import os, re, resource, subprocess, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUN = os.path.join(ROOT, 'node_modules/.bin/bun')
 T = 'packages/ui/test/'
-SRC = {f: 'packages/ui/src/' + f for f in ('control.ts', 'dialog.ts', 'world.ts', 'checkbox.ts', 'radiobutton.ts', 'slider.ts', 'scrollbar.ts')}
+SRC = {f: 'packages/ui/src/' + f for f in ('control.ts', 'dialog.ts', 'world.ts', 'checkbox.ts', 'radiobutton.ts', 'slider.ts', 'scrollbar.ts', 'navigation.ts', 'controllist.ts')}
 FOCUS = [T + 'focus.test.ts', T + 'toggles-input.test.ts', T + 'bars-input.test.ts', T + 'controls-input.test.ts', T + 'input.test.ts']
 TESTS = {
     'control.ts': FOCUS,
@@ -30,6 +31,8 @@ TESTS = {
     'radiobutton.ts': [T + 'toggles-input.test.ts'],
     'slider.ts': [T + 'bars-input.test.ts', T + 'widgets.test.ts'],
     'scrollbar.ts': [T + 'bars-input.test.ts', T + 'widgets.test.ts', T + 'combobox.test.ts', T + 'listbox.test.ts'],
+    'navigation.ts': [T + 'containers-input.test.ts'],
+    'controllist.ts': [T + 'containers-input.test.ts'],
 }
 
 M = []
@@ -286,7 +289,8 @@ h(sb, SB, 'ScrollBar: a thumb below the track is pushed up', 'else if (bottom > 
 h(sb, SB, 'ScrollBar: a thumb below the track is pushed to the track', 'else if (bottom > track.bottom) offsetRect(thumb, 0, (track.bottom - bottom) | 0);', 'else if (bottom > track.bottom) offsetRect(thumb, 0, (bottom - track.bottom) | 0);')
 h(sb, SB, 'ScrollBar: a thumb below the track is pushed back', 'else if (bottom > track.bottom) offsetRect(thumb, 0, (track.bottom - bottom) | 0);', '')
 h(sb, SB, 'ScrollBar: the gap is the track less the thumb', 'const gap = (thumb.top - thumb.bottom - track.top + track.bottom) | 0;', 'const gap = (thumb.top - thumb.bottom + track.top + track.bottom) | 0;')
-h(sb, SB, 'ScrollBar: the gap is read after the thumb was pushed', 'const gap = (thumb.top - thumb.bottom - track.top + track.bottom) | 0;', 'const gap = (track.bottom - track.top - (bottom - top)) | 0;')
+h(sb, SB, 'ScrollBar: the gap is read after the thumb was pushed', 'const gap = (thumb.top - thumb.bottom - track.top + track.bottom) | 0;', 'const gap = (track.bottom - track.top - (bottom - top)) | 0;',
+  'equivalent: the push moves the whole thumb, so bottom - top is its height either way (the two differ by a multiple of 2^32 at most, which `| 0` drops)')
 h(sb, SB, 'ScrollBar: the range is the track less a page', 'const range = (this.m_nEnd - this.m_nStart - this.m_nPageSize) | 0;', 'const range = (this.m_nEnd - this.m_nStart) | 0;')
 h(sb, SB, 'ScrollBar: the range starts at the start', 'const range = (this.m_nEnd - this.m_nStart - this.m_nPageSize) | 0;', 'const range = (this.m_nEnd - this.m_nPageSize) | 0;')
 h(sb, SB, 'ScrollBar: with no range the position stays', 'if (range === 0 || gap === 0) return true;', 'if (gap === 0) return true;')
@@ -368,6 +372,170 @@ h(sb, MP, 'ScrollBar MsgProc: only the capture changing ends a drag', 'if (uMsg 
 h(sb, MP, 'ScrollBar MsgProc: the drag ends', 'if (uMsg === 0x215) this.m_bDrag = false;', 'if (uMsg === 0x215) this.m_bDrag = true;')
 h(sb, MP, 'ScrollBar MsgProc: it is never taken', 'return false;', 'return true;')
 h(sb, MP, 'ScrollBar MsgProc: the message is 0x215', 'if (uMsg === 0x215)', 'if (uMsg === 0x214)')
+
+
+# ================================================================ CKTDGUIContolList::HandleMouse (3294F5F0)
+cl = 'controllist.ts'
+CL = block(cl, '  override handleMouse(')
+h(cl, CL, 'ControlList: a hidden list takes nothing', 'if (!this.m_bShow || !this.m_bEnable) return false;', 'if (!this.m_bEnable) return false;')
+h(cl, CL, 'ControlList: a disabled list takes nothing', 'if (!this.m_bShow || !this.m_bEnable) return false;', 'if (!this.m_bShow) return false;')
+h(cl, CL, 'ControlList: a list that is hidden or disabled takes nothing, not only one that is both', '!this.m_bShow || !this.m_bEnable', '!this.m_bShow && !this.m_bEnable')
+h(cl, CL, 'ControlList: the horizontal bar is asked', 'if (this.m_pScrollBarX !== null && this.m_pScrollBarX.handleMouse(uMsg, x, y, wParam, lParam)) return true;', '')
+h(cl, CL, 'ControlList: a list without a horizontal bar asks nobody there', 'this.m_pScrollBarX !== null && this.m_pScrollBarX.handleMouse(', 'this.m_pScrollBarX.handleMouse(')
+h(cl, CL, 'ControlList: the horizontal bar that takes the message ends it', 'wParam, lParam)) return true;\n    return', 'wParam, lParam)) return false;\n    return')
+h(cl, CL, 'ControlList: the horizontal bar gets the message as it is', 'this.m_pScrollBarX.handleMouse(uMsg, x, y, wParam, lParam)', 'this.m_pScrollBarX.handleMouse(uMsg, y, x, wParam, lParam)')
+h(cl, CL, 'ControlList: the horizontal bar gets the wParam', 'this.m_pScrollBarX.handleMouse(uMsg, x, y, wParam, lParam)', 'this.m_pScrollBarX.handleMouse(uMsg, x, y, lParam, wParam)')
+h(cl, CL, 'ControlList: the vertical bar is asked', 'return this.m_pScrollBarY !== null && this.m_pScrollBarY.handleMouse(uMsg, x, y, wParam, lParam);', 'return false;')
+h(cl, CL, 'ControlList: a list without a vertical bar asks nobody there', 'this.m_pScrollBarY !== null && this.m_pScrollBarY.handleMouse(', 'this.m_pScrollBarY.handleMouse(')
+h(cl, CL, 'ControlList: the vertical bar gets the message as it is', 'this.m_pScrollBarY.handleMouse(uMsg, x, y, wParam, lParam)', 'this.m_pScrollBarY.handleMouse(uMsg, y, x, wParam, lParam)')
+h(cl, CL, 'ControlList: the vertical bar gets the lParam', 'this.m_pScrollBarY.handleMouse(uMsg, x, y, wParam, lParam)', 'this.m_pScrollBarY.handleMouse(uMsg, x, y, wParam, wParam)')
+h(cl, CL, 'ControlList: the vertical bar is asked when the horizontal one did not take it', 'return this.m_pScrollBarY !== null && this.m_pScrollBarY.handleMouse(uMsg, x, y, wParam, lParam);',
+  'return this.m_pScrollBarY !== null && this.m_pScrollBarX === null && this.m_pScrollBarY.handleMouse(uMsg, x, y, wParam, lParam);')
+
+# ================================================================ CKTDGUINavigation: HandleMouse (3294E160), MsgProc (3294E510) and the rectangle helpers
+nv = 'navigation.ts'
+NR = block(nv, '  private fromUIPointToRect(')
+for name, side, p, ax in (('left', 'left', 'leftTopPoint', 'x'), ('right', 'right', 'rightBottomPoint', 'x'), ('top', 'top', 'leftTopPoint', 'y'), ('bottom', 'bottom', 'rightBottomPoint', 'y')):
+    other = {'leftTopPoint': 'rightBottomPoint', 'rightBottomPoint': 'leftTopPoint'}[p]
+    cur = f'rect.{side} = ftoi(point.{p}.{ax});'
+    h(nv, NR, f'Navigation.FromUIPointToRect: the {name} edge comes from the {p}', cur, f'rect.{side} = ftoi(point.{other}.{ax});')
+    h(nv, NR, f'Navigation.FromUIPointToRect: the {name} edge is cut to an int, not rounded', cur, f'rect.{side} = Math.round(point.{p}.{ax});')
+    h(nv, NR, f'Navigation.FromUIPointToRect: the {name} edge is cut towards zero, not down', cur, f'rect.{side} = Math.floor(point.{p}.{ax});')
+NP = block(nv, '  private fromRectToPoint(')
+for corner, (cx, cy) in (('leftTopPoint', ('left', 'top')), ('rightTopPoint', ('right', 'top')), ('leftBottomPoint', ('left', 'bottom')), ('rightBottomPoint', ('right', 'bottom'))):
+    cur = f'point.{corner}.set(rect.{cx}, rect.{cy});'
+    ox = {'left': 'right', 'right': 'left'}[cx]
+    oy = {'top': 'bottom', 'bottom': 'top'}[cy]
+    h(nv, NP, f'Navigation.FromRectToPoint: the {corner} has the other horizontal edge', cur, f'point.{corner}.set(rect.{ox}, rect.{cy});')
+    h(nv, NP, f'Navigation.FromRectToPoint: the {corner} has the other vertical edge', cur, f'point.{corner}.set(rect.{cx}, rect.{oy});')
+    h(nv, NP, f'Navigation.FromRectToPoint: the {corner} has x and y the other way round', cur, f'point.{corner}.set(rect.{cy}, rect.{cx});')
+NB = block(nv, '  private boundRectInRect(')
+h(nv, NB, 'BoundRectInRect: a left edge outside is moved in', 'if (inside.left < outside.left) dx = (outside.left - inside.left) | 0;', 'if (false) dx = (outside.left - inside.left) | 0;')
+h(nv, NB, 'BoundRectInRect: a left edge on the outer left edge stays (the right edge is asked then)', 'if (inside.left < outside.left) dx', 'if (inside.left <= outside.left) dx')
+h(nv, NB, 'BoundRectInRect: a left edge inside is not moved', 'if (inside.left < outside.left) dx', 'if (inside.left > outside.left) dx')
+h(nv, NB, 'BoundRectInRect: the left step goes right', 'dx = (outside.left - inside.left) | 0;', 'dx = (inside.left - outside.left) | 0;')
+h(nv, NB, 'BoundRectInRect: the right edge is asked only when the left one is in', 'else if (inside.right > outside.right) dx', 'if (inside.right > outside.right) dx')
+h(nv, NB, 'BoundRectInRect: a right edge outside is moved in', 'else if (inside.right > outside.right) dx = (outside.right - inside.right) | 0;', 'else if (false) dx = (outside.right - inside.right) | 0;')
+h(nv, NB, 'BoundRectInRect: a right edge inside is not moved', 'else if (inside.right > outside.right) dx', 'else if (inside.right < outside.right) dx')
+h(nv, NB, 'BoundRectInRect: a right edge on the outer right edge stays', 'else if (inside.right > outside.right) dx', 'else if (inside.right >= outside.right) dx', 'equivalent: the step is 0 then')
+h(nv, NB, 'BoundRectInRect: the right step goes right', 'dx = (outside.right - inside.right) | 0;', 'dx = (inside.right - outside.right) | 0;')
+h(nv, NB, 'BoundRectInRect: a top edge outside is moved in', 'if (inside.top < outside.top) dy = (outside.top - inside.top) | 0;', 'if (false) dy = (outside.top - inside.top) | 0;')
+h(nv, NB, 'BoundRectInRect: a top edge on the outer top edge stays (the bottom edge is asked then)', 'if (inside.top < outside.top) dy', 'if (inside.top <= outside.top) dy')
+h(nv, NB, 'BoundRectInRect: a top edge inside is not moved', 'if (inside.top < outside.top) dy', 'if (inside.top > outside.top) dy')
+h(nv, NB, 'BoundRectInRect: the top step goes down', 'dy = (outside.top - inside.top) | 0;', 'dy = (inside.top - outside.top) | 0;')
+h(nv, NB, 'BoundRectInRect: the bottom edge is asked only when the top one is in', 'else if (inside.bottom > outside.bottom) dy', 'if (inside.bottom > outside.bottom) dy')
+h(nv, NB, 'BoundRectInRect: a bottom edge outside is moved in', 'else if (inside.bottom > outside.bottom) dy = (outside.bottom - inside.bottom) | 0;', 'else if (false) dy = (outside.bottom - inside.bottom) | 0;')
+h(nv, NB, 'BoundRectInRect: a bottom edge inside is not moved', 'else if (inside.bottom > outside.bottom) dy', 'else if (inside.bottom < outside.bottom) dy')
+h(nv, NB, 'BoundRectInRect: a bottom edge on the outer bottom edge stays', 'else if (inside.bottom > outside.bottom) dy', 'else if (inside.bottom >= outside.bottom) dy', 'equivalent: the step is 0 then')
+h(nv, NB, 'BoundRectInRect: the bottom step goes down', 'dy = (outside.bottom - inside.bottom) | 0;', 'dy = (inside.bottom - outside.bottom) | 0;')
+h(nv, NB, 'BoundRectInRect: a step in x alone moves the rectangle', 'if (dx !== 0 || dy !== 0) offsetRect', 'if (dx !== 0 && dy !== 0) offsetRect')
+h(nv, NB, 'BoundRectInRect: a step in y alone moves the rectangle', 'if (dx !== 0 || dy !== 0) offsetRect', 'if (dx !== 0) offsetRect')
+h(nv, NB, 'BoundRectInRect: a step in x alone moves the rectangle (not only a step in y)', 'if (dx !== 0 || dy !== 0) offsetRect', 'if (dy !== 0) offsetRect')
+h(nv, NB, 'BoundRectInRect: a rectangle that is inside is moved by nothing', 'if (dx !== 0 || dy !== 0) offsetRect', 'if (true) offsetRect', 'equivalent: OffsetRect by (0, 0) changes nothing')
+h(nv, NB, 'BoundRectInRect: the rectangle is moved by x then y', 'offsetRect(inside, dx, dy);', 'offsetRect(inside, dy, dx);')
+h(nv, NB, 'BoundRectInRect: the steps are 32-bit differences', 'dx = (outside.left - inside.left) | 0;', 'dx = (outside.left - inside.left);', 'equivalent: OffsetRect wraps the sum, which is the same whether the step was wrapped before')
+NM = block(nv, '  navigationMsgProc(')
+h(nv, NM, 'Navigation.MsgProc: the window losing the capture ends the drag', 'if (uMsg === 0x215) this.m_bDraggingWindow = false;', 'if (uMsg !== 0x215) this.m_bDraggingWindow = false;')
+h(nv, NM, 'Navigation.MsgProc: only the loss of the capture ends the drag', 'if (uMsg === 0x215) this.m_bDraggingWindow = false;', 'this.m_bDraggingWindow = false;')
+h(nv, NM, 'Navigation.MsgProc: the loss of the capture ends the drag', 'if (uMsg === 0x215) this.m_bDraggingWindow = false;', 'if (uMsg === 0x215) this.m_bDraggingWindow = true;')
+h(nv, NM, 'Navigation.MsgProc: nothing is taken', 'return false;', 'return true;')
+NH = block(nv, '  override handleMouse(')
+h(nv, NH, 'Navigation: a disabled navigation takes nothing', 'if (!this.m_bEnable) return false;', '')
+h(nv, NH, 'Navigation: a hidden navigation takes nothing is not true', 'if (!this.m_bEnable) return false;', 'if (!this.m_bEnable || !this.m_bShow) return false;')
+h(nv, NH, 'Navigation: a message that is not a left button message or a move is not taken', 'default:\n        return false;', 'default:\n        return true;')
+# the move
+h(nv, NH, 'Navigation move: a move while the window is not dragged is taken', 'if (!this.m_bDraggingWindow) return true;', 'if (!this.m_bDraggingWindow) return false;')
+h(nv, NH, 'Navigation move: a move while the window is not dragged does nothing else', 'if (!this.m_bDraggingWindow) return true;', '')
+h(nv, NH, 'Navigation move: the window rectangle is made from the window point', 'case 0x200: {\n        if (!this.m_bDraggingWindow) return true;\n        this.fromUIPointToRect(rc, this.m_pWindowPoint!);', 'case 0x200: {\n        if (!this.m_bDraggingWindow) return true;')
+h(nv, NH, 'Navigation move: the window moves by the distance from the last point', 'offsetRect(rc, ftoi(f(f(x) - f(this.m_ptLastMouse.x))), ftoi(f(f(y) - f(this.m_ptLastMouse.y))));', 'offsetRect(rc, 0, 0);')
+h(nv, NH, 'Navigation move: the window moves in x by the change of x', 'offsetRect(rc, ftoi(f(f(x) - f(this.m_ptLastMouse.x))), ftoi(f(f(y) - f(this.m_ptLastMouse.y))));', 'offsetRect(rc, ftoi(f(f(y) - f(this.m_ptLastMouse.y))), ftoi(f(f(y) - f(this.m_ptLastMouse.y))));')
+h(nv, NH, 'Navigation move: the window moves in y by the change of y', 'offsetRect(rc, ftoi(f(f(x) - f(this.m_ptLastMouse.x))), ftoi(f(f(y) - f(this.m_ptLastMouse.y))));', 'offsetRect(rc, ftoi(f(f(x) - f(this.m_ptLastMouse.x))), ftoi(f(f(x) - f(this.m_ptLastMouse.x))));')
+h(nv, NH, 'Navigation move: the change of x is the new x less the last x', 'offsetRect(rc, ftoi(f(f(x) - f(this.m_ptLastMouse.x)))', 'offsetRect(rc, ftoi(f(f(this.m_ptLastMouse.x) - f(x)))')
+h(nv, NH, 'Navigation move: the change of y is the new y less the last y', 'ftoi(f(f(y) - f(this.m_ptLastMouse.y))));', 'ftoi(f(f(this.m_ptLastMouse.y) - f(y))));')
+h(nv, NH, 'Navigation move: the last x is in single precision', 'f(f(x) - f(this.m_ptLastMouse.x))', 'f(f(x) - this.m_ptLastMouse.x)')
+h(nv, NH, 'Navigation move: the new x is in single precision', 'f(f(x) - f(this.m_ptLastMouse.x))', 'f(x - f(this.m_ptLastMouse.x))')
+h(nv, NH, 'Navigation move: the difference of x is in single precision', 'ftoi(f(f(x) - f(this.m_ptLastMouse.x)))', 'ftoi(f(x) - f(this.m_ptLastMouse.x))')
+h(nv, NH, 'Navigation move: the last y is in single precision', 'f(f(y) - f(this.m_ptLastMouse.y))', 'f(f(y) - this.m_ptLastMouse.y)')
+h(nv, NH, 'Navigation move: the new y is in single precision', 'f(f(y) - f(this.m_ptLastMouse.y))', 'f(y - f(this.m_ptLastMouse.y))')
+h(nv, NH, 'Navigation move: the difference of y is in single precision', 'ftoi(f(f(y) - f(this.m_ptLastMouse.y)))', 'ftoi(f(y) - f(this.m_ptLastMouse.y))')
+h(nv, NH, 'Navigation move: the difference is cut to an int, not rounded', 'offsetRect(rc, ftoi(f(f(x) - f(this.m_ptLastMouse.x))), ftoi(f(f(y) - f(this.m_ptLastMouse.y))));', 'offsetRect(rc, Math.round(f(f(x) - f(this.m_ptLastMouse.x))), Math.round(f(f(y) - f(this.m_ptLastMouse.y))));',
+  'equivalent: the difference of two ints in single precision is a whole number')
+h(nv, NH, 'Navigation move: the window is pushed into the background', 'this.boundRectInRect(rc, this.m_rcBG);\n        this.fromRectToPoint(rc, this.m_pWindowPoint!);\n        const dragging', 'this.fromRectToPoint(rc, this.m_pWindowPoint!);\n        const dragging')
+h(nv, NH, 'Navigation move: the window point follows the rectangle', 'this.fromRectToPoint(rc, this.m_pWindowPoint!);\n        const dragging', 'const dragging')
+h(nv, NH, 'Navigation move: the last point is remembered (x)', 'this.m_ptLastMouse.x = x;\n        this.m_ptLastMouse.y = y;\n        if (dragging === -1)', 'this.m_ptLastMouse.y = y;\n        if (dragging === -1)')
+h(nv, NH, 'Navigation move: the last point is remembered (y)', 'this.m_ptLastMouse.x = x;\n        this.m_ptLastMouse.y = y;\n        if (dragging === -1)', 'this.m_ptLastMouse.x = x;\n        if (dragging === -1)')
+h(nv, NH, 'Navigation move: the last point is x then y', 'this.m_ptLastMouse.x = x;\n        this.m_ptLastMouse.y = y;\n        if (dragging === -1)', 'this.m_ptLastMouse.x = y;\n        this.m_ptLastMouse.y = x;\n        if (dragging === -1)')
+h(nv, NH, 'Navigation move: no custom message tells the game', 'if (dragging === -1) this.ctx.sendGameMessage(UIM.CONTROL_EVENT, 1, this, true);', 'if (dragging !== -1) this.ctx.sendGameMessage(UIM.CONTROL_EVENT, 1, this, true);')
+h(nv, NH, 'Navigation move: the game message is 1', 'this.ctx.sendGameMessage(UIM.CONTROL_EVENT, 1, this, true);', 'this.ctx.sendGameMessage(UIM.CONTROL_EVENT, 0, this, true);')
+h(nv, NH, 'Navigation move: the game message is a control event', 'this.ctx.sendGameMessage(UIM.CONTROL_EVENT, 1, this, true);', 'this.ctx.sendGameMessage(UIM.CUSTOM_MSG, 1, this, true);')
+h(nv, NH, 'Navigation move: the game message is sent at once', 'this.ctx.sendGameMessage(UIM.CONTROL_EVENT, 1, this, true);', 'this.ctx.sendGameMessage(UIM.CONTROL_EVENT, 1, this, false);')
+h(nv, NH, 'Navigation move: the custom message goes to the stage', 'else this.sendInternelEvent(UIM.CUSTOM_MSG, dragging);', '')
+h(nv, NH, 'Navigation move: the custom message is the dragging one', 'else this.sendInternelEvent(UIM.CUSTOM_MSG, dragging);', 'else this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgLButtonDown);')
+h(nv, NH, 'Navigation move: the custom message is a custom message', 'else this.sendInternelEvent(UIM.CUSTOM_MSG, dragging);', 'else this.sendInternelEvent(UIM.CONTROL_EVENT, dragging);')
+h(nv, NH, 'Navigation move: a move is taken', 'else this.sendInternelEvent(UIM.CUSTOM_MSG, dragging);\n        return true;', 'else this.sendInternelEvent(UIM.CUSTOM_MSG, dragging);\n        return false;')
+# the button down and the double click
+h(nv, NH, 'Navigation: the double click acts like the button down', 'case 0x201:\n      case 0x203: {', 'case 0x201: {')
+h(nv, NH, 'Navigation down: the background rectangle is made from the background point', 'this.fromUIPointToRect(this.m_rcBG, this.m_pBGPoint!);\n        this.fromUIPointToRect(rc, this.m_pWindowPoint!);\n        const pt', 'this.fromUIPointToRect(rc, this.m_pWindowPoint!);\n        const pt')
+h(nv, NH, 'Navigation down: the window rectangle is made from the window point', 'this.fromUIPointToRect(this.m_rcBG, this.m_pBGPoint!);\n        this.fromUIPointToRect(rc, this.m_pWindowPoint!);\n        const pt', 'this.fromUIPointToRect(this.m_rcBG, this.m_pBGPoint!);\n        const pt')
+h(nv, NH, 'Navigation down: the focus is asked only when m_bHasFocus is off', 'if (!this.m_bHasFocus && this.ctx.dialogManager.checkDlg(dialog)) dialog.requestFocus(this);', 'if (this.ctx.dialogManager.checkDlg(dialog)) dialog.requestFocus(this);')
+h(nv, NH, 'Navigation down: the focus is asked only of a dialog the manager knows', 'if (!this.m_bHasFocus && this.ctx.dialogManager.checkDlg(dialog)) dialog.requestFocus(this);', 'if (!this.m_bHasFocus && dialog !== null && !dialog.destroyed) dialog.requestFocus(this);')
+h(nv, NH, 'Navigation down: the focus is asked of the dialog', 'if (!this.m_bHasFocus && this.ctx.dialogManager.checkDlg(dialog)) dialog.requestFocus(this);', 'if (!this.m_bHasFocus && this.ctx.dialogManager.checkDlg(dialog)) {}')
+h(nv, NH, 'Navigation down: the focus is asked', 'if (!this.m_bHasFocus && this.ctx.dialogManager.checkDlg(dialog)) dialog.requestFocus(this);', '')
+h(nv, NH, 'Navigation down: a press on the window takes the focus', 'if (ptInRect(rc, pt)) {\n          takeFocus();', 'if (ptInRect(rc, pt)) {')
+h(nv, NH, 'Navigation down: a press on the window drags it', 'if (ptInRect(rc, pt)) {\n          takeFocus();\n          this.m_bDraggingWindow = true;', 'if (ptInRect(rc, pt)) {\n          takeFocus();')
+h(nv, NH, 'Navigation down: a press on the window takes the mouse', 'if (ptInRect(rc, pt)) {\n          takeFocus();\n          this.m_bDraggingWindow = true;\n          this.ctx.setCapture();', 'if (ptInRect(rc, pt)) {\n          takeFocus();\n          this.m_bDraggingWindow = true;')
+h(nv, NH, 'Navigation down: the window is the rectangle made from its point', 'if (ptInRect(rc, pt)) {', 'if (ptInRect(this.m_rcBG, pt)) {')
+h(nv, NH, 'Navigation down: the background is asked second', '} else if (ptInRect(this.m_rcBG, pt)) {', '} else if (ptInRect(rc, pt)) {')
+h(nv, NH, 'Navigation down: a press on the background takes the focus', '} else if (ptInRect(this.m_rcBG, pt)) {\n          takeFocus();', '} else if (ptInRect(this.m_rcBG, pt)) {')
+h(nv, NH, 'Navigation down: a press on the background drags the window', 'takeFocus();\n          this.m_bDraggingWindow = true;\n          this.ctx.setCapture();\n          this.playSound', 'takeFocus();\n          this.ctx.setCapture();\n          this.playSound')
+h(nv, NH, 'Navigation down: a press on the background takes the mouse', 'this.m_bDraggingWindow = true;\n          this.ctx.setCapture();\n          this.playSound', 'this.m_bDraggingWindow = true;\n          this.playSound')
+h(nv, NH, 'Navigation down: a press on the background plays the sound before the window moves', 'this.ctx.setCapture();\n          this.playSound(this.m_pSndMouseDown);\n          const halfHeight', 'this.ctx.setCapture();\n          const halfHeight')
+h(nv, NH, 'Navigation down: the half height is half the height', 'const halfHeight = f(f((rc.bottom - rc.top) | 0) * 0.5);', 'const halfHeight = f(f((rc.right - rc.left) | 0) * 0.5);')
+h(nv, NH, 'Navigation down: the half width is half the width', 'const halfWidth = f(f((rc.right - rc.left) | 0) * 0.5);', 'const halfWidth = f(f((rc.bottom - rc.top) | 0) * 0.5);')
+h(nv, NH, 'Navigation down: the half height is half', 'const halfHeight = f(f((rc.bottom - rc.top) | 0) * 0.5);', 'const halfHeight = f(f((rc.bottom - rc.top) | 0) * 0.25);')
+h(nv, NH, 'Navigation down: the half width is half', 'const halfWidth = f(f((rc.right - rc.left) | 0) * 0.5);', 'const halfWidth = f(f((rc.right - rc.left) | 0) * 0.25);')
+h(nv, NH, 'Navigation down: the height is a single precision float', 'const halfHeight = f(f((rc.bottom - rc.top) | 0) * 0.5);', 'const halfHeight = f(((rc.bottom - rc.top) | 0) * 0.5);')
+h(nv, NH, 'Navigation down: the width is a single precision float', 'const halfWidth = f(f((rc.right - rc.left) | 0) * 0.5);', 'const halfWidth = f(((rc.right - rc.left) | 0) * 0.5);')
+h(nv, NH, 'Navigation down: the half height is in single precision', 'const halfHeight = f(f((rc.bottom - rc.top) | 0) * 0.5);', 'const halfHeight = f((rc.bottom - rc.top) * 0.5);')
+h(nv, NH, 'Navigation down: the half width is in single precision', 'const halfWidth = f(f((rc.right - rc.left) | 0) * 0.5);', 'const halfWidth = f((rc.right - rc.left) * 0.5);')
+h(nv, NH, 'Navigation down: the window is centred on the point (left)', 'setRect(rc, ftoi(f(f(x) - halfWidth)),', 'setRect(rc, ftoi(f(f(x) + halfWidth)),')
+h(nv, NH, 'Navigation down: the window is centred on the point (top)', 'ftoi(f(f(y) - halfHeight)),', 'ftoi(f(f(y) + halfHeight)),')
+h(nv, NH, 'Navigation down: the window is centred on the point (right)', 'ftoi(f(halfWidth + f(x))),', 'ftoi(f(halfWidth - f(x))),')
+h(nv, NH, 'Navigation down: the window is centred on the point (bottom)', 'ftoi(f(halfHeight + f(y))));', 'ftoi(f(halfHeight - f(y))));')
+h(nv, NH, 'Navigation down: the corner x is in single precision', 'ftoi(f(f(x) - halfWidth))', 'ftoi(f(x - halfWidth))')
+h(nv, NH, 'Navigation down: the corner y is in single precision', 'ftoi(f(f(y) - halfHeight))', 'ftoi(f(y - halfHeight))')
+h(nv, NH, 'Navigation down: the corner right is in single precision', 'ftoi(f(halfWidth + f(x)))', 'ftoi(f(halfWidth + x))')
+h(nv, NH, 'Navigation down: the corner bottom is in single precision', 'ftoi(f(halfHeight + f(y)))', 'ftoi(f(halfHeight + y))')
+h(nv, NH, 'Navigation down: the corners are cut to ints, not rounded (left)', 'ftoi(f(f(x) - halfWidth))', 'Math.round(f(f(x) - halfWidth))')
+h(nv, NH, 'Navigation down: the corners are cut to ints, not rounded (top)', 'ftoi(f(f(y) - halfHeight))', 'Math.round(f(f(y) - halfHeight))')
+h(nv, NH, 'Navigation down: the corners are cut to ints, not rounded (right)', 'ftoi(f(halfWidth + f(x)))', 'Math.round(f(halfWidth + f(x)))')
+h(nv, NH, 'Navigation down: the corners are cut to ints, not rounded (bottom)', 'ftoi(f(halfHeight + f(y))))', 'Math.round(f(halfHeight + f(y))))')
+h(nv, NH, 'Navigation down: the corners are cut towards zero, not down (left)', 'ftoi(f(f(x) - halfWidth))', 'Math.floor(f(f(x) - halfWidth))')
+h(nv, NH, 'Navigation down: the corners are cut towards zero, not down (top)', 'ftoi(f(f(y) - halfHeight))', 'Math.floor(f(f(y) - halfHeight))')
+h(nv, NH, 'Navigation down: the centred window is pushed into the background', 'this.boundRectInRect(rc, this.m_rcBG);\n          this.fromRectToPoint(rc, this.m_pWindowPoint!);\n        } else {', 'this.fromRectToPoint(rc, this.m_pWindowPoint!);\n        } else {')
+h(nv, NH, 'Navigation down: the window point follows the centred rectangle', 'this.fromRectToPoint(rc, this.m_pWindowPoint!);\n        } else {', '} else {')
+h(nv, NH, 'Navigation down: a press off the background remembers the point (x)', 'this.m_ptLastMouse.x = x;\n          this.m_ptLastMouse.y = y;\n          return true;', 'this.m_ptLastMouse.y = y;\n          return true;')
+h(nv, NH, 'Navigation down: a press off the background remembers the point (y)', 'this.m_ptLastMouse.x = x;\n          this.m_ptLastMouse.y = y;\n          return true;', 'this.m_ptLastMouse.x = x;\n          return true;')
+h(nv, NH, 'Navigation down: a press off the background is taken', 'this.m_ptLastMouse.y = y;\n          return true;', 'this.m_ptLastMouse.y = y;\n          return false;')
+h(nv, NH, 'Navigation down: a press off the background does not drag', 'this.m_ptLastMouse.y = y;\n          return true;\n        }', 'this.m_ptLastMouse.y = y;\n          this.m_bDraggingWindow = true;\n          return true;\n        }')
+h(nv, NH, 'Navigation down: no custom message tells the game', 'if (down === -1) this.ctx.sendGameMessage(UIM.CONTROL_EVENT, 0, this, true);', 'if (down !== -1) this.ctx.sendGameMessage(UIM.CONTROL_EVENT, 0, this, true);')
+h(nv, NH, 'Navigation down: the game message is 0', 'this.ctx.sendGameMessage(UIM.CONTROL_EVENT, 0, this, true);', 'this.ctx.sendGameMessage(UIM.CONTROL_EVENT, 1, this, true);')
+h(nv, NH, 'Navigation down: the game message is a control event', 'this.ctx.sendGameMessage(UIM.CONTROL_EVENT, 0, this, true);', 'this.ctx.sendGameMessage(UIM.CUSTOM_MSG, 0, this, true);')
+h(nv, NH, 'Navigation down: the game message is sent at once', 'this.ctx.sendGameMessage(UIM.CONTROL_EVENT, 0, this, true);', 'this.ctx.sendGameMessage(UIM.CONTROL_EVENT, 0, this, false);')
+h(nv, NH, 'Navigation down: the custom message goes to the stage', 'else this.sendInternelEvent(UIM.CUSTOM_MSG, down);', '')
+h(nv, NH, 'Navigation down: the custom message is the button down one', 'else this.sendInternelEvent(UIM.CUSTOM_MSG, down);', 'else this.sendInternelEvent(UIM.CUSTOM_MSG, this.m_CustomMsgMouseDragging);')
+h(nv, NH, 'Navigation down: the custom message is a custom message', 'else this.sendInternelEvent(UIM.CUSTOM_MSG, down);', 'else this.sendInternelEvent(UIM.CONTROL_EVENT, down);')
+h(nv, NH, 'Navigation down: the sound plays after the message', 'else this.sendInternelEvent(UIM.CUSTOM_MSG, down);\n        this.playSound(this.m_pSndMouseDown);', 'else this.sendInternelEvent(UIM.CUSTOM_MSG, down);')
+h(nv, NH, 'Navigation down: the sound is the button down one', 'else this.sendInternelEvent(UIM.CUSTOM_MSG, down);\n        this.playSound(this.m_pSndMouseDown);', 'else this.sendInternelEvent(UIM.CUSTOM_MSG, down);\n        this.playSound(undefined);')
+h(nv, NH, 'Navigation down: the first sound on the background is the button down one', 'this.ctx.setCapture();\n          this.playSound(this.m_pSndMouseDown);\n          const halfHeight', 'this.ctx.setCapture();\n          this.playSound(undefined);\n          const halfHeight')
+h(nv, NH, 'Navigation down: the point is remembered at the end (x)', 'this.playSound(this.m_pSndMouseDown);\n        this.m_ptLastMouse.x = x;\n        this.m_ptLastMouse.y = y;\n        return true;', 'this.playSound(this.m_pSndMouseDown);\n        this.m_ptLastMouse.y = y;\n        return true;')
+h(nv, NH, 'Navigation down: the point is remembered at the end (y)', 'this.playSound(this.m_pSndMouseDown);\n        this.m_ptLastMouse.x = x;\n        this.m_ptLastMouse.y = y;\n        return true;', 'this.playSound(this.m_pSndMouseDown);\n        this.m_ptLastMouse.x = x;\n        return true;')
+h(nv, NH, 'Navigation down: the point is x then y', 'this.playSound(this.m_pSndMouseDown);\n        this.m_ptLastMouse.x = x;\n        this.m_ptLastMouse.y = y;', 'this.playSound(this.m_pSndMouseDown);\n        this.m_ptLastMouse.x = y;\n        this.m_ptLastMouse.y = x;')
+h(nv, NH, 'Navigation down: a press is taken', 'this.m_ptLastMouse.y = y;\n        return true;\n      }\n      case 0x202:', 'this.m_ptLastMouse.y = y;\n        return false;\n      }\n      case 0x202:')
+# the button up
+h(nv, NH, 'Navigation up: the window is let go', 'case 0x202:\n        this.m_bDraggingWindow = false;', 'case 0x202:')
+h(nv, NH, 'Navigation up: the mouse is given back', 'this.m_bDraggingWindow = false;\n        this.ctx.releaseCapture();\n        return true;', 'this.m_bDraggingWindow = false;\n        return true;')
+h(nv, NH, 'Navigation up: it is taken', 'this.ctx.releaseCapture();\n        return true;', 'this.ctx.releaseCapture();\n        return false;')
 
 
 def limits():

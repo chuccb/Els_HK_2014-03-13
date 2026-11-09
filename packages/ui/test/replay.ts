@@ -14,8 +14,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
-  CKTDGUIButton, CKTDGUICheckBox, CKTDGUIControl, CKTDGUIDialog, CKTDGUIRadioButton, CKTDGUIScrollBar, CKTDGUISlider, CKTDGUISlot, CKTDGUIStatic,
-  CPictureData, RadioButtonGroupInfo, UCT, UIPointData,
+  CKTDGUIButton, CKTDGUICheckBox, CKTDGUIContolList, CKTDGUIControl, CKTDGUIDialog, CKTDGUINavigation, CKTDGUIRadioButton, CKTDGUIScrollBar,
+  CKTDGUISlider, CKTDGUISlot, CKTDGUIStatic, CPictureData, RadioButtonGroupInfo, UCT, UIPointData,
 } from "../src/index.ts";
 import type { DeviceSound, UIStage } from "../src/index.ts";
 import { rig } from "./rig.ts";
@@ -42,6 +42,7 @@ const STATE_MEMBERS: Record<string, string> = {
   value: "m_nValue", dragX: "m_nDragX", dragOffset: "m_nDragOffset", buttonX: "m_nButtonX", button: "m_rcButton", box: "m_rcBoundingBox",
   pos: "m_nPosition", arrow: "m_Arrow", arrowTS: "m_dArrowTS", upClicked: "m_bIsUpButtonClicked", downClicked: "m_bIsDownButtonClicked",
   drag: "m_bDrag", showThumb: "m_bShowThumb", last: "m_LastMouse", thumb: "m_rcThumb",
+  dragging: "m_bDraggingWindow", ptLast: "m_ptLastMouse", rcBG: "m_rcBG", rcWindow: "m_rcWindow",
 };
 
 function showField(v: unknown): string {
@@ -60,6 +61,10 @@ function stateOf(w: ReturnType<typeof setup>["w"], c: CKTDGUIControl, want: stri
     if (key === "focus") return `focus=${focus}`;
     if (key === "down") return `down=${+c.m_pDialog!.m_bMouseDownForDrag}`;
     if (key === "thumbOffsetY") return `thumbOffsetY=${w.statics.thumbOffsetY}`;
+    if (key === "winPoint") { // the eight floats of the navigation's window point, corner by corner
+      const p = (c as CKTDGUINavigation).m_pWindowPoint!;
+      return `winPoint=${[p.leftTopPoint, p.rightTopPoint, p.leftBottomPoint, p.rightBottomPoint].map((v) => `${v.x},${v.y}`).join(",")}`;
+    }
     return `${key}=${showField((c as unknown as Record<string, unknown>)[STATE_MEMBERS[key]!])}`;
   }).join(" ");
 }
@@ -316,6 +321,53 @@ export function runScene(ops: Op[]): void {
           controls.set(label, c);
           break;
         }
+        case "contollist": { // a control list: the scroll bars are controls the case made before (the ones that write their calls down)
+          const [label, , o] = a as [string, string, { x: string | null; y: string | null; enable: boolean; show: boolean }];
+          const c = new CKTDGUIContolList(w);
+          c.m_Name = label;
+          c.m_bEnable = o.enable;
+          c.m_bShow = o.show;
+          c.m_pScrollBarX = o.x === null ? null : (controls.get(o.x) as unknown as CKTDGUIScrollBar);
+          c.m_pScrollBarY = o.y === null ? null : (controls.get(o.y) as unknown as CKTDGUIScrollBar);
+          controls.set(label, c);
+          break;
+        }
+        case "navigation": {
+          const [label, , o] = a as [string, string, {
+            bg: number[]; win: number[]; enable: boolean; show: boolean; drag: boolean; last: number[]; downMsg: number; dragMsg: number;
+            sound: boolean; refresh: boolean;
+          }];
+          const c = new CKTDGUINavigation(w);
+          c.m_Name = label;
+          const point = (r: number[]): UIPointData => {
+            const p = new UIPointData();
+            p.leftTopPoint.set(r[0]!, r[1]!);
+            p.rightTopPoint.set(r[2]!, r[1]!);
+            p.leftBottomPoint.set(r[0]!, r[3]!);
+            p.rightBottomPoint.set(r[2]!, r[3]!);
+            return p;
+          };
+          const cut = (rc: { left: number; top: number; right: number; bottom: number }, r: number[]): void => {
+            Object.assign(rc, { left: Math.trunc(r[0]!), top: Math.trunc(r[1]!), right: Math.trunc(r[2]!), bottom: Math.trunc(r[3]!) });
+          };
+          c.m_pBGPoint = point(o.bg);
+          c.m_pWindowPoint = point(o.win);
+          if (o.refresh) {
+            cut(c.m_rcBG, o.bg);
+            cut(c.m_rcWindow, o.win);
+          }
+          c.m_bEnable = o.enable;
+          c.m_bShow = o.show;
+          c.m_bDraggingWindow = o.drag;
+          c.m_ptLastMouse.x = o.last[0]!;
+          c.m_ptLastMouse.y = o.last[1]!;
+          c.m_CustomMsgLButtonDown = o.downMsg;
+          c.m_CustomMsgMouseDragging = o.dragMsg;
+          c.m_pSndMouseDown = o.sound ? SOUND_DOWN : undefined;
+          c.playSound = (s) => void log.push(`${label}.sound(${s === SOUND_DOWN ? "down" : "none"})`);
+          controls.set(label, c);
+          break;
+        }
         case "put": { // a field of a slider or a scroll bar: a number, a flag (0 / 1), a rectangle or a point (a list)
           const [label, field, value] = a as [string, string, number | number[]];
           const c = controls.get(label) as unknown as Record<string, unknown>;
@@ -427,11 +479,11 @@ export function runScene(ops: Op[]): void {
           expect([name, +ret, log.slice(), stateOf(w, c, want.state, focusLabel())]).toEqual([name, want.ret, want.events, want.state]);
           break;
         }
-        case "act_msg": { // the scroll bar's own MsgProc(uMsg, wParam, lParam)
+        case "act_msg": { // the scroll bar's and the navigation's own MsgProc(uMsg, wParam, lParam)
           const [name, label, args, want] = a as [string, string, number[], Expect];
-          const c = controls.get(label) as CKTDGUIScrollBar;
+          const c = controls.get(label) as CKTDGUIScrollBar | CKTDGUINavigation;
           log.length = 0;
-          const ret = c.scrollBarMsgProc(args[0]!, args[1]!, args[2]!);
+          const ret = c instanceof CKTDGUINavigation ? c.navigationMsgProc(args[0]!, args[1]!, args[2]!) : c.scrollBarMsgProc(args[0]!, args[1]!, args[2]!);
           expect([name, +ret, log.slice(), stateOf(w, c, want.state, focusLabel())]).toEqual([name, want.ret, want.events, want.state]);
           break;
         }

@@ -25,8 +25,8 @@
  * `UpdateRenderControlList` 329504F0 and `UpdateScrollBar` 329506E0.  `UpdateScrollBar` has a bug that is kept: when the X bar needs showing
  * it sets the *Y* bar's track position to the X index (and faults when there is no Y bar).
  *
- * `ContainsPoint` (3294F490) holds the quadrilateral and the bounding boxes of the two scroll bars.  Not ported: what the list does with
- * the mouse (`HandleMouse` 3294F5F0).
+ * `ContainsPoint` (3294F490) holds the quadrilateral and the bounding boxes of the two scroll bars; `HandleMouse` (3294F5F0) gives the mouse
+ * to them.
  */
 import { Vec2 } from "@els/host";
 import type { CKTDGUIContolList_Methods } from "@els/host";
@@ -166,6 +166,17 @@ export class CKTDGUIContolList extends CKTDGUIControl implements Partial<CKTDGUI
     const barY = this.m_pScrollBarY;
     if (!barY) return false;
     return pick2DRectOfRect(x, y, barY.m_rcBoundingBox);
+  }
+
+  /**
+   * `HandleMouse(uMsg, pt, wParam, lParam)` (3294F5F0), virtual: a shown and enabled list gives the message to its horizontal scroll bar (if it has
+   * one) and, when that one does not take it, to its vertical one; it takes what one of them takes.  Everything else (the cells' controls are the
+   * dialog's own) is not taken.
+   */
+  override handleMouse(uMsg: number, x: number, y: number, wParam: number, lParam: number): boolean {
+    if (!this.m_bShow || !this.m_bEnable) return false;
+    if (this.m_pScrollBarX !== null && this.m_pScrollBarX.handleMouse(uMsg, x, y, wParam, lParam)) return true;
+    return this.m_pScrollBarY !== null && this.m_pScrollBarY.handleMouse(uMsg, x, y, wParam, lParam);
   }
 
   override textureData(out: UITextureData[]): void {

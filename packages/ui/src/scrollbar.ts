@@ -345,7 +345,7 @@ export class CKTDGUIScrollBar extends CKTDGUIControl implements Partial<CKTDGUIS
     this.updateThumbRect();
   }
 
-  /** `UpdateRects()` (329866A0), virtual slot 41: the buttons are squares at the two ends, the track between them */
+  /** `UpdateRects()` (329866A0), virtual slot 42 (41 is `MsgProc`): the buttons are squares at the two ends, the track between them */
   updateRects(): void {
     const bb = this.m_rcBoundingBox;
     setRect(bb, this.m_x, this.m_y, this.m_x + this.m_width, this.m_y + this.m_height);

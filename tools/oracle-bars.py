@@ -57,7 +57,7 @@ SLIDER_FIELDS = {
 }
 SCROLLBAR_FIELDS = {
     "m_bShowThumb": (0x21C, "B"), "m_bDrag": (0x21D, "B"), "m_bIsUpButtonClicked": (0x21E, "B"), "m_bIsDownButtonClicked": (0x21F, "B"),
-    "m_rcThumb": (0x250, "rect"), "m_rcTrack": (0x240, "rect"), "m_nPosition": (0x340, "i"), "m_Arrow": (0x358, "i"), "m_dArrowTS": (0x360, "d"),
+    "m_rcThumb": (0x250, "rect"), "m_rcTrack": (0x240, "rect"), "m_rcUpButton": (0x220, "rect"), "m_rcDownButton": (0x230, "rect"), "m_nPosition": (0x340, "i"), "m_Arrow": (0x358, "i"), "m_dArrowTS": (0x360, "d"),
     "m_LastMouse": (0x350, "pt"), "m_rcBoundingBox": (0x378, "rect"), "m_bEnableThumb": (0x38C, "B"), "m_bEnableTrack": (0x38D, "B"),
 }
 BAR_FIELDS = {"slider": SLIDER_FIELDS, "scrollbar": SCROLLBAR_FIELDS}
@@ -242,6 +242,12 @@ def main():
     hit("S3 on the bar, Y has the focus: Y loses it, A gets it, then the value moves", "A", 0x201, 150, 10)
     fresh_slider(); o.give_focus("A")
     hit("S3 on the bar, A has the focus: no request", "A", 0x201, 150, 10)
+    fresh_slider(); o.focus("Y"); o.put("A", "m_bHasFocus", 1)
+    hit("S3 on the bar, m_bHasFocus set but the global focus is Y: no request, the value moves", "A", 0x201, 150, 10)
+    fresh_slider(); o.put("A", "m_nDragOffset", 7)
+    hit("S3 on the bar with a drag offset of 7 left from before: the offset is 0 again", "A", 0x201, 150, 10)
+    fresh_slider(); o.put("A", "m_nDragOffset", 7)
+    hit("S3 above the bar (not taken): the offset of 7 stays", "A", 0x201, 150, -1)
     fresh_slider()
     hit("S3 above the bar: not taken, no state change", "A", 0x201, 150, -1)
     fresh_slider()
@@ -303,6 +309,14 @@ def main():
     hit("S4 move with an even minimum near 2^24: min + 0.5 is rounded down", "A", 0x200, 80, 10)
     fresh_slider(pressed=True, vmin=-100000, vmax=100000, value=0, width=200)
     hit("S4 move over a range of 200000 (single precision, negative minimum)", "A", 0x200, 130, 10)
+    # past 2^24 an int is not a float any more: each operand is rounded to single precision before it is used (the cases were found with a model of the
+    # formula: each one gives another value when one operand is kept exact, which the other cases cannot show)
+    fresh_slider(pressed=True, vmin=0, vmax=16777217, value=5)
+    hit("S4 a range of 16777217 over 200 pixels, x 18: the range is 16777216 in single precision, the step per pixel is rounded before it is multiplied", "A", 0x200, 18, 10)
+    fresh_slider(pressed=True, vmin=16777217, vmax=16777317, value=16777250)
+    hit("S4 a minimum of 16777217, x 50: the minimum is 16777216 in single precision, plus the half it stays 16777216, then the sum is rounded", "A", 0x200, 50, 10)
+    fresh_slider(pressed=True, vmin=0, vmax=2000000001, value=5, width=16777217)
+    hit("S4 a box of 16777217 pixels, x 16777217: the width and the distance are 16777216 in single precision", "A", 0x200, 16777217, 10)
 
     # ---- the left button up
     fresh_slider(pressed=True)
@@ -456,6 +470,22 @@ def main():
     hit("B5 right of the bar (20,60): outside the thumb's columns, not taken, no capture", "A", 0x201, 20, 60)
     fresh_bar()
     hit("B5 left of the bar (-1,60): not taken, no capture", "A", 0x201, -1, 60)
+    fresh_bar()
+    hit("B5 down on the track's left column (0,25): the thumb's columns include their left edge: a page up", "A", 0x201, 0, 25)
+    fresh_bar()
+    hit("B5 down on the track's left column (0,60): a page down", "A", 0x201, 0, 60)
+    fresh_bar()
+    hit("B5 down on the track's right column (19,60): a page down", "A", 0x201, 19, 60)
+    fresh_bar(thumb=False)
+    hit("B5 the thumb is off, the point on the thumb's top row (10,32): neither above nor below it: the capture, no page, not taken", "A", 0x201, 10, 32)
+    fresh_bar(thumb=False)
+    hit("B5 the thumb is off, the point on the thumb's last row (10,43): neither above nor below it: no page", "A", 0x201, 10, 43)
+    fresh_bar(thumb=False)
+    hit("B5 the thumb is off, the point on the row below the thumb (10,44): a page down", "A", 0x201, 10, 44)
+    fresh_bar(); o.put("A", "m_rcDownButton", [0, 90, 20, 100])
+    hit("B5 the down button moved to y 90: the track's bottom edge (10,80) is not on it and not on the track: the capture, no page, not taken", "A", 0x201, 10, 80)
+    fresh_bar(); o.put("A", "m_rcDownButton", [0, 90, 20, 100])
+    hit("B5 the same, one row up (10,79): the last row of the track, a page down", "A", 0x201, 10, 79)
     fresh_bar(end=10)
     hit("B5 a bar whose range fits in a page (end 10, page 10: no thumb, m_bShowThumb 0): the track does nothing", "A", 0x201, 10, 60)
     fresh_bar(pos=10, page=3, start=0, end=300, height=200)

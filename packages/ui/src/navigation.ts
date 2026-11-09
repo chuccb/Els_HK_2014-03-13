@@ -12,15 +12,18 @@
  * 328CD1B0 (folded by the linker with the radio button's `SetCustomMsgRButtonUp`; the member it writes is `m_CustomMsgMouseDragging`, 0x2D0).
  *
  * `OnFrameRender` (3294E560) draws the background and the window, `ContainsPoint` (3294E000) asks `PtInRect` of the rectangle that the
- * background point makes.  Not ported: what the control does with the input (`HandleMouse` 3294E160, `MsgProc` 3294E510).
+ * background point makes.  The input: `HandleMouse` (3294E160) and its helpers FromUIPointToRect 3294E0D0, BoundRectInRect 3294DFA0 and
+ * FromRectToPoint 3294E050; `MsgProc` (3294E510, a virtual of its own in slot 41, so `navigationMsgProc` here).
  */
 import type { CKTDGUINavigation_Methods } from "@els/host";
-import { CKTDGUIControl, UCT, destroyTexture } from "./control.ts";
+import { CKTDGUIControl, UCT, UIM, destroyTexture } from "./control.ts";
 import type { UIContext, UIPointData, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
-import { ftoi, newRect, ptInRect } from "./rect.ts";
+import { ftoi, newRect, offsetRect, ptInRect, setRect } from "./rect.ts";
 import type { Rect } from "./rect.ts";
 import { VertexUI4 } from "./render.ts";
+
+const f = Math.fround;
 
 export class CKTDGUINavigation extends CKTDGUIControl implements Partial<CKTDGUINavigation_Methods> {
   /** `m_Vertex[4]`: the quad being drawn */
@@ -76,6 +79,123 @@ export class CKTDGUINavigation extends CKTDGUIControl implements Partial<CKTDGUI
     rc.top = ftoi(p.leftTopPoint.y);
     rc.bottom = ftoi(p.rightBottomPoint.y);
     return ptInRect(rc, { x, y });
+  }
+
+  // ---- input ---------------------------------------------------------------------------------------------------------------
+
+  /** `FromUIPointToRect(pRect, pPointData)` (3294E0D0): the rectangle from the left-top and right-bottom corners, each coordinate cut to an int */
+  private fromUIPointToRect(rect: Rect, point: UIPointData): void {
+    rect.left = ftoi(point.leftTopPoint.x);
+    rect.right = ftoi(point.rightBottomPoint.x);
+    rect.top = ftoi(point.leftTopPoint.y);
+    rect.bottom = ftoi(point.rightBottomPoint.y);
+  }
+
+  /** `FromRectToPoint(rect, point)` (3294E050): the four corners of the point from the rectangle */
+  private fromRectToPoint(rect: Rect, point: UIPointData): void {
+    point.leftTopPoint.set(rect.left, rect.top);
+    point.rightTopPoint.set(rect.right, rect.top);
+    point.leftBottomPoint.set(rect.left, rect.bottom);
+    point.rightBottomPoint.set(rect.right, rect.bottom);
+  }
+
+  /**
+   * `BoundRectInRect(pInsideRect, outsideRect)` (3294DFA0): the rectangle is moved into the other one.  A left edge outside is moved in (and the
+   * right edge is not asked then), else a right edge outside is; the same for the top and the bottom edge; it is moved only if a step is not 0.
+   */
+  private boundRectInRect(inside: Rect, outside: Rect): void {
+    let dx = 0, dy = 0;
+    if (inside.left < outside.left) dx = (outside.left - inside.left) | 0;
+    else if (inside.right > outside.right) dx = (outside.right - inside.right) | 0;
+    if (inside.top < outside.top) dy = (outside.top - inside.top) | 0;
+    else if (inside.bottom > outside.bottom) dy = (outside.bottom - inside.bottom) | 0;
+    if (dx !== 0 || dy !== 0) offsetRect(inside, dx, dy);
+  }
+
+  /**
+   * `MsgProc(uMsg, wParam, lParam)` (3294E510), a virtual of its own in slot 41 (the control's `MsgProc(hWnd, ...)` of slot 6 stays the base's
+   * `return false`; named apart from `msgProc` because the arguments are not the same): the window losing the mouse capture (0x215) ends the
+   * drag; never taken.
+   */
+  navigationMsgProc(uMsg: number, _wParam: number, _lParam: number): boolean {
+    if (uMsg === 0x215) this.m_bDraggingWindow = false;
+    return false;
+  }
+
+  /**
+   * `HandleMouse(uMsg, pt, wParam, lParam)` (3294E160), virtual.  A disabled navigation takes nothing (a hidden one does).
+   *  - 0x200 (move) is taken always.  While the window is dragged: its rectangle is made from the window point, moved by the distance from the last
+   *    mouse point (each coordinate difference in single precision, cut to an int), pushed back into the background rectangle `m_rcBG` as it was
+   *    left by the last press or `ContainsPoint`, and written back to the window point; the point becomes the last mouse point; the stage is told
+   *    (the game message 0x466 / 1 when there is no custom message for the dragging, else 0x467 with it).
+   *  - 0x201 / 0x203 (left button down, double click): both rectangles are made from the points.  On the window: the focus is requested when
+   *    the control has none and its dialog is known to the manager, the window is dragged and the window captures the mouse.  On the background
+   *    off the window: the same, the sound plays, and the window is centred on the point (a width and height of half the window's in single
+   *    precision, each corner cut to an int) and pushed into the background.  Both then send the message (0x466 / 0 as a game message, or 0x467
+   *    with `m_CustomMsgLButtonDown`) and play the sound.  Anywhere else nothing of this happens.  Taken always, and the point is remembered.
+   *  - 0x202 (left button up): the drag ends and the mouse is given back; taken always.
+   * Other messages are not taken.  A navigation without its points is a null dereference in the exe (here a TypeError).
+   */
+  override handleMouse(uMsg: number, x: number, y: number, _wParam: number, _lParam: number): boolean {
+    if (!this.m_bEnable) return false;
+    const rc = this.m_rcWindow;
+    switch (uMsg) {
+      case 0x200: {
+        if (!this.m_bDraggingWindow) return true;
+        this.fromUIPointToRect(rc, this.m_pWindowPoint!);
+        offsetRect(rc, ftoi(f(f(x) - f(this.m_ptLastMouse.x))), ftoi(f(f(y) - f(this.m_ptLastMouse.y))));
+        this.boundRectInRect(rc, this.m_rcBG);
+        this.fromRectToPoint(rc, this.m_pWindowPoint!);
+        const dragging = this.m_CustomMsgMouseDragging;
+        this.m_ptLastMouse.x = x;
+        this.m_ptLastMouse.y = y;
+        if (dragging === -1) this.ctx.sendGameMessage(UIM.CONTROL_EVENT, 1, this, true);
+        else this.sendInternelEvent(UIM.CUSTOM_MSG, dragging);
+        return true;
+      }
+      case 0x201:
+      case 0x203: {
+        this.fromUIPointToRect(this.m_rcBG, this.m_pBGPoint!);
+        this.fromUIPointToRect(rc, this.m_pWindowPoint!);
+        const pt = { x, y };
+        const takeFocus = (): void => {
+          const dialog = this.m_pDialog;
+          if (!this.m_bHasFocus && this.ctx.dialogManager.checkDlg(dialog)) dialog.requestFocus(this);
+        };
+        if (ptInRect(rc, pt)) {
+          takeFocus();
+          this.m_bDraggingWindow = true;
+          this.ctx.setCapture();
+        } else if (ptInRect(this.m_rcBG, pt)) {
+          takeFocus();
+          this.m_bDraggingWindow = true;
+          this.ctx.setCapture();
+          this.playSound(this.m_pSndMouseDown);
+          const halfHeight = f(f((rc.bottom - rc.top) | 0) * 0.5);
+          const halfWidth = f(f((rc.right - rc.left) | 0) * 0.5);
+          setRect(rc, ftoi(f(f(x) - halfWidth)), ftoi(f(f(y) - halfHeight)), ftoi(f(halfWidth + f(x))), ftoi(f(halfHeight + f(y))));
+          this.boundRectInRect(rc, this.m_rcBG);
+          this.fromRectToPoint(rc, this.m_pWindowPoint!);
+        } else {
+          this.m_ptLastMouse.x = x;
+          this.m_ptLastMouse.y = y;
+          return true;
+        }
+        const down = this.m_CustomMsgLButtonDown;
+        if (down === -1) this.ctx.sendGameMessage(UIM.CONTROL_EVENT, 0, this, true);
+        else this.sendInternelEvent(UIM.CUSTOM_MSG, down);
+        this.playSound(this.m_pSndMouseDown);
+        this.m_ptLastMouse.x = x;
+        this.m_ptLastMouse.y = y;
+        return true;
+      }
+      case 0x202:
+        this.m_bDraggingWindow = false;
+        this.ctx.releaseCapture();
+        return true;
+      default:
+        return false;
+    }
   }
 
   override textureData(out: UITextureData[]): void {
