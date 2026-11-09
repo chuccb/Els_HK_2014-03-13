@@ -346,6 +346,15 @@ def main():
                 for caret, sel in ((0, 0), (3, 3), (11, 11), (3, 1), (1, 3)):
                     fresh(TEXT, caret, sel, keys={**ckeys, **skeys})
                     key("K4 %s, %s, %s, caret %d, selection from %d" % (name(vk), ctag, stag, caret, sel), vk)
+    # a selection that reaches the start or the end of the text while the caret does not, and the other way round: the key goes by the caret
+    for vk in (LEFT, RIGHT):
+        for ctag, ckeys in (("no ctrl", {}), ("ctrl", {CTRL: DOWN})):
+            for stag, skeys in SHIFTS[:2]:
+                text, places = ("hello", ((2, 0), (0, 3), (3, 5), (5, 3), (5, 0), (0, 5), (4, 1), (1, 4))) if not ckeys else \
+                    (TEXT, ((5, 10), (10, 5), (7, 0), (0, 7), (11, 6), (6, 11), (3, 8), (8, 3), (11, 0), (0, 11)))
+                for caret, sel in places:
+                    fresh(text, caret, sel, keys={**ckeys, **skeys})
+                    key("K4 %s, %s, %s, caret %d, selection from %d of %r (the caret decides)" % (name(vk), ctag, stag, caret, sel, text), vk)
     for tag, keys in (("ctrl only toggled", {CTRL: 1}), ("ctrl down and toggled", {CTRL: DOWN | 1}), ("shift down: not ctrl", {SHIFT: DOWN})):
         for vk in (LEFT, RIGHT):
             fresh(TEXT, 5, 5, keys=keys)
@@ -673,7 +682,7 @@ def main():
         ("fractions", [(0.5, 0.25), (99.75, 0.5), (0.25, 19.5), (100.5, 20.75)]),
     )
     POINTS = ((10, 20), (60, 30), (110, 40), (10, 40), (110, 20), (9, 30), (111, 30), (60, 19), (60, 41), (35, 22), (95, 38), (20, 21), (105, 21), (0, 0), (-5, -5), (300, 300))
-    for name, quad in QUADS:
+    for qname, quad in QUADS:
         for x, y in POINTS:
             o.reset()
             o.dialog_("D")
@@ -683,7 +692,7 @@ def main():
             o.register("D", ["E", "Y"])
             o.key_states({})
             o.timer(100.5, 0.25)
-            o.act("C1 ContainPT at (%d, %d), %s" % (x, y, name), "E", "contain", x, y)
+            o.act("C1 ContainPT at (%d, %d), %s" % (x, y, qname), "E", "contain", x, y)
     for dpos, offset in (((10.25, 20.5), (0.75, 0.25)), ((-60.0, -40.0), (0.0, 0.0)), ((0.0, 0.0), (10.0, 20.0)), ((10.0, 20.0), (-10.0, -20.0)),
                          ((0.1, 0.2), (0.3, 0.4)), ((1e7, 1e7), (0.5, 0.5))):
         for x, y in ((10, 20), (11, 21), (60, 30), (110, 40), (111, 41), (0, 0), (10000000, 10000000), (10000001, 10000001), (-60, -40), (-59, -39), (40, -20)):
@@ -726,6 +735,40 @@ def main():
         for cp in (0, 4, 9, 17):
             fresh(LONG, 2, 2, first=1, rc_text=NARROW, scale=scale)
             o.act("P1 PlaceCaret(%d), scale (%g, %g)" % (cp, *scale), "E", "place", cp)
+    # the boundaries: the caret's trailing edge is exactly at the right side of the text rectangle (no scroll) or the new left edge is exactly at the x of a
+    # character (that character is the first visible one; one short of it the next one is)
+    prefix = [ou.width_of(LONG[:n]) for n in range(len(LONG) + 1)]
+    for first in (0, 2, 5):
+        for cp in range(first + 1, first + 6):
+            width = prefix[cp] - prefix[first]
+            for delta in (-1, 0, 1):
+                fresh(LONG, 2, 2, first=first, rc_text=(3, 0, 3 + width + delta, 20))
+                o.act("P2 PlaceCaret(%d), first visible %d, the text rectangle %d wide%+d" % (cp, first, width, delta), "E", "place", cp)
+    for cp in (3, 5, 8, 12):
+        for k in range(1, cp):
+            width = prefix[cp] - prefix[k]
+            for delta in (-1, 0, 1):
+                fresh(LONG, 2, 2, first=0, rc_text=(3, 0, 3 + width + delta, 20))
+                o.act("P2 PlaceCaret(%d), first visible 0, the text rectangle %d wide%+d (the new left edge at character %d)" % (cp, width, delta, k), "E", "place", cp)
+    # a box whose first visible character is stale (the caret is out of view: right of the box or left of the first visible character), as a text set from
+    # outside leaves it: what the handlers re-place and what they do not
+    STALE = (("right of the box", 12, 0), ("far right of the box", 17, 0), ("left of the first visible character", 3, 10), ("at the first visible one", 10, 10))
+    for tag, caret, first in STALE:
+        for what, ch in (("type x", ord("x")), ("backspace", 8), ("Ctrl+A", 1), ("Enter", 13), ("Ctrl+C", 3), ("Ctrl+X", 0x18), ("Ctrl+V", 0x16)):
+            fresh(LONG, caret, caret, first=first, rc_text=NARROW, change=7, enter=8, clip={"text": "xy"})
+            char("S1 %s, the caret %s (%d, first visible %d)" % (what, tag, caret, first), ch)
+        fresh(LONG, caret, caret, first=first, rc_text=NARROW, change=7, insert=False)
+        char("S1 type x over a character, the caret %s (%d, first visible %d)" % (tag, caret, first), ord("x"))
+        for vk in (HOME, END, LEFT, RIGHT, DELETE):
+            fresh(LONG, caret, caret, first=first, rc_text=NARROW, change=7)
+            key("S1 key %s, the caret %s (%d, first visible %d)" % (name(vk), tag, caret, first), vk)
+        for vk in (LEFT, RIGHT):
+            fresh(LONG, caret, caret, first=first, rc_text=NARROW, keys={CTRL: DOWN})
+            key("S1 Ctrl+%s, the caret %s (%d, first visible %d)" % (name(vk), tag, caret, first), vk)
+        fresh(LONG, caret, caret, first=first, rc_text=NARROW, keys={SHIFT: DOWN}, clip={"text": "xy"})
+        key("S1 Shift+Insert, the caret %s (%d, first visible %d)" % (tag, caret, first), INSERT)
+        fresh(LONG, caret, caret, first=first, rc_text=NARROW, change=7)
+        o.act("S1 DeleteSelectionText without a selection, the caret %s (%d, first visible %d)" % (tag, caret, first), "E", "delete")
     # ---- ClearText (32933190)
     for text, caret, sel, first in (("hello", 3, 1, 2), ("", 0, 0, 0), ("hello world again", 17, 4, 9), ("a", 1, 1, 1)):
         fresh(text, caret, sel, first=first, rc_text=NARROW)

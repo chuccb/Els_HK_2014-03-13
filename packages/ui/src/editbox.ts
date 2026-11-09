@@ -328,7 +328,8 @@ export class CKTDGUIEditBox extends CKTDGUIControl implements Partial<CKTDGUIEdi
    * take input takes every key.  Tab is left to the dialog and so are the keys the box has no use for, except Escape (27), which the box takes.
    * - Home / End: the caret goes to the start / the end; Left / Right: one character (a word with Ctrl, `GetPriorItemPos` / `GetNextItemPos`),
    *   not past the text; then, for these four, the selection collapses to the caret unless Shift is down, and the caret blinks anew.  Ctrl is asked
-   *   first (Left, Right), Shift after the move; Home and End ask Shift only.  Up and Down are taken and do nothing.
+   *   first (Left, Right), Shift after the move; Home and End ask Shift only.  Up and Down are taken and do nothing (the exe has an arm for them
+   *   that only answers true, as the default arm does for every key but Escape).
    * - Insert: with Ctrl the selection is copied, else with Shift the clipboard is pasted, else the insert mode is toggled.  Never taken.
    * - Delete: the selection is deleted, else the character at the caret; then the change message goes out (a failed `RemoveChar` sends nothing)
    *   and the caret blinks anew either way.
@@ -356,9 +357,6 @@ export class CKTDGUIEditBox extends CKTDGUIControl implements Partial<CKTDGUIEdi
           this.PlaceCaret(this.m_nCaret);
         }
         return this.caretMoved();
-      case 0x26: // VK_UP
-      case 0x28: // VK_DOWN
-        return true;
       case 0x27: // VK_RIGHT
         if (ctx.getKeyState(0x11) >= 0) {
           if (this.m_nCaret < buffer.GetTextSize()) this.PlaceCaret(this.m_nCaret + 1);
