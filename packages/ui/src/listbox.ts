@@ -25,7 +25,7 @@
  */
 import { Color, Vec2 } from "@els/host";
 import type { CKTDGUIListBox_Methods } from "@els/host";
-import { CKTDGUIControl, CPictureData, UCT, UIM, UIPointData, readStringData, wcharText } from "./control.ts";
+import { CKTDGUIControl, CPictureData, UCT, UIM, UIPointData, destroyTexture, readStringData, wcharText } from "./control.ts";
 import type { CKTDGUIDialog } from "./dialog.ts";
 import type { UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
@@ -134,7 +134,8 @@ export class CKTDGUIListBox extends CKTDGUIControl implements Partial<CKTDGUILis
   m_bIgnoreListClick = false;
   m_BlankWidthByDepth = 5;
   m_BlankWidthToGroupMark = 10;
-  readonly m_pGroupMark: CKTDGUIStatic;
+  /** the group mark (a static); the destructor deletes it (the exe then holds null: only a destroyed box has none, so the type has no null) */
+  m_pGroupMark: CKTDGUIStatic;
   readonly m_GroupMarkOffsetPos = new Vec2(-10, -1);
   readonly m_GroupMarkAddSize = new Vec2(-2, -3);
   m_bUseItemDisappear = false;
@@ -156,6 +157,46 @@ export class CKTDGUIListBox extends CKTDGUIControl implements Partial<CKTDGUILis
       mark.m_PictureDataList.push(picture);
     }
     [this.m_pSndMouseDown] = this.openControlSounds(["ListBox_Mouse_Down"]);
+  }
+
+  /**
+   * `~CKTDGUIListBox` (329420E0), then the control's.  The control of every row is deleted (its own destructor) and the rows freed; the scroll
+   * bar is told the track 0..1 and nothing is selected; the bounding box and text textures, both string data and the scroll bar are destroyed
+   * (the bar before the six scroll bar textures it holds, which the box then destroys), then the mouse over texture, the six scroll bar
+   * textures, the sound, the group mark (a static: its pictures' textures and its edge texture go) and the two fonts are let go.
+   */
+  override Destroy(): void {
+    const devices = this.ctx.devices;
+    for (const item of this.m_Items) {
+      if (item.pControl) {
+        item.pControl.Destroy();
+        item.pControl = null;
+      }
+    }
+    this.m_Items.length = 0;
+    this.m_pScrollBar?.setTrackRange(0, 1);
+    this.m_nSelected = -1;
+    this.m_pBoudingBoxTex = destroyTexture(devices, this.m_pBoudingBoxTex);
+    this.m_pTextTex = destroyTexture(devices, this.m_pTextTex);
+    this.m_pStringData = null;
+    this.m_pGroupStringData = null;
+    if (this.m_pScrollBar) {
+      this.m_pScrollBar.Destroy();
+      this.m_pScrollBar = null;
+    }
+    this.m_pButtonMouseOverTex = destroyTexture(devices, this.m_pButtonMouseOverTex);
+    this.m_pScollBarDownButtonTex = destroyTexture(devices, this.m_pScollBarDownButtonTex);
+    this.m_pScollBarDownButtonDownTex = destroyTexture(devices, this.m_pScollBarDownButtonDownTex);
+    this.m_pScollBarUpButtonDownTex = destroyTexture(devices, this.m_pScollBarUpButtonDownTex);
+    this.m_pScollBarUpButtonTex = destroyTexture(devices, this.m_pScollBarUpButtonTex);
+    this.m_pScollBarTrackTex = destroyTexture(devices, this.m_pScollBarTrackTex);
+    this.m_pScollBarThumbTex = destroyTexture(devices, this.m_pScollBarThumbTex);
+    this.m_pSndMouseDown = this.closeHeldDevice(this.m_pSndMouseDown);
+    this.m_pGroupMark.Destroy();
+    this.m_pGroupMark = null as never;
+    this.m_pUKFont = null;
+    this.m_pGroupUKFont = null;
+    super.Destroy();
   }
 
   /**
@@ -510,6 +551,14 @@ export class CKTDGUIListBox extends CKTDGUIControl implements Partial<CKTDGUILis
     if (sendMessage) this.sendSelection(1);
   }
 
+  /** `if (row->pControl != nullptr) { delete row->pControl; row->pControl = nullptr; }` of the three removals and the destructor */
+  private destroyRowControl(row: ListBoxItem): void {
+    if (row.pControl) {
+      row.pControl.Destroy();
+      row.pControl = null;
+    }
+  }
+
   /** the tail of `RemoveItem`: the scroll bar learns the length, the selection is kept inside the list and the selection message sent */
   private afterRemove(): void {
     const count = this.m_Items.length;
@@ -521,7 +570,8 @@ export class CKTDGUIListBox extends CKTDGUIControl implements Partial<CKTDGUILis
   /** `RemoveItem(nIndex)` (32946E90): an index outside the list does nothing */
   removeItem(index: number): void {
     if (index < 0 || index >= this.m_Items.length) return;
-    this.m_Items.splice(index, 1)[0]!.pControl = null; // the row's control is destroyed
+    this.destroyRowControl(this.m_Items[index]!);
+    this.m_Items.splice(index, 1);
     this.afterRemove();
   }
 
@@ -530,6 +580,7 @@ export class CKTDGUIListBox extends CKTDGUIControl implements Partial<CKTDGUILis
     let removed = 0;
     for (let i = 0; i < this.m_Items.length; i++) {
       if (this.m_Items[i]!.strText !== text) continue;
+      this.destroyRowControl(this.m_Items[i]!);
       this.m_Items.splice(i, 1);
       this.afterRemove();
       i--;
@@ -540,7 +591,7 @@ export class CKTDGUIListBox extends CKTDGUIControl implements Partial<CKTDGUILis
 
   /** `RemoveAllItems()` (32946DE0): the list is empty, the scroll bar's range 0..1 and nothing selected (no message) */
   removeAllItems(): void {
-    for (const item of this.m_Items) item.pControl = null; // the rows' controls are destroyed
+    for (const item of this.m_Items) this.destroyRowControl(item);
     this.m_Items.length = 0;
     this.m_pScrollBar?.setTrackRange(0, 1);
     this.m_nSelected = -1;

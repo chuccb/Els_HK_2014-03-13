@@ -86,14 +86,12 @@ export class CKTDGUIScrollBar extends CKTDGUIControl implements Partial<CKTDGUIS
   }
 
   /**
-   * The destructor (329859C0, `delete`): the sound it opened is closed.  The six textures are not destroyed (their owner, the list box or
-   * the control list, does that) and neither is the dialog told.
+   * The destructor (329859C0, `delete`), then the control's: the sound it opened is closed.  The six textures are not destroyed (their owner,
+   * the list box, the combo box or the control list, does that).
    */
-  destroy(): void {
-    if (this.m_pSndMouseDown) {
-      this.ctx.devices.closeDevice(this.m_pSndMouseDown.deviceID);
-      this.m_pSndMouseDown = undefined;
-    }
+  override Destroy(): void {
+    this.m_pSndMouseDown = this.closeHeldDevice(this.m_pSndMouseDown);
+    super.Destroy();
   }
 
   // ---- drawing ---------------------------------------------------------------------------------------------------------------
@@ -169,7 +167,7 @@ export class CKTDGUIScrollBar extends CKTDGUIControl implements Partial<CKTDGUIS
   // ---- what the owner (a combo box, a list box, a control list) calls ----------------------------------------------------------
 
   private replace(old: UITextureData | null, tex: UITextureData | null): UITextureData | null {
-    old?.release(this.ctx.devices); // ~UITextureData: the texture it had is destroyed, the new pointer is simply taken
+    old?.Destroy(this.ctx.devices); // ~UITextureData: the texture it had is destroyed, the new pointer is simply taken
     return tex;
   }
 

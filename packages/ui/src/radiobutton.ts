@@ -17,7 +17,7 @@
  */
 import { Color } from "@els/host";
 import type { CKTDGUIRadioButton_Methods } from "@els/host";
-import { CKTDGUIControl, UCT, UIM, UIPointData, readStringData } from "./control.ts";
+import { CKTDGUIControl, UCT, UIM, UIPointData, destroyTexture, readStringData } from "./control.ts";
 import type { UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceSound, DeviceTexture } from "./device.ts";
 import { ftoi } from "./rect.ts";
@@ -93,8 +93,8 @@ export class CKTDGUIRadioButton extends CKTDGUIControl implements Partial<CKTDGU
   m_pSndMouseOver: DeviceSound | undefined;
   readonly m_CheckedEdgeColor = new Color(1, 1, 1, 1);
   m_CheckedEdgeWidth = 0;
-  /** `UIEdge.tga` */
-  readonly m_pCheckedEdgeTexture: DeviceTexture | undefined;
+  /** `UIEdge.tga` (the destructor closes it) */
+  m_pCheckedEdgeTexture: DeviceTexture | undefined;
   m_bDrawCheckedEdgeOut = true;
   /** `m_Vertex[4]`: the quad being drawn */
   readonly m_Vertex = new VertexUI4();
@@ -104,6 +104,36 @@ export class CKTDGUIRadioButton extends CKTDGUIControl implements Partial<CKTDGU
     this.m_ControlType = UCT.RADIOBUTTON;
     this.m_pCheckedEdgeTexture = ctx.devices.openTexture("UIEdge.tga");
     [this.m_pSndCheck, this.m_pSndMouseOver] = this.openControlSounds(["RadioButton_Check", "RadioButton_MouseOver"]);
+  }
+
+  /**
+   * `~CKTDGUIRadioButton` (32949310), then the control's: the four textures are destroyed (their devices closed), the five points and the
+   * string data freed, the check and over sounds and the checked edge texture closed.  A button whose dialog handle is still valid
+   * leaves its group: the first place of the button in the checked order of the group's `RadioButtonGroupInfo` (the dialog's map, by
+   * `m_GroupID`) is taken out.
+   */
+  override Destroy(): void {
+    const devices = this.ctx.devices;
+    this.m_pNormalTex = destroyTexture(devices, this.m_pNormalTex);
+    this.m_pMouseOverTex = destroyTexture(devices, this.m_pMouseOverTex);
+    this.m_pDisableTex = destroyTexture(devices, this.m_pDisableTex);
+    this.m_pCheckedTex = destroyTexture(devices, this.m_pCheckedTex);
+    this.m_pBGPoint = null;
+    this.m_pCheckedPoint = null;
+    this.m_pBGMouseOverPoint = null;
+    this.m_pRadioButtonPoint = null;
+    this.m_pDisabledPoint = null;
+    this.m_pStringData = null;
+    this.m_pSndCheck = this.closeHeldDevice(this.m_pSndCheck);
+    this.m_pSndMouseOver = this.closeHeldDevice(this.m_pSndMouseOver);
+    this.m_pCheckedEdgeTexture = this.closeHeldDevice(this.m_pCheckedEdgeTexture);
+    const dialog = this.m_pDialog;
+    if (dialog !== null && !dialog.destroyed) {
+      const order = dialog.m_mapRadioButtonGroupInfo.get(this.m_GroupID)?.m_vecpCheckedOrder;
+      const at = order?.indexOf(this) ?? -1;
+      if (order && at >= 0) order.splice(at, 1);
+    }
+    super.Destroy();
   }
 
   /**
@@ -198,13 +228,15 @@ export class CKTDGUIRadioButton extends CKTDGUIControl implements Partial<CKTDGU
     this.drawEdgeBars(texture, drawOut, this.m_CheckedEdgeWidth, this.m_CheckedEdgeColor, p, nWidth, nHeight);
   }
 
-  /** `SetCustomMouseOverSound(wstring)` (3294BD80): opens the sound (the old one is not closed) */
+  /** `SetCustomMouseOverSound(wstring)` (3294BD80): opens the sound (the old one is not closed: its reference is leaked) */
   override setCustomMouseOverSound(soundFileName: string): void {
+    if (this.m_pSndMouseOver) this.leakedSounds.push(this.m_pSndMouseOver);
     this.m_pSndMouseOver = this.ctx.devices.openSound(soundFileName);
   }
 
-  /** `SetCustomMouseUpSound(wstring)` (3294BE30): the sound of checking */
+  /** `SetCustomMouseUpSound(wstring)` (3294BE30): the sound of checking (the old one is leaked the same way) */
   override setCustomMouseUpSound(soundFileName: string): void {
+    if (this.m_pSndCheck) this.leakedSounds.push(this.m_pSndCheck);
     this.m_pSndCheck = this.ctx.devices.openSound(soundFileName);
   }
 

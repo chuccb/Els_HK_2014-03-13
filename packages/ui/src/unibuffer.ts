@@ -51,6 +51,14 @@ export class CKTDGUIUniBuffer {
   }
 
   /**
+   * `~CKTDGUIUniBuffer` (32963B20): both character arrays (the text and the text with the hide character) are freed and the script string
+   * analysis released.  The exe keeps the dangling pointers; here the text is gone (`m_pwszBuffer` null: a buffer that was never allocated).
+   */
+  Destroy(): void {
+    this.m_pwszBuffer = null;
+  }
+
+  /**
    * `SetBufferSize(nNewSize)` (32965870): grows the capacity, to twice the request (twice the old size for -1, 256 for the first
    * allocation), at most 0xFFFF.  A buffer that is at the maximum already is error log 0x27.
    */

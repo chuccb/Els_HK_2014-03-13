@@ -126,13 +126,25 @@ export class UITextureData {
     }
   }
 
-  /** `~UITextureData` (32923950): the texture device is closed */
-  release(devices: DeviceManager): void {
+  /**
+   * `~UITextureData` (32923950): the texture device is closed (`CloseDevice` of its id: the reference this data holds) and forgotten.  The
+   * exe reads `g_pKTDXApp->m_pDeviceManager`; the caller hands the device manager over.
+   */
+  Destroy(devices: DeviceManager): void {
     if (this.pTexture) {
       devices.closeDevice(this.pTexture.deviceID);
       this.pTexture = null;
     }
   }
+}
+
+/**
+ * What every destructor does for a texture data it holds (`if (p != nullptr) { p->~UITextureData(); operator delete(p); p = nullptr; }`):
+ * the data is destroyed (its texture device closed); the answer is the new value of the field.
+ */
+export function destroyTexture(devices: DeviceManager, data: UITextureData | null): null {
+  data?.Destroy(devices);
+  return null;
 }
 
 /** `CKTDGUIControl::UIPointData`: where and how a picture is drawn */
@@ -222,8 +234,8 @@ export class TexChangeData {
   m_bEndTexChange = false;
   m_SequenceIDToGo = -1;
 
-  /** `~TexChangeData` (329238B0): the step's texture device is closed */
-  release(devices: DeviceManager): void {
+  /** `~TexChangeData` (329238B0): the step's texture data is destroyed (its texture device is closed) and forgotten */
+  Destroy(devices: DeviceManager): void {
     const t = this.m_pTexData;
     if (t) {
       if (t.pTexture) {
@@ -447,11 +459,23 @@ export class CPictureData implements Partial<CKTDGUIControl__CPictureData_Method
 
   constructor(private readonly ctx: UIContext) {}
 
+  /**
+   * `~CPictureData` (329237F0): the texture data is destroyed (the texture device it holds is closed: the exe inlines `~UITextureData` here)
+   * and the point data is freed; both pointers are null afterwards.
+   */
+  Destroy(): void {
+    if (this.pTexture) {
+      this.pTexture.Destroy(this.ctx.devices);
+      this.pTexture = null;
+    }
+    this.pPoint = null;
+  }
+
   /** `SetTex_LUA(file, key)` (329277D0): the old texture is closed and replaced; the point data (if there is one) follows the new texture */
   SetTex(fileName: string, key: string): void {
     const old = this.pTexture;
     if (old) {
-      old.release(this.ctx.devices);
+      old.Destroy(this.ctx.devices);
       this.pTexture = null;
     }
     const data = setTexureData(this.ctx, fileName, key);
@@ -466,7 +490,7 @@ export class CPictureData implements Partial<CKTDGUIControl__CPictureData_Method
   SetTex2(fileName: string): void {
     const data = wholeTextureData(this.ctx, fileName);
     if (!data) return;
-    if (this.pTexture) this.pTexture.release(this.ctx.devices); // the old one: `scalar deleting destructor`
+    if (this.pTexture) this.pTexture.Destroy(this.ctx.devices); // the old one: `scalar deleting destructor`
     this.pTexture = data;
     if (this.pPoint) this.pPoint.pUITextureData = data;
   }
@@ -741,6 +765,13 @@ export class CKTDGUIControl implements Partial<CKTDGUIControl_Methods> {
   /** `m_wstrCustomButton...SndFileName` as copied by `CKTDGUIDialog::AddControl` */
   m_wstrCustomMouseOverSnd = "";
   m_wstrCustomMouseUpSnd = "";
+  /**
+   * Not in the exe (a check for the census): the sound references this control leaves open for good, because the exe overwrites the pointer
+   * without closing the sound (`SetCustomMouseOverSound` / `SetCustomMouseUpSound` of a button and a radio button) or its destructor never
+   * closes it (a button's mouse down sound).  The census adds them up and expects the device manager to hold exactly these once every
+   * dialog is destroyed.
+   */
+  readonly leakedSounds: DeviceSound[] = [];
 
   constructor(protected readonly ctx: UIContext) {}
 
@@ -1249,11 +1280,31 @@ export class CKTDGUIControl implements Partial<CKTDGUIControl_Methods> {
   }
 
   /**
-   * The deleting destructor (virtual slot 0: `~CKTDGUIControl` 32923680 and the destructor of each class) that `~CKTDGUIDialog` calls for
-   * every control.  Not ported yet.
+   * The deleting destructor (virtual slot 0) that `~CKTDGUIDialog` and `CKTDGUIDialog::OnFrameMove` call.  Each class's `Destroy()` first
+   * does what its own destructor does and then this, `~CKTDGUIControl` (32923680): the control forgets its dialog (`m_pDialog = nullptr`) and
+   * its name, the texture of the animation it is running goes (`~TexChangeData`), and the strings, lists and the queue of moves it owns
+   * are freed (here: emptied).
    */
   Destroy(): void {
-    throw new Error(`${this.constructor.name}: the control's destructor is not ported`);
+    this.m_pDialog = null;
+    this.m_Name = "";
+    this.m_NowTexChangeData.Destroy(this.ctx.devices);
+    this.m_GuideDesc = "";
+    this.m_DummyIntList.length = 0;
+    this.m_DummyStringList.length = 0;
+    this.m_DummyPosList.length = 0;
+    this.m_queMoveItems.length = 0;
+    this.m_TabControlName = "";
+    this.m_PrevTabControlName = "";
+  }
+
+  /**
+   * What the destructors do for a sound or an edge texture they opened (`if (p != nullptr) { CloseDevice(g_pKTDXApp->m_pDeviceManager,
+   * p->m_DeviceID); p = nullptr; }`): the device is closed once; the answer is the new value of the field.
+   */
+  protected closeHeldDevice(device: { readonly deviceID: string } | undefined): undefined {
+    if (device) this.ctx.devices.closeDevice(device.deviceID);
+    return undefined;
   }
 
   /**
@@ -1334,7 +1385,7 @@ export class CKTDGUIControl implements Partial<CKTDGUIControl_Methods> {
     const old = map.get(data.m_SequenceID);
     if (old) {
       if (point && point.pUITextureData === old.m_pTexData) point.pUITextureData = null;
-      old.release(this.ctx.devices);
+      old.Destroy(this.ctx.devices);
     }
     map.set(data.m_SequenceID, data);
     if (data.m_SequenceID === 0 && point && data.m_pTexData) {
@@ -1376,7 +1427,7 @@ export class CKTDGUIControl implements Partial<CKTDGUIControl_Methods> {
 
   /** the `Set*Tex_LUA(file, key)` setters: the old UITextureData is destroyed, the new one (null when the file does not open) replaces it */
   protected replaceTexture(old: UITextureData | null, fileName: string, key: string): UITextureData | null {
-    old?.release(this.ctx.devices);
+    old?.Destroy(this.ctx.devices);
     return setTexureData(this.ctx, fileName, key);
   }
 

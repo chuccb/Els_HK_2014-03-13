@@ -17,7 +17,7 @@
 import { D3DTOP, D3DTSS } from "@els/d3d9";
 import { Color } from "@els/host";
 import type { CKTDGUIIMEEditBox_Methods } from "@els/host";
-import { CKTDGUIControl, UCT } from "./control.ts";
+import { CKTDGUIControl, UCT, destroyTexture } from "./control.ts";
 import type { UIContext, UIPointData, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
 import type { UKFont } from "./font.ts";
@@ -192,6 +192,22 @@ export class CKTDGUIIMEEditBox extends CKTDGUIControl implements Partial<CKTDGUI
     [this.m_pSndKeyDown] = this.openControlSounds(["EditBox_KeyDown"]);
     this.m_bEnablePaste = true;
     this.m_Buffer.Clear();
+  }
+
+  /**
+   * `~CKTDGUIIMEEditBox` (32935F90), then the control's: the same as the edit box's destructor: the two textures are destroyed (their devices
+   * closed), the three points freed, the key sound closed and the text buffer destroyed.
+   */
+  override Destroy(): void {
+    const devices = this.ctx.devices;
+    this.m_pNormalTex = destroyTexture(devices, this.m_pNormalTex);
+    this.m_pDisableTex = destroyTexture(devices, this.m_pDisableTex);
+    this.m_pNormalPoint = null;
+    this.m_pDisablePoint = null;
+    this.m_pTextPoint = null;
+    this.m_pSndKeyDown = this.closeHeldDevice(this.m_pSndKeyDown);
+    this.m_Buffer.Destroy();
+    super.Destroy();
   }
 
   /**

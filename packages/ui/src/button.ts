@@ -13,7 +13,7 @@
  */
 import { Color, Vec2 } from "@els/host";
 import type { CKTDGUIButton_Methods } from "@els/host";
-import { CKTDGUIControl, TexChangeData, UCT, UIM, UIPointData, clampedByte, readPointData, readStringData, readTexChangeData, setTexureData } from "./control.ts";
+import { CKTDGUIControl, TexChangeData, UCT, UIM, UIPointData, clampedByte, destroyTexture, readPointData, readStringData, readTexChangeData, setTexureData } from "./control.ts";
 import type { UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceSound, DeviceTexture } from "./device.ts";
 import { VertexUI4 } from "./render.ts";
@@ -67,7 +67,7 @@ export class CKTDGUIButton extends CKTDGUIControl implements Partial<CKTDGUIButt
   m_EdgeWidth = 0;
   m_EdgeEnlargeValue = 0;
   /** `UIEdge.tga` */
-  readonly m_pEdgeTexture: DeviceTexture | undefined;
+  m_pEdgeTexture: DeviceTexture | undefined;
   m_bDrawEdgeOut = false;
   /** `std::map<int, TexChangeData*>`: the animation steps of a state by sequence id */
   readonly m_mapMouseOverTex = new Map<number, TexChangeData>();
@@ -90,6 +90,42 @@ export class CKTDGUIButton extends CKTDGUIControl implements Partial<CKTDGUIButt
       for (const d of map.values()) if (d.m_pTexData) out.push(d.m_pTexData);
     }
     for (const s of this.m_StaticControls) s?.textureData(out);
+  }
+
+  /**
+   * `~CKTDGUIButton` (3292C4C0), then the control's.  The four textures are destroyed (their devices closed), the four points and the string
+   * data freed, and the sounds `m_pSndMouseOver` and `m_pSndMouseUp` and the edge texture closed; `m_pSndMouseDown` is not: the exe never
+   * closes it (a leaked reference, kept).  Each static of a state that is still in the button's dialog (the dialog handle is valid and
+   * `CheckControl` finds it) is sent to where it is, to the colour 0, in 0.07 s, and deleted when it gets there
+   * (`Move(m_OffsetPos, 0, 0.07f, true, true, false, 1)`).  Last the textures of the animation steps are destroyed, the maps of the over,
+   * normal and down states in this order and each in the order of its keys, and the three maps emptied.
+   */
+  override Destroy(): void {
+    const devices = this.ctx.devices;
+    this.m_pNormalTex = destroyTexture(devices, this.m_pNormalTex);
+    this.m_pMouseOverTex = destroyTexture(devices, this.m_pMouseOverTex);
+    this.m_pMouseDownTex = destroyTexture(devices, this.m_pMouseDownTex);
+    this.m_pDisableTex = destroyTexture(devices, this.m_pDisableTex);
+    this.m_pNormalPoint = null;
+    this.m_pMouseOverPoint = null;
+    this.m_pMouseDownPoint = null;
+    this.m_pDisablePoint = null;
+    this.m_pStringData = null;
+    this.m_pSndMouseOver = this.closeHeldDevice(this.m_pSndMouseOver);
+    this.m_pSndMouseUp = this.closeHeldDevice(this.m_pSndMouseUp);
+    if (this.m_pSndMouseDown) this.leakedSounds.push(this.m_pSndMouseDown); // the destructor never closes it
+    this.m_pEdgeTexture = this.closeHeldDevice(this.m_pEdgeTexture);
+    for (let i = 0; i < 4; i++) {
+      const s = this.m_StaticControls[i];
+      if (!s) continue;
+      const dialog = this.m_pDialog;
+      if (dialog !== null && !dialog.destroyed && dialog.checkControl(s)) s.move(s.m_OffsetPos, new Color(0, 0, 0, 0), f(0.07), true, true, false, 1);
+    }
+    for (const map of [this.m_mapMouseOverTex, this.m_mapMouseNormalTex, this.m_mapMouseDownTex]) {
+      for (const sequenceID of [...map.keys()].sort((a, b) => a - b)) map.get(sequenceID)!.Destroy(devices); // a `std::map<int, ...>` is walked in key order
+      map.clear();
+    }
+    super.Destroy();
   }
 
   // ---- virtual overrides -----------------------------------------------------------------------------------------------------
@@ -256,13 +292,15 @@ export class CKTDGUIButton extends CKTDGUIControl implements Partial<CKTDGUIButt
     }
   }
 
-  /** `SetCustomMouseOverSound(wstring)` (3292F680): opens the sound (the old one is not closed) */
+  /** `SetCustomMouseOverSound(wstring)` (3292F680): opens the sound (the old one is not closed: its reference is leaked) */
   override setCustomMouseOverSound(soundFileName: string): void {
+    if (this.m_pSndMouseOver) this.leakedSounds.push(this.m_pSndMouseOver);
     this.m_pSndMouseOver = this.ctx.devices.openSound(soundFileName);
   }
 
-  /** `SetCustomMouseUpSound(wstring)` (3292F730) */
+  /** `SetCustomMouseUpSound(wstring)` (3292F730): the same for the sound of the mouse button going up */
   override setCustomMouseUpSound(soundFileName: string): void {
+    if (this.m_pSndMouseUp) this.leakedSounds.push(this.m_pSndMouseUp);
     this.m_pSndMouseUp = this.ctx.devices.openSound(soundFileName);
   }
 
@@ -350,7 +388,7 @@ export class CKTDGUIButton extends CKTDGUIControl implements Partial<CKTDGUIButt
 
   /** the texture setters: the old texture data is released, the new one (null when the file does not open) goes to the point as well */
   private replaceTex(old: UITextureData | null, point: UIPointData | null, fileName: string, key: string): UITextureData | null {
-    old?.release(this.ctx.devices);
+    old?.Destroy(this.ctx.devices);
     const data = setTexureData(this.ctx, fileName, key);
     if (point) point.pUITextureData = data;
     return data;

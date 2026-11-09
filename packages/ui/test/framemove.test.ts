@@ -31,6 +31,7 @@ const setCorners = (p: UIPointData, c: number[]) => {
 const rgba = (c: { r: number; g: number; b: number; a: number }) => [c.r, c.g, c.b, c.a];
 // A failing comparison of controls would print the whole world: they are compared by identity.
 const is = (a: unknown, b: unknown): boolean => a === b;
+const names = (list: readonly { m_Name: string }[]): string[] => list.map((c) => c.m_Name);
 
 /** a control the frame moves: a navigation is the base control's `OnFrameMove` and nothing else */
 const mover = () => {
@@ -1574,7 +1575,7 @@ describe("CKTDGUISlot::OnFrameMove (32952430)", () => {
   test("updated slot data refreshes the slot (UpdateUI) once; the points move; the mouse over is lost behind a dialog that is not modal", () => {
     const { c, w } = slot();
     const calls: unknown[] = [];
-    const data = { m_bDataUpdated: false, UpdateUI: (slot: CKTDGUISlot) => void calls.push(slot) };
+    const data = { m_bDataUpdated: false, UpdateUI: (slot: CKTDGUISlot) => void calls.push(slot), Destroy: () => {} };
     c.m_pSlotData = data;
     c.onFrameMove(0, 0.1);
     expect(calls.length).toBe(0);
@@ -1725,26 +1726,75 @@ describe("CKTDGUIDialog::OnFrameMove (32958A00)", () => {
     expect(log).toEqual(["D", "B", "A"]);
   });
 
-  test("a control that is marked for deletion: found in the name map and the list it is destroyed (its destructor is not ported: it throws, before anything changes); not in the map it is moved like the others", () => {
+  test("a control that is marked for deletion: found in the name map and the list it is destroyed (Destroy), its entry and its place in the list go and it is not moved; not in the map it is moved like the others", () => {
     const log: string[] = [];
     const { d, w } = dlg();
     const a = spy(w, log, "A"), b = spy(w, log, "B");
+    a.Destroy = () => void log.push("destroy A");
     d.AddControl(a);
     d.AddControl(b);
     a.m_bCheckAutoDeleteEnd = true;
-    expect(() => d.onFrameMove(0, 0.1)).toThrow("not ported");
-    expect([d.m_ControlsList.length, d.m_ControlsMap.size, log]).toEqual([2, 2, ["B"]]);
-    log.length = 0;
-    d.m_ControlsMap.erase("A"); // the map does not know it: it is moved like any other
     expect(d.onFrameMove(0, 0.1)).toBe(0);
-    expect([d.m_ControlsList.length, d.m_ControlsMap.size, log]).toEqual([2, 1, ["B", "A"]]);
+    expect([names(d.m_ControlsList), d.m_ControlsMap.size, d.m_ControlsMap.has("A"), d.m_ControlsMap.has("B"), log]).toEqual([["B"], 1, false, true, ["B", "destroy A"]]);
+    // the map does not know it: it is moved like any other
+    log.length = 0;
+    const c = spy(w, log, "C");
+    d.AddControl(c);
+    c.m_bCheckAutoDeleteEnd = true;
+    d.m_ControlsMap.erase("C");
+    expect(d.onFrameMove(0, 0.1)).toBe(0);
+    expect([names(d.m_ControlsList), d.m_ControlsMap.size, log]).toEqual([["B", "C"], 1, ["C", "B"]]);
     // the map has another control under its name, and that one is not in the list: the entry goes, the marked control is moved
     log.length = 0;
-    const stranger = spy(w, log, "A");
-    d.m_ControlsMap.emplace("A", stranger);
+    const stranger = spy(w, log, "C");
+    stranger.Destroy = () => void log.push("destroy stranger");
+    d.m_ControlsMap.emplace("C", stranger);
     expect(d.onFrameMove(0, 0.1)).toBe(0);
-    expect([d.m_ControlsList.length, d.m_ControlsMap.size, log]).toEqual([2, 1, ["B", "A"]]);
-    expect(d.m_ControlsMap.has("A")).toBe(false);
+    expect([names(d.m_ControlsList), d.m_ControlsMap.size, log]).toEqual([["B", "C"], 1, ["C", "B"]]);
+    expect(d.m_ControlsMap.has("C")).toBe(false);
+  });
+
+  test("the control the map holds under the marked control's name is the one that is destroyed (and taken out of the list); the marked one stays, and as the list shifted it is looked at again, now that the map has lost the name: it is moved", () => {
+    const log: string[] = [];
+    const { d, w } = dlg();
+    const first = spy(w, log, "X"), second = spy(w, log, "Y"), tail = spy(w, log, "T");
+    first.Destroy = () => void log.push("destroy first");
+    second.Destroy = () => void log.push("destroy second");
+    d.AddControl(first);
+    d.AddControl(second);
+    d.AddControl(tail);
+    second.m_Name = "X"; // the same name as the first control, which the map holds
+    second.m_bCheckAutoDeleteEnd = true;
+    d.onFrameMove(0, 0.1);
+    // the list is walked from the end: T; second is marked and the map's X is `first` (index 0): destroyed and taken out, nobody moved; index 0 is now
+    // `second` again, marked, but the map has no X any more: it is moved
+    expect(log).toEqual(["T", "destroy first", "Y"]);
+    expect([names(d.m_ControlsList), d.m_ControlsMap.size, d.m_ControlsMap.has("X"), d.m_ControlsMap.has("Y")]).toEqual([["X", "T"], 2, false, true]); // `second` (named X now) and T; the map keeps its stale Y and T
+  });
+
+  test("a control that is destroyed by the dialog and has the focus loses it first (OnFocusOut); one that does not have it leaves the focus where it is", () => {
+    const log: string[] = [];
+    const { d, w } = dlg();
+    const a = spy(w, log, "A"), b = spy(w, log, "B");
+    a.Destroy = () => void log.push("destroy A");
+    a.onFocusOut = () => void log.push("out A");
+    b.onFocusOut = () => void log.push("out B");
+    d.AddControl(a);
+    d.AddControl(b);
+    w.controlFocus = b;
+    a.m_bCheckAutoDeleteEnd = true;
+    d.onFrameMove(0, 0.1);
+    expect([log, is(w.controlFocus, b)]).toEqual([["B", "destroy A"], true]);
+    log.length = 0;
+    const c = spy(w, log, "C");
+    c.Destroy = () => void log.push("destroy C");
+    c.onFocusOut = () => void log.push("out C");
+    d.AddControl(c);
+    w.controlFocus = c;
+    c.m_bCheckAutoDeleteEnd = true;
+    d.onFrameMove(0, 0.1);
+    expect([log, is(w.controlFocus, null)]).toEqual([["out C", "destroy C", "B"], true]);
+    w.controlFocus = null;
   });
 
   test("a dialog that can be dragged inside a range is held inside it: the range's rectangle shrunk by half the dialog's size; the goal follows while it moves", () => {

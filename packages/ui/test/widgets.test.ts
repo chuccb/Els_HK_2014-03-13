@@ -77,9 +77,9 @@ describe("ftoi, IntPairMap and the render target devices", () => {
     bar.m_pSndMouseDown = w.devices.openSound("a.wav");
     bar.setThumbTex(null);
     expect(w.devices.sounds.size).toBe(1);
-    bar.destroy();
+    bar.Destroy();
     expect([w.devices.sounds.size, bar.m_pSndMouseDown]).toEqual([0, undefined]);
-    bar.destroy(); // nothing left to close
+    bar.Destroy(); // nothing left to close
   });
 });
 
@@ -163,10 +163,12 @@ describe("CMovieData", () => {
       open: (path, flags) => (calls.push(`open ${path} ${flags}`), openResult),
       getVideoInfo: () => (calls.push("info"), { width: 640, height: 360 }),
       play: () => (calls.push("play"), 0),
+      destroy: () => void calls.push("destroy"),
     };
     const texture = {
       opens: [] as number[][],
       closes: 0,
+      deleted: 0,
       open(width: number, height: number) {
         this.opens.push([width, height]);
         return 0;
@@ -174,7 +176,10 @@ describe("CMovieData", () => {
       close() {
         this.closes++;
       },
-    } satisfies BandiVideoTexture & { opens: number[][]; closes: number };
+      Destroy() {
+        this.deleted++;
+      },
+    } satisfies BandiVideoTexture & { opens: number[][]; closes: number; deleted: number };
     return { calls, library, texture };
   }
 
@@ -239,6 +244,37 @@ describe("CMovieData", () => {
     mv.SetMovieFileName("missing.avi");
     expect(calls.slice(-1)).toEqual(["open \\movie\\missing.avi 0"]);
     expect(some(mv.m_pBvt)).toEqual(["none"]);
+  });
+
+  test("~CMovieData (32923740): the render target is closed, the player destroyed (it was created), the texture closed and deleted, then ~CBandiVideoLibrary (329840E0) runs", () => {
+    const s = setup();
+    const { calls, library, texture } = fakePlayer();
+    s.w.devices.createVideoLibrary = () => library;
+    s.w.devices.createVideoTexture = () => texture;
+    const mv = new CMovieData(s.w);
+    mv.SetRect(0, 0, 640, 360);
+    mv.SetMovieFileName("a.avi");
+    const events: string[] = [];
+    library.destroy = () => void events.push(`destroy with ${s.w.devices.renderTargets.size} render targets open`);
+    texture.close = () => void events.push("texture close");
+    texture.Destroy = () => void events.push("texture delete");
+    calls.length = 0;
+    expect(s.w.devices.renderTargets.size).toBe(1);
+    mv.Destroy();
+    expect(events).toEqual(["destroy with 0 render targets open", "texture close", "texture delete", "destroy with 0 render targets open"]);
+    expect([some(mv.m_pBvt, mv.m_pRenderTargetTexture), s.w.devices.renderTargets.size]).toEqual([["none", "none"], 0]);
+  });
+
+  test("~CMovieData of a movie that never played: nothing to close and no player to destroy, but ~CBandiVideoLibrary still runs (once)", () => {
+    const s = setup();
+    const { calls, library } = fakePlayer();
+    s.w.devices.createVideoLibrary = () => library;
+    const mv = new CMovieData(s.w);
+    expect(library.isCreated()).toBe(false);
+    mv.Destroy();
+    expect(calls).toEqual(["destroy"]);
+    mv.Destroy();
+    expect(calls).toEqual(["destroy", "destroy"]);
   });
 
   test("CreateMovie makes one; a static keeps the movies it is given (AddMovieData)", () => {

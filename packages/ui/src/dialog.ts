@@ -151,9 +151,11 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
    *   colour is the goal at once); a move that is over puts it on the goal (an auto-delete dialog is marked);
    * - is marked for deletion when its self-delete time (`SetTimeForSelfDelete`, counted from its making) is up;
    * - takes the next item of its move queue when it is not moving;
-   * - moves its controls, **from the last to the first**: a control that is marked for deletion (`m_bCheckAutoDeleteEnd`) and found in the name map is
-   *   taken out of the map, loses the focus if it has it, is destroyed and taken out of the list (its destructor is not ported: it throws); the others that are
-   *   not out of the list are moved (`OnFrameMove`);
+   * - moves its controls, **from the last to the first**: a control that is marked for deletion (`m_bCheckAutoDeleteEnd`) and found in the name map has
+   *   its entry taken out of the map; the control the map held (not necessarily the marked one: two controls can share a name) then, if it is in the
+   *   list, loses the focus if it has it, is destroyed (`Destroy`) and is taken out of the list, and nobody is moved for that index; the others
+   *   (also a marked control whose name the map does not know, or whose map entry is not in the list) that are not out of the list are moved
+   *   (`OnFrameMove`);
    * - when it can be moved by dragging inside a range, has its position held inside the range (the range's rectangle shrunk by half the dialog's size; the
    *   goal too while it is moving).
    * Returns 0.
@@ -211,9 +213,18 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
       if (control.m_bCheckAutoDeleteEnd) {
         const named = this.m_ControlsMap.get(control.m_Name);
         if (named !== undefined) {
+          this.m_ControlsMap.erase(control.m_Name); // the entry goes whether or not the control is in the list
           const at = this.m_ControlsList.indexOf(named);
-          if (at >= 0) throw new Error(`CKTDGUIDialog::OnFrameMove: deleting the auto-delete control ${control.m_Name} (the control's destructor) is not ported`);
-          this.m_ControlsMap.erase(control.m_Name); // found in the map but not in the list: the entry goes, the control is moved below
+          if (at >= 0) {
+            const focus = this.ctx.controlFocus;
+            if (focus === named) {
+              focus.onFocusOut();
+              this.ctx.controlFocus = null;
+            }
+            named.Destroy();
+            this.m_ControlsList.splice(at, 1);
+            continue; // a control that was deleted is not moved
+          }
         }
       }
       if (!control.m_bOutofList) control.onFrameMove(fTime, fElapsedTime);
@@ -421,6 +432,11 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
     this.m_ControlsList.length = 0;
     this.m_ControlsMap.clear();
     this.destroyed = true;
+  }
+
+  /** `CheckControl(pControl)` (32956A00): the control is in the dialog's list (null never is) */
+  checkControl(control: CKTDGUIControl | null): boolean {
+    return control !== null && this.m_ControlsList.includes(control);
   }
 
   // ---- the controls a script creates -----------------------------------------------------------------------------------------

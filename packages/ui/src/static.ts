@@ -36,8 +36,8 @@ export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStat
   readonly m_MovieDataList: CMovieData[] = [];
   m_CustomMsgMouseDblClk = -1;
   m_CustomMsgMouseUp = -1;
-  /** `m_pEdgeTexture`: every static opens `UIEdge.tga` */
-  readonly m_pEdgeTexture: DeviceTexture | undefined;
+  /** `m_pEdgeTexture`: every static opens `UIEdge.tga` (the destructor closes it) */
+  m_pEdgeTexture: DeviceTexture | undefined;
   /** `m_Vertex[4]`: the quad of the picture being drawn */
   readonly m_Vertex = new VertexUI4();
 
@@ -55,6 +55,21 @@ export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStat
 
   override textureData(out: UITextureData[]): void {
     for (const p of this.m_PictureDataList) if (p.pTexture) out.push(p.pTexture);
+  }
+
+  /**
+   * `~CKTDGUIStatic` (32928B20), then the control's: every picture is destroyed (its texture device closed) and the list emptied, the string
+   * data are freed and the list emptied, every movie is destroyed (`~CMovieData`: its render target closed, its video player and texture)
+   * and the list emptied, and the edge texture is closed.
+   */
+  override Destroy(): void {
+    for (const picture of this.m_PictureDataList) picture.Destroy();
+    this.m_PictureDataList.length = 0;
+    this.m_StringDataList.length = 0;
+    for (const movie of this.m_MovieDataList) movie.Destroy();
+    this.m_MovieDataList.length = 0;
+    this.m_pEdgeTexture = this.closeHeldDevice(this.m_pEdgeTexture);
+    super.Destroy();
   }
 
   /**

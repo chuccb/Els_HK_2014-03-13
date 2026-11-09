@@ -23,7 +23,7 @@ import { STATE_TYPE } from "@els/engine";
 import type { KStateID } from "@els/engine";
 import { Color } from "@els/host";
 import type { CKTDGUIEditBox_Methods } from "@els/host";
-import { CKTDGUIControl, UCT, readPointData } from "./control.ts";
+import { CKTDGUIControl, UCT, destroyTexture, readPointData } from "./control.ts";
 import type { UIContext, UIPointData, UITextureData } from "./control.ts";
 import { byte, channel, d3dColor, ONE_OVER_255, packArgb } from "./d3dcolor.ts";
 import type { DeviceSound } from "./device.ts";
@@ -90,6 +90,22 @@ export class CKTDGUIEditBox extends CKTDGUIControl implements Partial<CKTDGUIEdi
     this.m_dfLastBlink = ctx.devices.absoluteTime();
     CKTDGUIEditBox.s_bHideCaret = false;
     [this.m_pSndKeyDown] = this.openControlSounds(["EditBox_KeyDown"]);
+  }
+
+  /**
+   * `~CKTDGUIEditBox` (32932FE0), then the control's: the two textures are destroyed (their devices closed), the three points freed, the key
+   * sound closed and the text buffer destroyed (`~CKTDGUIUniBuffer`).
+   */
+  override Destroy(): void {
+    const devices = this.ctx.devices;
+    this.m_pNormalTex = destroyTexture(devices, this.m_pNormalTex);
+    this.m_pDisableTex = destroyTexture(devices, this.m_pDisableTex);
+    this.m_pNormalPoint = null;
+    this.m_pDisablePoint = null;
+    this.m_pTextPoint = null;
+    this.m_pSndKeyDown = this.closeHeldDevice(this.m_pSndKeyDown);
+    this.m_Buffer.Destroy();
+    super.Destroy();
   }
 
   /**

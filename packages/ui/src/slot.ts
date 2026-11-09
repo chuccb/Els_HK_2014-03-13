@@ -18,8 +18,9 @@
 import { D3DRS } from "@els/d3d9";
 import { Color, KLuaManager, Vec2 } from "@els/host";
 import type { CKTDGUISlot_Methods, CX2CouponBox_Methods, CX2PostBox_Methods, CX2SlotManager_Methods, CX2SlotManager__CX2Slot_Methods } from "@els/host";
-import { CKTDGUIControl, UCT, UIM, UIPointData, clampedByte, readStringData, setTexureData, wholeTextureData } from "./control.ts";
+import { CKTDGUIControl, UCT, UIM, UIPointData, clampedByte, destroyTexture, readStringData, setTexureData, wholeTextureData } from "./control.ts";
 import type { CPictureData, UIContext, UIStringData, UITextureData } from "./control.ts";
+import type { CKTDGUIDialog } from "./dialog.ts";
 import type { DeviceSound, DeviceTexture } from "./device.ts";
 import { ftoi } from "./rect.ts";
 import { DIALOG_SAMPLER_STATES, RSI_UI_DIALOG, VertexUI4 } from "./render.ts";
@@ -36,6 +37,8 @@ export const SLOT_NO_IMAGE = "HQ_Shop_Ui_Noimage.dds";
 /** `CKTDGUISlotData` (the data a slot shows; only the flag the slot sets is modelled) */
 export interface UISlotData {
   m_bDataUpdated: boolean;
+  /** the virtual destructor of the game's data class (`dtr_CKTDGUISlotData`, deleting): a slot deletes the data it holds when it is destroyed */
+  Destroy(): void;
   /** the virtual `UpdateUI(slot)` of the game's data class: puts what the data holds into the slot's textures and strings */
   UpdateUI(slot: CKTDGUISlot): void;
 }
@@ -80,8 +83,8 @@ export class CKTDGUISlot extends CKTDGUIControl implements Partial<CKTDGUISlot_M
   m_bMouseOut = false;
   m_pSlotData: UISlotData | null = null;
   m_iID = -1;
-  /** `UIEdge.tga` */
-  readonly m_pEdgeTexture: DeviceTexture | undefined;
+  /** `UIEdge.tga` (the destructor closes it) */
+  m_pEdgeTexture: DeviceTexture | undefined;
   /** `m_Vertex[4]`: the quad being drawn */
   readonly m_Vertex = new VertexUI4();
   /** `m_DragVertex[4]`: the quad of the slot being dragged, which follows the mouse */
@@ -91,6 +94,33 @@ export class CKTDGUISlot extends CKTDGUIControl implements Partial<CKTDGUISlot_M
     super(ctx);
     this.m_ControlType = UCT.SLOT;
     this.m_pEdgeTexture = ctx.devices.openTexture("UIEdge.tga");
+  }
+
+  /**
+   * `~CKTDGUISlot` (32950CA0), then the control's: a slot that is being dragged is not any more (`s_pDragSlot` is cleared), the additional
+   * pictures are destroyed in the order of their keys (their texture devices closed), the two textures destroyed, the string data and the three points freed, the three
+   * sounds and the edge texture closed, and the slot data deleted (its own virtual destructor).
+   */
+  override Destroy(): void {
+    const devices = this.ctx.devices;
+    if (CKTDGUISlot.s_pDragSlot === this) CKTDGUISlot.s_pDragSlot = null;
+    for (const picture of this.additionalPictures()) picture.Destroy();
+    this.m_mapAdditionalPictureDataList.clear();
+    this.m_pItemTex = destroyTexture(devices, this.m_pItemTex);
+    this.m_pMouseOverTex = destroyTexture(devices, this.m_pMouseOverTex);
+    this.m_pStringData = null;
+    this.m_pNormalPoint = null;
+    this.m_pMouseOverPoint = null;
+    this.m_pDraggingPoint = null;
+    this.m_pSndMouseOver = this.closeHeldDevice(this.m_pSndMouseOver);
+    this.m_pSndMouseUp = this.closeHeldDevice(this.m_pSndMouseUp);
+    this.m_pSndMouseDown = this.closeHeldDevice(this.m_pSndMouseDown);
+    this.m_pEdgeTexture = this.closeHeldDevice(this.m_pEdgeTexture);
+    if (this.m_pSlotData) {
+      this.m_pSlotData.Destroy();
+      this.m_pSlotData = null;
+    }
+    super.Destroy();
   }
 
   /**
@@ -395,7 +425,7 @@ export class CKTDGUISlot extends CKTDGUIControl implements Partial<CKTDGUISlot_M
 
   /** the end of the item texture setters: the item texture is the one the normal and the dragging point draw, then the state is shown again */
   private takeItemTex(data: UITextureData | null): void {
-    this.m_pItemTex?.release(this.ctx.devices);
+    this.m_pItemTex?.Destroy(this.ctx.devices);
     this.m_pItemTex = data;
     if (this.m_pNormalPoint) this.m_pNormalPoint.pUITextureData = data;
     if (this.m_pDraggingPoint) this.m_pDraggingPoint.pUITextureData = this.m_pItemTex;
@@ -407,7 +437,7 @@ export class CKTDGUISlot extends CKTDGUIControl implements Partial<CKTDGUISlot_M
    * `HQ_Shop_Ui_Noimage.dds` (nothing happens when that does not open either).
    */
   setItemTex(fileName: string, key: string): void {
-    this.m_pItemTex?.release(this.ctx.devices);
+    this.m_pItemTex?.Destroy(this.ctx.devices);
     this.m_pItemTex = null;
     let data = setTexureData(this.ctx, fileName, key);
     if (data) {
@@ -564,12 +594,27 @@ export class CX2Slot implements Partial<CX2SlotManager__CX2Slot_Methods> {
   readonly m_Pos = new Vec2();
   readonly m_Size = new Vec2();
   /** `m_pDLGSlotFixBack` / `m_pDLGSlot` (dialog handles; no script of the client makes one) */
-  m_pDLGSlotFixBack: unknown = null;
-  m_pDLGSlot: unknown = null;
+  m_pDLGSlotFixBack: CKTDGUIDialog | null = null;
+  m_pDLGSlot: CKTDGUIDialog | null = null;
   /** `X2_DIALOG_LAYER::XDL_NORMAL_1` */
   m_NormalLayer = 1;
 
   constructor(protected readonly ctx: UIContext) {}
+
+  /**
+   * `~CX2Slot` (32E5D830), virtual (`~CX2SlotItem` 331C7FD0 frees its strings and then runs it): each of the two dialogs the slot made, `m_pDLGSlot`
+   * and then `m_pDLGSlotFixBack`, is deleted from the application's dialog manager (`DeleteDlg`) and the handle cleared, when the handle still
+   * resolves to a dialog (`operator!=(handle, nullptr)`: a handle whose dialog is gone is left as it is).
+   */
+  Destroy(): void {
+    for (const key of ["m_pDLGSlot", "m_pDLGSlotFixBack"] as const) {
+      const dialog = this[key];
+      if (dialog !== null && !dialog.destroyed) {
+        this.ctx.dialogManager.deleteDlg(dialog);
+        this[key] = null;
+      }
+    }
+  }
 
   /** `SetClickable(bool)` (32E5DA30), virtual */
   SetClickable(clickable: boolean): void {

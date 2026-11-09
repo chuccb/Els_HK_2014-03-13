@@ -9,8 +9,12 @@
  * and SetMovieFileName_LUA 329258F0 (the player is created and verified, the file is `<current directory>\movie\<name>`; if the
  * player opens it, the video's size sizes the video texture, which is made on the first open, and the video plays).
  *
+ * The destructor (32923740, `Destroy()`): the render target texture is closed, the video player is destroyed when it was created, the video
+ * texture is closed and deleted, and the player's own destructor (`~CBandiVideoLibrary` 329840E0, the same release as `Destroy` 329842B0)
+ * runs at the end whether the player was created or not.
+ *
  * Not ported: what the movie does while the game runs (`OnFrameMove` 32924DE0 copies the player's frame into the video texture and
- * loops, `OnFrameRender` 32925150 draws it through the render target) and the destructor.
+ * loops, `OnFrameRender` 32925150 draws it through the render target).
  */
 import { Vec2 } from "@els/host";
 import type { CKTDGUIControl__CMovieData_Methods } from "@els/host";
@@ -47,6 +51,28 @@ export class CMovieData implements Partial<CKTDGUIControl__CMovieData_Methods> {
     this.m_vOriginPos.set(x, y);
     this.m_vSize.set(width, height);
     this.m_pRenderTargetTexture = this.ctx.devices.openRenderTargetTexture("MoveData", Math.trunc(width), Math.trunc(height), D3DFMT_A8R8G8B8) ?? null;
+  }
+
+  /**
+   * `~CMovieData` (32923740): the render target texture (`SetRect` opened it) is closed by its id and forgotten; the video player is destroyed
+   * when it was created (`IsCreated`); the video texture is closed and deleted (its deleting destructor) and forgotten; the player's
+   * destructor (`~CBandiVideoLibrary` 329840E0: stop and release the video, free the DLL, each only when there is one) runs last, for a player
+   * that was created (a second release, which finds nothing) and for one that was not.
+   */
+  Destroy(): void {
+    const target = this.m_pRenderTargetTexture;
+    if (target) {
+      this.ctx.devices.closeDevice(target.deviceID);
+      this.m_pRenderTargetTexture = null;
+    }
+    if (this.m_Bvl.isCreated()) this.m_Bvl.destroy();
+    const texture = this.m_pBvt;
+    if (texture) {
+      texture.close();
+      texture.Destroy();
+      this.m_pBvt = null;
+    }
+    this.m_Bvl.destroy();
   }
 
   /** `SetMovieFileName_LUA(name)` (329258F0) */

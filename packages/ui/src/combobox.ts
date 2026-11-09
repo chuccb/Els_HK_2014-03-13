@@ -20,7 +20,7 @@
  */
 import type { CKTDGUIComboBox_Methods } from "@els/host";
 import { Vec2 } from "@els/host";
-import { CKTDGUIControl, UCT, UIM, UIPointData, readStringData, wcharText } from "./control.ts";
+import { CKTDGUIControl, UCT, UIM, UIPointData, destroyTexture, readStringData, wcharText } from "./control.ts";
 import type { UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
 import { idiv, newRect, offsetRect, setRect, copyRect } from "./rect.ts";
@@ -114,6 +114,45 @@ export class CKTDGUIComboBox extends CKTDGUIControl implements Partial<CKTDGUICo
     super(ctx);
     this.m_ControlType = UCT.COMBOBOX;
     [this.m_pSndButtonMouseDown, this.m_pSndButtonMouseOver] = this.openControlSounds(["ComboBox_Mouse_Down", "ComboBox_Mouse_Over"]);
+  }
+
+  /**
+   * `~CKTDGUIComboBox` (3293C440), then the control's.  The control of every row is deleted (its own destructor) and the rows freed; the scroll
+   * bar is told the track 0..1 and nothing is selected or focused; the six textures of the box, the string data and the scroll bar are
+   * destroyed (the bar first: it holds the six scroll bar textures, which the box then destroys), and the two sounds are closed.
+   */
+  override Destroy(): void {
+    const devices = this.ctx.devices;
+    for (const item of this.m_Items) {
+      if (item.pControl) {
+        item.pControl.Destroy();
+        item.pControl = null;
+      }
+    }
+    this.m_Items.length = 0;
+    this.m_pScrollBar?.setTrackRange(0, 1);
+    this.m_iSelected = -1;
+    this.m_iFocused = -1;
+    this.m_pTextTex = destroyTexture(devices, this.m_pTextTex);
+    this.m_pButtonTex = destroyTexture(devices, this.m_pButtonTex);
+    this.m_pButtonMouseDownTex = destroyTexture(devices, this.m_pButtonMouseDownTex);
+    this.m_pButtonMouseOverTex = destroyTexture(devices, this.m_pButtonMouseOverTex);
+    this.m_pDropdownTex = destroyTexture(devices, this.m_pDropdownTex);
+    this.m_pDropdownTextTex = destroyTexture(devices, this.m_pDropdownTextTex);
+    this.m_pStringData = null;
+    if (this.m_pScrollBar) {
+      this.m_pScrollBar.Destroy();
+      this.m_pScrollBar = null;
+    }
+    this.m_pScollBarDownButtonTex = destroyTexture(devices, this.m_pScollBarDownButtonTex);
+    this.m_pScollBarDownButtonDownTex = destroyTexture(devices, this.m_pScollBarDownButtonDownTex);
+    this.m_pScollBarUpButtonTex = destroyTexture(devices, this.m_pScollBarUpButtonTex);
+    this.m_pScollBarUpButtonDownTex = destroyTexture(devices, this.m_pScollBarUpButtonDownTex);
+    this.m_pScollBarTrackTex = destroyTexture(devices, this.m_pScollBarTrackTex);
+    this.m_pScollBarThumbTex = destroyTexture(devices, this.m_pScollBarThumbTex);
+    this.m_pSndButtonMouseDown = this.closeHeldDevice(this.m_pSndButtonMouseDown);
+    this.m_pSndButtonMouseOver = this.closeHeldDevice(this.m_pSndButtonMouseOver);
+    super.Destroy();
   }
 
   /**

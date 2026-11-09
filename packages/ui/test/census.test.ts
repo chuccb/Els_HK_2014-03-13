@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { StringTable } from "@els/assets";
 import { runCensus } from "@els/host";
-import { UIWorld, implementedMethods, runStrict } from "../src/index.ts";
+import { CKTDGUIButton, UIWorld, destroyDialogs, implementedMethods, runStrictWorld } from "../src/index.ts";
 import { indexAllKoms, KomMassFileSource } from "../../../tools/komindex.ts";
 
 const dataDir = join(import.meta.dir, "..", "..", "..", "data");
@@ -32,7 +32,8 @@ describe.skipIf(!haveData)("the DLG scripts of the client", () => {
 
     const source = new KomMassFileSource(index, 64 * 1024);
     await source.load(scripts.keys());
-    const strict = await source.settle(() => runStrict({ source, strings }, ported));
+    const world = await source.settle(() => runStrictWorld({ source, strings }, ported, { sounds: true })); // the sound system is up, as in the client
+    const strict = world.runs;
 
     expect(dlg.length).toBe(1024);
     // the ratchet: these only go up
@@ -52,6 +53,27 @@ describe.skipIf(!haveData)("the DLG scripts of the client", () => {
     expect(skill.classes).toEqual({ CKTDGUIStatic: 3, CKTDGUIButton: 2, CKTDGUIRadioButton: 5, CKTDGUISlider: 1 });
     expect(skill.undrawn).toEqual([]);
     expect(strict.find((r) => r.name === "DLG_UI_OPTION_ETC.LUA")!.undrawn).toEqual([]);
+
+    // and the destruction (E4b): every dialog that was built (the 992, and the 9 first tries of the scripts that wait for a global of a sibling,
+    // which a failed script leaves half built) is destroyed after all of them were built.  Every control closes exactly what it opened: no
+    // destructor closes a device nobody holds, no texture or render target is left in the device manager, and the only references that stay
+    // in it are the ones the exe leaks: the sounds a button or radio button had when `SetCustomMouseOverSound` / `SetCustomMouseUpSound`
+    // overwrote the pointer (3292F680, 3292F730, 3294BD80, 3294BE30), and the mouse down sound `~CKTDGUIButton` never closes.
+    const controls = world.dialogs.flatMap((d) => d.m_ControlsList.slice());
+    // 94 buttons and 66 radio buttons were given the custom over and up sounds of their dialog (`SetCustomButtonMouseOverSndFile`): each left the two sounds it
+    // had opened open.  96 buttons (the card flip dialogs) have a mouse down sound, which no destructor closes.
+    const replaced = controls.filter((c) => c.leakedSounds.length > 0);
+    expect(["CKTDGUIButton", "CKTDGUIRadioButton"].map((n) => replaced.filter((c) => c.constructor.name === n).length)).toEqual([94, 66]);
+    expect(replaced.length).toBe(94 + 66);
+    expect(controls.filter((c) => c instanceof CKTDGUIButton && c.m_pSndMouseDown !== undefined).length).toBe(96);
+    const report = destroyDialogs(world);
+    expect([report.dialogs, report.controls]).toEqual([1001, 9707]);
+    expect(report.errors).toEqual([]);
+    expect(report.strays).toEqual({});
+    expect(report.leaked).toEqual({ "CARD_FLIP.OGG": 96, "X2_BUTTON_MOUSE_OVER.OGG": 160, "X2_BUTTON_MOUSE_UP.OGG": 160 });
+    expect(report.left).toEqual(report.leaked);
+    const devices = world.ui.devices;
+    expect([devices.devices.size, devices.renderTargets.size, [...devices.sounds.keys()].sort()]).toEqual([0, 0, ["CARD_FLIP.OGG", "X2_BUTTON_MOUSE_OVER.OGG", "X2_BUTTON_MOUSE_UP.OGG"]]);
 
     // the rest are the scripts of the game states: each reads a table or an object that the state (the village map, the shop, the video
     // recorder) puts into Lua when it starts, and no state is ported yet.  A bound that only goes down.

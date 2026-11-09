@@ -10,7 +10,7 @@
  * and the checked texture are handed on to a point (the over and disable textures are taken from the box by `ChangeState`).
  */
 import type { CKTDGUICheckBox_Methods } from "@els/host";
-import { CKTDGUIControl, UCT, UIM, UIPointData } from "./control.ts";
+import { CKTDGUIControl, UCT, UIM, UIPointData, destroyTexture } from "./control.ts";
 import type { UIContext, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
 import { VertexUI4 } from "./render.ts";
@@ -41,6 +41,22 @@ export class CKTDGUICheckBox extends CKTDGUIControl implements Partial<CKTDGUICh
     super(ctx);
     this.m_ControlType = UCT.CHECKBOX;
     [this.m_pSndCheck] = this.openControlSounds(["CheckBox_Check"]);
+  }
+
+  /**
+   * `~CKTDGUICheckBox` (329314A0), then the control's: the four textures are destroyed (their devices closed), the two points freed and the
+   * check sound closed.
+   */
+  override Destroy(): void {
+    const devices = this.ctx.devices;
+    this.m_pNormalTex = destroyTexture(devices, this.m_pNormalTex);
+    this.m_pMouseOverTex = destroyTexture(devices, this.m_pMouseOverTex);
+    this.m_pDisableTex = destroyTexture(devices, this.m_pDisableTex);
+    this.m_pCheckedTex = destroyTexture(devices, this.m_pCheckedTex);
+    this.m_pBGPoint = null;
+    this.m_pCheckedPoint = null;
+    this.m_pSndCheck = this.closeHeldDevice(this.m_pSndCheck);
+    super.Destroy();
   }
 
   /**

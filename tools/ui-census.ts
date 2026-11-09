@@ -16,7 +16,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { HOST_CLASSES, runCensus } from "@els/host";
 import { StringTable } from "@els/assets";
-import { UIWorld, greedyOrder, implementedMethods, runStrict } from "@els/ui";
+import { UIWorld, destroyDialogs, greedyOrder, implementedMethods, runStrictWorld } from "@els/ui";
 import type { StrictRun } from "@els/ui";
 import { indexAllKoms, KomMassFileSource } from "./komindex.ts";
 
@@ -50,12 +50,12 @@ const ported = [...needs].filter(([, v]) => v.size === 0).map(([n]) => n);
 // 3. run them for real
 const source = new KomMassFileSource(index, 64 * 1024);
 await source.load(scripts.keys()); // the scripts are all resident from the start (the texture files are discovered as the scripts run)
-let strict: StrictRun[] = [];
 let rounds = 0;
-strict = await source.settle(() => {
+const world = await source.settle(() => {
   rounds++;
-  return runStrict({ source, strings }, ported);
+  return runStrictWorld({ source, strings }, ported, { sounds: true }); // the sound system is up, as when the client builds its UI
 });
+const strict: StrictRun[] = world.runs;
 lap(`strict run of ${ported.length} scripts (${rounds} rounds)`);
 const failed = strict.filter((r) => !r.ok && !r.needsSibling);
 const waiting = strict.filter((r) => r.needsSibling);
@@ -80,6 +80,13 @@ for (const r of okRuns) {
 }
 const allClassesDrawn = okRuns.filter((r) => r.undrawn.length === 0).length;
 
+// destruction: every dialog the scripts built is destroyed, once all of them were built; what the device manager still holds is what the exe leaks
+const destroyReport = destroyDialogs(world);
+const sum = (r: Record<string, number>): number => Object.values(r).reduce((a, b) => a + b, 0);
+const leftText = Object.entries(destroyReport.left).map(([k, v]) => `${k} ${v}`).join(", ");
+const leftIsLeaked = JSON.stringify(destroyReport.left) === JSON.stringify(destroyReport.leaked);
+lap(`destroyed ${destroyReport.dialogs} dialogs (${destroyReport.controls} controls)`);
+
 // 4. what to port next
 const next = greedyOrder(needs);
 const calledBy = new Map<string, number>();
@@ -93,6 +100,10 @@ console.log(`textures named by those dialogs: ${tex.resolved} resolved, ${[...te
 for (const [t, by] of [...tex.missingFile].slice(0, 10)) console.log(`  no file ${t} (${by.length}: ${by.slice(0, 3).join(" ")})`);
 for (const [t, by] of [...tex.missingKey].slice(0, 10)) console.log(`  no key  ${t} (${by.length}: ${by.slice(0, 3).join(" ")})`);
 
+console.log(
+  `destruction: ${destroyReport.dialogs} dialogs with ${destroyReport.controls} controls destroyed, ${destroyReport.errors.length} errors, ${sum(destroyReport.strays)} closes of a device nobody held; ` +
+    `left in the device manager: ${world.ui.devices.devices.size} textures, ${world.ui.devices.renderTargets.size} render targets, ${sum(destroyReport.left)} sound references (${sum(destroyReport.leaked)} leaked by the exe)`,
+);
 const show = Number(arg("--next") ?? 30);
 console.log(`next methods to port (greedy; scripts fully ported after each step):`);
 for (let i = 0; i < Math.min(show, next.order.length); i++) {
@@ -134,6 +145,7 @@ if (mdOut) {
   for (const [k, e] of [...classUse].sort((a, b) => b[1].dialogs - a[1].dialogs || (a[0] < b[0] ? -1 : 1))) md += `| \`${k}\` | ${e.dialogs} | ${e.controls} | ${undrawnClasses.has(k) ? "not ported" : "ported"} |\n`;
   md += `\n`;
   md += `Textures named by the strict runs: ${tex.resolved} references resolve (file in the archives and key in its TET); ${tex.missingFile.size} distinct files do not open, ${tex.missingKey.size} distinct keys are not in their TET.\n\n`;
+  md += `## Destruction\n\nOnce all the scripts ran, the ${destroyReport.dialogs} dialogs they built (the ${okRuns.length} that finished, and the first tries of the scripts that wait for a global of a sibling, which leave a dialog half built) are destroyed with \`CKTDGUIDialog::Destroy\`, which destroys their ${destroyReport.controls} controls (the destructors, FINDINGS 17.21). ${destroyReport.errors.length} \`Destroy()\` calls throw and ${sum(destroyReport.strays)} \`CloseDevice\` calls find no device: no destructor closes a reference it does not hold. The device manager is left with ${world.ui.devices.devices.size} textures and ${world.ui.devices.renderTargets.size} render targets; the ${sum(destroyReport.left)} sound references it still holds are the ones the exe itself leaks (\`SetCustomMouseOverSound\` and \`SetCustomMouseUpSound\` overwrite the pointer of the sound a button or radio button opened, \`~CKTDGUIButton\` never closes the mouse down sound): ${leftText}${leftIsLeaked ? ", exactly the references the controls recorded as leaked" : " (NOT the references the controls recorded as leaked)"}.\n\n`;
   md += `## Classes\n\n| class (Lua name) | registered | implemented | called by DLG scripts |\n|---|---:|---:|---:|\n`;
   const calledPerClass = new Map<string, number>();
   for (const k of calledBy.keys()) {

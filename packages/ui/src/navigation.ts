@@ -15,7 +15,7 @@
  * `HandleMouse`, `OnFrameMove`, `ContainsPoint`, and the rectangle helpers the mouse handling uses).
  */
 import type { CKTDGUINavigation_Methods } from "@els/host";
-import { CKTDGUIControl, UCT } from "./control.ts";
+import { CKTDGUIControl, UCT, destroyTexture } from "./control.ts";
 import type { UIContext, UIPointData, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
 import { newRect } from "./rect.ts";
@@ -41,6 +41,19 @@ export class CKTDGUINavigation extends CKTDGUIControl implements Partial<CKTDGUI
     super(ctx);
     this.m_ControlType = UCT.NAVIGATION;
     [this.m_pSndMouseDown] = this.openControlSounds(["Button_Mouse_Up"]);
+  }
+
+  /**
+   * The destructor (inlined in the deleting destructor 3294DE30), then the control's: the background and window textures are destroyed
+   * (their devices closed), the two points freed and the sound closed.
+   */
+  override Destroy(): void {
+    this.m_pBGTex = destroyTexture(this.ctx.devices, this.m_pBGTex);
+    this.m_pWindowTex = destroyTexture(this.ctx.devices, this.m_pWindowTex);
+    this.m_pBGPoint = null;
+    this.m_pWindowPoint = null;
+    this.m_pSndMouseDown = this.closeHeldDevice(this.m_pSndMouseDown);
+    super.Destroy();
   }
 
   /** `OnFrameMove` (3294E530): an enabled navigation runs the control's (a disabled one does nothing, not even for the move queue) */

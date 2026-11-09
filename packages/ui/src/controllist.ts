@@ -29,7 +29,7 @@
  */
 import { Vec2 } from "@els/host";
 import type { CKTDGUIContolList_Methods } from "@els/host";
-import { CKTDGUIControl, UCT, UIM } from "./control.ts";
+import { CKTDGUIControl, UCT, UIM, destroyTexture } from "./control.ts";
 import type { UIContext, UITextureData } from "./control.ts";
 import { ftoi, imul, newRect, setRect } from "./rect.ts";
 import type { Rect } from "./rect.ts";
@@ -82,6 +82,31 @@ export class CKTDGUIContolList extends CKTDGUIControl implements Partial<CKTDGUI
   constructor(ctx: UIContext) {
     super(ctx);
     this.m_ControlType = UCT.CONTROLLIST;
+  }
+
+  /**
+   * `~CKTDGUIContolList` (3294F200), then the control's: the cells are forgotten (their controls belong to the dialog), both scroll bars are
+   * deleted (their own destructors) and the twelve scroll bar textures destroyed (X, then Y: up, up down, down, down down, track, thumb).
+   */
+  override Destroy(): void {
+    this.m_mapControls.clear();
+    for (const axis of ["m_pScrollBarX", "m_pScrollBarY"] as const) {
+      const bar = this[axis];
+      if (bar) {
+        bar.Destroy();
+        this[axis] = null;
+      }
+    }
+    for (const tex of [this.xTex, this.yTex]) {
+      tex.upButton = destroyTexture(this.ctx.devices, tex.upButton);
+      tex.upButtonDown = destroyTexture(this.ctx.devices, tex.upButtonDown);
+      tex.downButton = destroyTexture(this.ctx.devices, tex.downButton);
+      tex.downButtonDown = destroyTexture(this.ctx.devices, tex.downButtonDown);
+      tex.track = destroyTexture(this.ctx.devices, tex.track);
+      tex.thumb = destroyTexture(this.ctx.devices, tex.thumb);
+    }
+    this.m_vecNowControls.length = 0;
+    super.Destroy();
   }
 
   /**
@@ -196,7 +221,7 @@ export class CKTDGUIContolList extends CKTDGUIControl implements Partial<CKTDGUI
 
   /** a bar in this list's dialog with the textures of one axis (`InitXScrollBar_LUA` / `InitYScrollBar_LUA`); the one it had is deleted */
   private makeBar(old: CKTDGUIScrollBar | null, tex: BarTextures): CKTDGUIScrollBar {
-    old?.destroy();
+    old?.Destroy();
     const bar = new CKTDGUIScrollBar(this.ctx);
     bar.setDialog(this.m_pDialog);
     bar.setDownButtonTex(tex.downButton);

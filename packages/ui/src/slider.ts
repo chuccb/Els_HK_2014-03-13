@@ -17,7 +17,7 @@
  * `OnFrameMove`).
  */
 import type { CKTDGUISlider_Methods } from "@els/host";
-import { CKTDGUIControl, UCT, UIM, UIPointData } from "./control.ts";
+import { CKTDGUIControl, UCT, UIM, UIPointData, destroyTexture } from "./control.ts";
 import type { UIContext, UITextureData } from "./control.ts";
 import { ftoi, idiv, newRect, offsetRect, setRect } from "./rect.ts";
 import type { Rect } from "./rect.ts";
@@ -52,6 +52,13 @@ export class CKTDGUISlider extends CKTDGUIControl implements Partial<CKTDGUISlid
   constructor(ctx: UIContext) {
     super(ctx);
     this.m_ControlType = UCT.SLIDER;
+  }
+
+  /** the destructor (inlined in the deleting destructor 3294C970), then the control's: the background and button textures are destroyed (their devices closed) */
+  override Destroy(): void {
+    this.m_pBGTex = destroyTexture(this.ctx.devices, this.m_pBGTex);
+    this.m_pButtonTex = destroyTexture(this.ctx.devices, this.m_pButtonTex);
+    super.Destroy();
   }
 
   /**

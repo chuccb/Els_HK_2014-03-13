@@ -120,20 +120,79 @@ export interface StrictRun {
   undrawn: string[];
 }
 
+/** every reference the device manager holds (textures, sounds and render targets are three maps of ids): id -> reference count */
+function holdings(ui: UIWorld): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const map of [ui.devices.devices, ui.devices.sounds, ui.devices.renderTargets]) for (const [id, device] of map) out.set(id, (out.get(id) ?? 0) + device.refCount);
+  return out;
+}
+
+/** `after` minus `before`: the ids whose count differs, in id order */
+function holdingsDelta(after: Map<string, number>, before: Map<string, number>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const id of [...new Set([...after.keys(), ...before.keys()])].sort()) {
+    const delta = (after.get(id) ?? 0) - (before.get(id) ?? 0);
+    if (delta !== 0) out[id] = delta;
+  }
+  return out;
+}
+
+/** What `runStrictWorld` hands to `destroyDialogs`: the world and every dialog the scripts built in it */
+export interface StrictWorld {
+  ui: UIWorld;
+  runs: StrictRun[];
+  /** every dialog a script built, in order: the failed tries of the scripts that ran twice included (a failed script leaves its dialog half built) */
+  dialogs: CKTDGUIDialog[];
+  /** what the device manager held before the first script ran */
+  baseline: Map<string, number>;
+  /** the ids of every `CloseDevice` that found no device, in order: a reference closed that nobody held (the scripts' own closes included) */
+  strayCloses: string[];
+}
+
+/** What destroying every dialog of a `StrictWorld` did to the device manager */
+export interface DestroyReport {
+  /** how many dialogs were destroyed */
+  dialogs: number;
+  /** how many controls those dialogs held */
+  controls: number;
+  /** `Destroy()` threw: `index: message` (the index in `StrictWorld.dialogs`) */
+  errors: string[];
+  /** device id -> `CloseDevice` calls of the destructors that found no device (a reference closed twice, or one the control never held) */
+  strays: Record<string, number>;
+  /** device id -> references still open, compared with the world before the first script ran */
+  left: Record<string, number>;
+  /** device id -> references the exe leaves open on purpose (`CKTDGUIControl.leakedSounds` of every control) */
+  leaked: Record<string, number>;
+}
+
 /**
  * The scripts of `names` in ONE strict world (a registered method nobody ported is an error), each building a new dialog; a script
  * that fails does not stop the others.  A script that fails on a missing global gets a second try after all the others have run (a
  * sibling may define it), as in the host census.
  */
 export function runStrict(opts: Omit<UIWorldOptions, "notPorted">, names: string[]): StrictRun[] {
+  return runStrictWorld(opts, names).runs;
+}
+
+/**
+ * `runStrict` that keeps the world and its dialogs.  With `sounds` the sound system is up, as it is when the client builds its UI, so the
+ * controls open their sounds (a census that wants to see every device reference needs them).
+ */
+export function runStrictWorld(opts: Omit<UIWorldOptions, "notPorted">, names: string[], check: { sounds?: boolean } = {}): StrictWorld {
   const ui = new UIWorld({ ...opts, notPorted: "throw" });
   ui.boot();
   ui.createOwners();
+  if (check.sounds) ui.devices.soundSystemInitialised = true;
+  const baseline = holdings(ui);
+  const strayCloses: string[] = [];
+  ui.devices.onStrayClose = (id) => void strayCloses.push(id);
+  const dialogs: CKTDGUIDialog[] = [];
   const one = (name: string): StrictRun => {
     let dialog: CKTDGUIDialog | undefined;
     let error: string | undefined;
     try {
       dialog = ui.openDialog(name, 0, new CX2SlotManager(ui)); // the UI that owns the dialog: a slot manager (g_pCX2SlotManager)
+      dialogs.push(dialog);
       if (!dialog.m_bSuccessInitOpenScript) error = ui.devices.massFiles.log.entries.at(-1)?.text ?? "script failed";
     } catch (e) {
       error = HostWorld.describeError(e);
@@ -158,7 +217,36 @@ export function runStrict(opts: Omit<UIWorldOptions, "notPorted">, names: string
     if (!second.ok && /attempt to (?:index|call) global '/.test(second.error ?? "")) second.needsSibling = true;
     out.set(name, second);
   }
-  return names.map((n) => out.get(n)!);
+  return { ui, runs: names.map((n) => out.get(n)!), dialogs, baseline, strayCloses };
+}
+
+/**
+ * Destroys every dialog of the world (`~CKTDGUIDialog`, which destroys its controls), in the order they were built, and reports what the
+ * device manager still holds.  The dialogs are destroyed after ALL scripts ran, not one by one: a script may use a control of another
+ * script's dialog through a global (`g_pStaticone`), and that control must still be alive.  Every reference that is left should be one
+ * of the exe's own leaks (`CKTDGUIControl.leakedSounds`); `left` minus `leaked` is what is not explained.
+ */
+export function destroyDialogs(world: StrictWorld): DestroyReport {
+  const { ui, dialogs, baseline } = world;
+  const leaked = new Map<string, number>();
+  const strays = new Map<string, number>();
+  const report: DestroyReport = { dialogs: dialogs.length, controls: 0, errors: [], strays: {}, left: {}, leaked: {} };
+  const controls = dialogs.map((d) => d.m_ControlsList.slice()); // a destroyed dialog's list is empty
+  const firstStray = world.strayCloses.length;
+  dialogs.forEach((dialog, i) => {
+    report.controls += controls[i]!.length;
+    try {
+      dialog.Destroy();
+    } catch (e) {
+      report.errors.push(`${i}: ${HostWorld.describeError(e)}`);
+    }
+  });
+  for (const list of controls) for (const c of list) for (const sound of c.leakedSounds) leaked.set(sound.deviceID, (leaked.get(sound.deviceID) ?? 0) + 1);
+  for (const id of world.strayCloses.slice(firstStray)) strays.set(id, (strays.get(id) ?? 0) + 1);
+  report.strays = holdingsDelta(strays, new Map());
+  report.left = holdingsDelta(holdings(ui), baseline);
+  report.leaked = holdingsDelta(leaked, new Map());
+  return report;
 }
 
 export type { HostOptions };

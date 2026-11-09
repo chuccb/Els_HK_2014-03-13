@@ -9,6 +9,11 @@ export class IntPairMap<V> implements Iterable<[number, number, V]> {
     return this.cells.length;
   }
 
+  /** `clear()` */
+  clear(): void {
+    this.cells.length = 0;
+  }
+
   private lowerBound(first: number, second: number): number {
     let lo = 0, hi = this.cells.length;
     while (lo < hi) {

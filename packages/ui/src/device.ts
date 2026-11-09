@@ -263,12 +263,19 @@ export interface BandiVideoLibrary {
   getVideoInfo(): VideoInfo;
   /** `Play()` */
   play(): number;
+  /**
+   * `Destroy()` (329842B0) and `~CBandiVideoLibrary` (329840E0), the same release: the video is stopped and released and the DLL freed, each only
+   * when there is one.  `CMovieData`'s destructor calls `Destroy` for a library that was created and the destructor at its end.
+   */
+  destroy(): void;
 }
 
 /** `CBandiVideoTexture_DX9` (0x28 bytes): the Direct3D texture the video's frames are copied into */
 export interface BandiVideoTexture {
   open(width: number, height: number): number;
   close(): void;
+  /** the deleting destructor (the vtable's slot 0), which `CMovieData`'s destructor calls after `Close` */
+  Destroy(): void;
 }
 
 /** a machine without `bdvid32.dll`: nothing can be created, nothing can be opened (and no movie file is there to play) */
@@ -298,6 +305,8 @@ export class NoVideoLibrary implements BandiVideoLibrary {
   play(): number {
     return E_FAIL;
   }
+
+  destroy(): void {}
 }
 
 /** the texture of a video that cannot play (it is only reached with a library that opens files) */
@@ -307,6 +316,8 @@ export class NoVideoTexture implements BandiVideoTexture {
   }
 
   close(): void {}
+
+  Destroy(): void {}
 }
 
 /** the texture and sound part of `CKTDXDeviceManager` */
@@ -468,6 +479,12 @@ export class DeviceManager {
     return target;
   }
 
+  /**
+   * Not in the exe: told the id of a `CloseDevice` that finds no device (a close of a reference nobody holds: harmless in the exe, a
+   * mistake of the caller), for the census that checks the destructors.
+   */
+  onStrayClose: ((id: string) => void) | undefined;
+
   /** `CKTDXDeviceManager::CloseDevice(deviceID)` (328ED610) */
   closeDevice(deviceID: string): void {
     if (deviceID.length === 0) return;
@@ -483,6 +500,10 @@ export class DeviceManager {
       return;
     }
     const snd = this.sounds.get(id);
-    if (snd && --snd.refCount <= 0) this.sounds.delete(id);
+    if (snd) {
+      if (--snd.refCount <= 0) this.sounds.delete(id);
+      return;
+    }
+    this.onStrayClose?.(id);
   }
 }
