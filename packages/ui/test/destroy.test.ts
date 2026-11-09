@@ -4,7 +4,7 @@ import { Color, Vec2, Vec3 } from "@els/host";
 import {
   CKTDGUIButton, CKTDGUICheckBox, CKTDGUIComboBox, CKTDGUIContolList, CKTDGUIControl, CKTDGUIDialog, CKTDGUIEditBox, CKTDGUIIMEEditBox,
   CKTDGUIListBox, CKTDGUINavigation, CKTDGUIRadioButton, CKTDGUIScrollBar, CKTDGUISlider, CKTDGUISlot, CKTDGUIStatic, CMovieData, CPictureData,
-  CX2Slot, DeviceTexture, RadioButtonGroupInfo, TexChangeData, UIPointData, UIStringData, setTexureData,
+  CX2Slot, DeviceTexture, RadioButtonGroupInfo, TexChangeData, UIPointData, UIStringData, destroyDialogs, setTexureData,
 } from "../src/index.ts";
 import type { DeviceSound, UKFont, UISlotData, UITextureData } from "../src/index.ts";
 import { setup } from "./harness.ts";
@@ -965,6 +965,72 @@ describe("the sound references the exe never closes", () => {
     expect(sounds(held)).toEqual(["CHECK.WAV=1", "OVER.WAV=2", "UP.WAV=1"]); // the check box closed its own check sound, and nothing leaked but the replaced references
   });
 
+  test("a dialog hands on only the custom sounds it has: with none, or only one, the buttons keep the other sound they opened", () => {
+    const { w, snd } = scene();
+    const make = (dialog: CKTDGUIDialog): { b: CKTDGUIButton; r: CKTDGUIRadioButton } => {
+      const b = new CKTDGUIButton(w);
+      b.m_pSndMouseOver = snd("over.wav");
+      b.m_pSndMouseUp = snd("up.wav");
+      const r = new CKTDGUIRadioButton(w);
+      r.m_pSndMouseOver = snd("over.wav");
+      r.m_pSndCheck = snd("check.wav");
+      dialog.AddControl(b);
+      dialog.AddControl(r);
+      return { b, r };
+    };
+    const sound = (x: DeviceSound | undefined): string => x?.deviceID ?? "none";
+    const none = make(new CKTDGUIDialog(w));
+    expect([ids(none.b), ids(none.r)]).toEqual([[], []]);
+    expect([sound(none.b.m_pSndMouseOver), sound(none.b.m_pSndMouseUp), sound(none.r.m_pSndMouseOver), sound(none.r.m_pSndCheck)]).toEqual(["OVER.WAV", "UP.WAV", "OVER.WAV", "CHECK.WAV"]);
+    const onlyOver = new CKTDGUIDialog(w);
+    onlyOver.SetCustomButtonMouseOverSndFile("cover.wav");
+    const a = make(onlyOver);
+    expect([ids(a.b), ids(a.r)]).toEqual([["OVER.WAV"], ["OVER.WAV"]]);
+    expect([sound(a.b.m_pSndMouseOver), sound(a.b.m_pSndMouseUp), sound(a.r.m_pSndMouseOver), sound(a.r.m_pSndCheck)]).toEqual(["COVER.WAV", "UP.WAV", "COVER.WAV", "CHECK.WAV"]);
+    const onlyUp = new CKTDGUIDialog(w);
+    onlyUp.SetCustomButtonMouseUpSndFile("cup.wav");
+    const c = make(onlyUp);
+    expect([ids(c.b), ids(c.r)]).toEqual([["UP.WAV"], ["CHECK.WAV"]]);
+    expect([sound(c.b.m_pSndMouseOver), sound(c.b.m_pSndMouseUp), sound(c.r.m_pSndMouseOver), sound(c.r.m_pSndCheck)]).toEqual(["OVER.WAV", "CUP.WAV", "OVER.WAV", "CUP.WAV"]);
+  });
+
+  test("a button's three Change...Sound methods each close the sound they replace and no other, and leave nothing in the leaked list; the new name may be empty", () => {
+    const { w, take, held } = scene();
+    const b = new CKTDGUIButton(w);
+    b.ChangeMouseOverSound_LUA("o1.wav");
+    b.ChangeMouseUpSound_LUA("u1.wav");
+    b.ChangeMouseDownSound_LUA("d1.wav");
+    take();
+    b.ChangeMouseOverSound_LUA("o2.wav");
+    expect([take(), sounds(held), b.m_pSndMouseOver?.deviceID]).toEqual([["O1.WAV"], ["D1.WAV=1", "O2.WAV=1", "U1.WAV=1"], "O2.WAV"]);
+    b.ChangeMouseUpSound_LUA("u2.wav");
+    expect([take(), sounds(held), b.m_pSndMouseUp?.deviceID]).toEqual([["U1.WAV"], ["D1.WAV=1", "O2.WAV=1", "U2.WAV=1"], "U2.WAV"]);
+    b.ChangeMouseDownSound_LUA("d2.wav");
+    expect([take(), sounds(held), b.m_pSndMouseDown?.deviceID]).toEqual([["D1.WAV"], ["D2.WAV=1", "O2.WAV=1", "U2.WAV=1"], "D2.WAV"]);
+    b.ChangeMouseOverSound_LUA("");
+    b.ChangeMouseUpSound_LUA("");
+    b.ChangeMouseDownSound_LUA("");
+    expect([take(), sounds(held), some(b.m_pSndMouseOver, b.m_pSndMouseUp, b.m_pSndMouseDown), ids(b)]).toEqual([["O2.WAV", "U2.WAV", "D2.WAV"], [], ["none", "none", "none"], []]);
+    b.ChangeMouseOverSound_LUA(""); // nothing to close
+    expect(take()).toEqual([]);
+  });
+
+  test("a Change...Sound to the sound the button has closes it first (its device goes) and opens it afresh: a new device object, one reference", () => {
+    const { w, take, held } = scene();
+    const b = new CKTDGUIButton(w);
+    b.ChangeMouseOverSound_LUA("o.wav");
+    b.ChangeMouseUpSound_LUA("u.wav");
+    b.ChangeMouseDownSound_LUA("d.wav");
+    const before = [b.m_pSndMouseOver, b.m_pSndMouseUp, b.m_pSndMouseDown];
+    take();
+    b.ChangeMouseOverSound_LUA("o.wav");
+    b.ChangeMouseUpSound_LUA("u.wav");
+    b.ChangeMouseDownSound_LUA("d.wav");
+    expect(take()).toEqual(["O.WAV", "U.WAV", "D.WAV"]);
+    expect(sounds(held)).toEqual(["D.WAV=1", "O.WAV=1", "U.WAV=1"]);
+    expect([is(b.m_pSndMouseOver, before[0]), is(b.m_pSndMouseUp, before[1]), is(b.m_pSndMouseDown, before[2])]).toEqual([false, false, false]);
+  });
+
   test("the device manager tells the stray close hook the id of a close that finds no device: an empty id and an open device do not", () => {
     const { w } = setup();
     const d = w.devices;
@@ -984,5 +1050,97 @@ describe("the sound references the exe never closes", () => {
     d.onStrayClose = undefined;
     d.closeDevice("a.ogg");
     expect(strays.length).toBe(2);
+  });
+
+  test("an open texture or render target is not a stray close; the close after its last reference is", () => {
+    const { w } = setup();
+    const d = w.devices;
+    const strays: string[] = [];
+    d.onStrayClose = (id) => void strays.push(id);
+    const texture = new DeviceTexture("T.TGA");
+    texture.refCount = 2;
+    d.devices.set("T.TGA", texture);
+    d.openRenderTargetTexture("rt", 8, 8, 0);
+    d.closeDevice("t.tga");
+    d.closeDevice("T.TGA");
+    d.closeDevice("rt");
+    expect([strays, d.devices.size, d.renderTargets.size]).toEqual([[], 0, 0]);
+    d.closeDevice("t.tga");
+    d.closeDevice("RT");
+    expect(strays).toEqual(["T.TGA", "RT"]);
+  });
+});
+
+// ---- destroying every dialog of a census world -----------------------------------------------------------------------------------
+
+describe("destroyDialogs: what the census reports after it destroys the dialogs of a world", () => {
+  /** two dialogs: a static with a picture in the first, a button with a custom over sound and a mouse down sound in the second */
+  function twoDialogs(s: Scene) {
+    const { w, snd } = s;
+    const d1 = new CKTDGUIDialog(w);
+    const d2 = new CKTDGUIDialog(w);
+    const st = new CKTDGUIStatic(w);
+    st.m_Name = "st";
+    d1.AddControl(st);
+    const picture = new CPictureData(w);
+    picture.SetTex("P.TGA", "k");
+    st.m_PictureDataList.push(picture);
+    const b = new CKTDGUIButton(w);
+    b.m_Name = "b";
+    d2.AddControl(b);
+    b.m_pSndMouseOver = snd("over.wav");
+    b.setCustomMouseOverSound("custom.wav");
+    b.ChangeMouseDownSound_LUA("down.wav");
+    const order: string[] = [];
+    spyOnDestroy(st, "st", order);
+    spyOnDestroy(b, "b", order);
+    return { d1, d2, st, b, order };
+  }
+
+  test("the dialogs are destroyed in order; the count of dialogs and controls, what stays open (against the baseline) and the leaks the controls recorded", () => {
+    const s = scene();
+    const { d1, d2, order } = twoDialogs(s);
+    s.tex("KEEP.TGA"); // open before the scripts ran: the baseline
+    const report = destroyDialogs({ ui: s.w, runs: [], dialogs: [d1, d2], baseline: new Map([["KEEP.TGA", 1]]), strayCloses: [] });
+    expect(order).toEqual(["st", "b"]);
+    expect(report).toEqual({
+      dialogs: 2, controls: 2, errors: [], strays: {},
+      left: { "DOWN.WAV": 1, "OVER.WAV": 1 }, // the over sound the custom one replaced, and the mouse down sound
+      leaked: { "DOWN.WAV": 1, "OVER.WAV": 1 },
+    });
+    expect([d1.destroyed, d2.destroyed, s.held()]).toEqual([true, true, ["DOWN.WAV=1", "KEEP.TGA=1", "OVER.WAV=1"]]);
+  });
+
+  test("a destruction that throws is reported with the index of its dialog and the others are destroyed all the same", () => {
+    const s = scene();
+    const { d1, d2, order } = twoDialogs(s);
+    d1.Destroy = () => {
+      throw new Error("boom");
+    };
+    const report = destroyDialogs({ ui: s.w, runs: [], dialogs: [d1, d2], baseline: new Map(), strayCloses: [] });
+    expect(report.errors.length).toBe(1);
+    expect(report.errors[0]).toMatch(/^0: .*boom/);
+    expect([order, d2.destroyed, report.dialogs, report.controls]).toEqual([["b"], true, 2, 2]);
+  });
+
+  test("only the closes that found no device during the destruction are reported", () => {
+    const s = scene();
+    const { d1, d2, st } = twoDialogs(s);
+    st.m_pEdgeTexture = new DeviceTexture("GHOST.TGA"); // a texture the device manager does not hold
+    const strays: string[] = ["EARLIER.TGA"]; // a close of the scripts themselves, before the destruction
+    s.d.onStrayClose = (id) => void strays.push(id);
+    const report = destroyDialogs({ ui: s.w, runs: [], dialogs: [d1, d2], baseline: new Map(), strayCloses: strays });
+    expect(report.strays).toEqual({ "GHOST.TGA": 1 });
+  });
+
+  test("what stays open is the difference to the baseline, in both directions and in the order of the ids", () => {
+    const s = scene();
+    const { d1, d2 } = twoDialogs(s);
+    s.tex("LEFT.TGA");
+    s.tex("LEFT.TGA");
+    const report = destroyDialogs({ ui: s.w, runs: [], dialogs: [d1, d2], baseline: new Map([["LEFT.TGA", 1], ["GONE.TGA", 3]]), strayCloses: [] });
+    expect(report.left).toEqual({ "DOWN.WAV": 1, "GONE.TGA": -3, "LEFT.TGA": 1, "OVER.WAV": 1 });
+    expect(Object.keys(report.left)).toEqual(["DOWN.WAV", "GONE.TGA", "LEFT.TGA", "OVER.WAV"]);
+    expect(Object.keys(report.leaked)).toEqual(["DOWN.WAV", "OVER.WAV"]);
   });
 });
