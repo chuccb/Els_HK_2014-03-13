@@ -1881,7 +1881,7 @@ describe("CKTDGUIDialog::OnFrameMove (32958A00)", () => {
     CKTDGUISlot.s_pDragSlot = null;
   });
 
-  test("SetShow (3295B900): hiding hides the guide dialog and counts the modal dialogs again (not modal ones, with a manager); showing needs the mouse (not ported); a hidden dialog returns its dragged slot", () => {
+  test("SetShow (3295B900): hiding hides the guide dialog and counts the modal dialogs again (not modal ones, with a manager), and so does showing (which also takes the mouse: mouse.test.ts); a hidden dialog returns its dragged slot", () => {
     const { d, w } = dlg();
     const manager = w.dialogManager;
     d.m_pkUIDialogManager = manager;
@@ -1893,8 +1893,9 @@ describe("CKTDGUIDialog::OnFrameMove (32958A00)", () => {
     expect([d.m_bShow, manager.m_iModalDialogCount]).toEqual([true, 99]);
     d.setShow(false);
     expect([d.m_bShow, guide.m_bShow, manager.m_iModalDialogCount]).toEqual([false, false, 0]);
-    expect(() => d.setShow(true)).toThrow("not ported");
-    expect(d.m_bShow).toBe(true);
+    manager.m_iModalDialogCount = 99;
+    d.setShow(true); // the guide dialog stays hidden; the manager counts again; the mouse is over nothing
+    expect([d.m_bShow, guide.m_bShow, manager.m_iModalDialogCount, d.m_pControlMouseOver]).toEqual([true, false, 0, null]);
     // a modal dialog does not recount
     const m = dlg().d;
     m.m_pkUIDialogManager = manager;

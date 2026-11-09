@@ -26,6 +26,7 @@ import type { CKTDGUIDialogManager } from "./dialogmanager.ts";
 import type { UIInputManager, UIKeyboard, UIMouse } from "./input.ts";
 import type { UIRender, VertexUI4 } from "./render.ts";
 import { ftoi } from "./rect.ts";
+import { pick2DRect } from "./pick.ts";
 import type { UIFonts } from "./font.ts";
 import type { ImeSystem } from "./imeeditbox.ts";
 
@@ -102,6 +103,9 @@ export class RenderStatics {
 }
 
 const f = Math.fround;
+
+/** the position of `fs_uiDialogNullObject` (a dialog made by the plain constructor, 328776F0, at 0x336434B8), the dialog a handle that resolves to nothing answers */
+const NULL_DIALOG_POS = { x: 0, y: 0 };
 
 /** `CKTDGUIControl::UITextureData`: a texture of a picture and the UV rectangle it draws */
 export class UITextureData {
@@ -1267,6 +1271,66 @@ export class CKTDGUIControl implements Partial<CKTDGUIControl_Methods> {
   /** `CanHaveFocus()` (329240B0), virtual slot 14 */
   canHaveFocus(): boolean {
     return this.m_bEnable && this.m_bShow;
+  }
+
+  /**
+   * `ContainsPoint(pt)` (32924310), virtual slot 12: the point (in the control's own layout pixels: `localPoint`) is inside the quadrilateral
+   * of the control's current point, `m_NowPoint`, which it is walked left-top, right-top, right-bottom, left-bottom (`Pick2DRect`).
+   */
+  containsPoint(x: number, y: number): boolean {
+    const p = this.m_NowPoint;
+    return pick2DRect(x, y, p.leftTopPoint, p.rightTopPoint, p.leftBottomPoint, p.rightBottomPoint);
+  }
+
+  /**
+   * `ContainsPoint` of Button and Slot (3292D460: the compiler folded the two): the control's own test (`CKTDGUIControl::ContainsPoint`,
+   * called directly) and, when the control has an enable rectangle (`m_vEnableLeftTop` and `m_vEnableRightBottom`, each other than (0, 0)),
+   * the point put in the dialog's coordinates (`+ (int)dialog.m_Pos`) inside that rectangle too.  The exe tests the rectangle with the four
+   * cross products of the left-top and right-bottom corners, the other two corners being made of the same numbers (so for the corner
+   * pair `(x1, y1)`, `(x2, y2)` the products are `(py - y1)(x2 - x1)`, `-(px - x2)(y2 - y1)`, `(py - y2)(x1 - x2)` and `-(px - x1)(y1 - y2)`, each
+   * in single precision with the zero products it keeps): inside means all four above 0 (a rectangle walked right and down, the point
+   * strictly inside) or all four below 0 (the other orientations: the box is the same).  The exe asks the dialog handle for the dialog: a control
+   * in no dialog (or in one that is gone) gets the global null object `fs_uiDialogNullObject`, a dialog made by the plain constructor, whose
+   * position is (0, 0).
+   */
+  protected containsPointInEnableRect(x: number, y: number): boolean {
+    if (!CKTDGUIControl.prototype.containsPoint.call(this, x, y)) return false;
+    const lt = this.m_vEnableLeftTop, rb = this.m_vEnableRightBottom;
+    const x1 = lt.x;
+    if (x1 === 0 && lt.y === 0) return true;
+    const x2 = rb.x;
+    if (x2 === 0 && rb.y === 0) return true;
+    const y1 = lt.y, y2 = rb.y;
+    const dialog = this.m_pDialog;
+    const pos = dialog !== null && !dialog.destroyed ? dialog.m_Pos : NULL_DIALOG_POS;
+    const px = f((x + ftoi(pos.x)) | 0);
+    const py = f((y + ftoi(pos.y)) | 0);
+    const c1 = f(f(f(py - y1) * f(x2 - x1)) - f(f(px - x1) * f(y1 - y1)));
+    const c2 = f(f(f(py - y1) * f(x2 - x2)) - f(f(px - x2) * f(y2 - y1)));
+    const c3 = f(f(f(py - y2) * f(x1 - x2)) - f(f(px - x2) * f(y2 - y2)));
+    const c4 = f(f(f(py - y2) * f(x1 - x1)) - f(f(px - x1) * f(y1 - y2)));
+    return (c1 > 0 && c2 > 0 && c3 > 0 && c4 > 0) || (c1 < 0 && c2 < 0 && c3 < 0 && c4 < 0);
+  }
+
+  /**
+   * `MsgProc(hWnd, uMsg, wParam, lParam)`, virtual slot 6: a window message the focused control may answer.  The base class answers no
+   * (`xor al, al; ret 10h`, 328CF610, shared with other classes' empty functions); the edit boxes override it.
+   */
+  msgProc(_hWnd: unknown, _uMsg: number, _wParam: number, _lParam: number): boolean {
+    return false;
+  }
+
+  /** `HandleKeyboard(uMsg, wParam, lParam)` (32924880), virtual slot 7: a key message; the base class answers no */
+  handleKeyboard(_uMsg: number, _wParam: number, _lParam: number): boolean {
+    return false;
+  }
+
+  /**
+   * `HandleMouse(uMsg, pt, wParam, lParam)` (32924890), virtual slot 8: a mouse message with the point `(x, y)` in the control's own layout
+   * pixels (`localPoint`); the base class answers no.
+   */
+  handleMouse(_uMsg: number, _x: number, _y: number, _wParam: number, _lParam: number): boolean {
+    return false;
   }
 
   /** `OnFocusIn()`, virtual slot 9 */

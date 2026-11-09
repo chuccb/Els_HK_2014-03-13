@@ -20,9 +20,9 @@
  * Constructor (328DD5F0): `m_bShow = true`, `m_bCanHide = false`.  `GetHideDialog()` (328DEF40) is `m_bCanHide && !m_bShow`: with a hidden
  * dialog layer `CKTDGUIDialog::OnFrameRender` draws only the chat box's edit box.
  *
- * Not ported: `ExistDialogAtMousePos` (328DE620, `CKTDGUIDialog::GetControlMouseOver`: mouse input), `OnLostDevice` / `OnResetDevice`
- * (328E09A0 / 328E0A40, the device reset the dialogs pass on to their controls), the destructor (328DD8A0) and the dialogs' own `MsgProc`
- * (`CKTDGUIDialog::MsgProc` 32958350, the input), which the manager's `MsgProc` loop (328DEFD0) calls.
+ * `ExistDialogAtMousePos` (328DE620) asks every dialog of the set for `GetControlMouseOver` (329574A0).  Not ported: `OnLostDevice` /
+ * `OnResetDevice` (328E09A0 / 328E0A40, the device reset the dialogs pass on to their controls), the destructor (328DD8A0) and the dialogs'
+ * own `MsgProc` (`CKTDGUIDialog::MsgProc` 32958350, the input), which the manager's `MsgProc` loop (328DEFD0) calls.
  */
 import type { CKTDGUIDialogManager_Methods } from "@els/host";
 import { UCT } from "./control.ts";
@@ -608,6 +608,17 @@ export class CKTDGUIDialogManager implements CKTDGUIDialogManager_Methods {
       });
     }
     return 0;
+  }
+
+  /**
+   * `ExistDialogAtMousePos()` (328DE620): some dialog the manager owns has a control under the mouse (`GetControlMouseOver`); a dialog that
+   * is gone (its handle no longer resolves) is passed over.
+   */
+  existDialogAtMousePos(): boolean {
+    for (const dialog of this.m_setDialog) {
+      if (live(dialog) && dialog.getControlMouseOver() !== null) return true;
+    }
+    return false;
   }
 
   /**

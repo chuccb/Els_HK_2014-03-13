@@ -123,6 +123,11 @@ export class CKTDGUISlot extends CKTDGUIControl implements Partial<CKTDGUISlot_M
     super.Destroy();
   }
 
+  /** `ContainsPoint` (3292D460, the function Button has too): the control's quadrilateral and, with one, its enable rectangle: `containsPointInEnableRect` */
+  override containsPoint(x: number, y: number): boolean {
+    return this.containsPointInEnableRect(x, y);
+  }
+
   /**
    * `OnFrameMove` (32952430): a shown slot runs the control's, moves its current point towards its end point, loses `m_bMouseOver` when a
    * dialog in front of it is not modal, lets updated slot data refresh the slot (`UpdateUI`), and follows the mouse: normal goes to mouse over (with

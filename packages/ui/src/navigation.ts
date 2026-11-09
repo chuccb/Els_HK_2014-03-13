@@ -11,14 +11,14 @@
  * texture only meet when `SetWindowTex_LUA` runs after `SetWindowPoint_LUA`), SetCustomMsgLButtonDown 328CD120 and SetCustomMsgMouseDragging
  * 328CD1B0 (folded by the linker with the radio button's `SetCustomMsgRButtonUp`; the member it writes is `m_CustomMsgMouseDragging`, 0x2D0).
  *
- * `OnFrameRender` (3294E560) draws the background and the window.  Not ported: what the control does while the game runs (`MsgProc`,
- * `HandleMouse`, `OnFrameMove`, `ContainsPoint`, and the rectangle helpers the mouse handling uses).
+ * `OnFrameRender` (3294E560) draws the background and the window, `ContainsPoint` (3294E000) asks `PtInRect` of the rectangle that the
+ * background point makes.  Not ported: what the control does with the input (`HandleMouse` 3294E160, `MsgProc` 3294E510).
  */
 import type { CKTDGUINavigation_Methods } from "@els/host";
 import { CKTDGUIControl, UCT, destroyTexture } from "./control.ts";
 import type { UIContext, UIPointData, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
-import { newRect } from "./rect.ts";
+import { ftoi, newRect, ptInRect } from "./rect.ts";
 import type { Rect } from "./rect.ts";
 import { VertexUI4 } from "./render.ts";
 
@@ -60,6 +60,22 @@ export class CKTDGUINavigation extends CKTDGUIControl implements Partial<CKTDGUI
   override onFrameMove(fTime: number, fElapsedTime: number): number {
     if (this.m_bEnable) super.onFrameMove(fTime, fElapsedTime);
     return 0;
+  }
+
+  /**
+   * `ContainsPoint` (3294E000), virtual: the background rectangle `m_rcBG` is made again from the background point (the left-top and the
+   * right-bottom corner, each coordinate cut to an int) and the point must be in it, `PtInRect` (the right and bottom edges are outside).
+   * A navigation without a background point is a null dereference in the exe.
+   */
+  override containsPoint(x: number, y: number): boolean {
+    const p = this.m_pBGPoint;
+    if (!p) throw new Error("CKTDGUINavigation::ContainsPoint: the navigation has no background point (the exe reads it through a null pointer)");
+    const rc = this.m_rcBG;
+    rc.left = ftoi(p.leftTopPoint.x);
+    rc.right = ftoi(p.rightBottomPoint.x);
+    rc.top = ftoi(p.leftTopPoint.y);
+    rc.bottom = ftoi(p.rightBottomPoint.y);
+    return ptInRect(rc, { x, y });
   }
 
   override textureData(out: UITextureData[]): void {

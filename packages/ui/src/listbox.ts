@@ -19,8 +19,9 @@
  * GetSelectedIndex, ClearSelect, SelectItem, RemoveItem, RemoveItemByText, RemoveAllItems, SetScrollBarEndPos, SetShowAllItems,
  * SetShowTimeAllItems, GetPos and the `SetDialog` override.
  *
- * `OnFrameMove` (32943980) and `OnFrameRender` (32943BA0, see `onFrameRender`) are ported.  Not ported: what the box does with the input
- * while the game runs (`MsgProc`, `HandleMouse`, `ContainsPoint`, `SetMaximize`).  The virtual functions the Lua methods of the base class reach are the base class's: the box overrides only those and
+ * `OnFrameMove` (32943980), `OnFrameRender` (32943BA0, see `onFrameRender`) and `ContainsPoint` (32942D10: the quadrilateral, then the
+ * bounding box of the scroll bar) are ported.  Not ported: what the box does with the input while the game runs (`HandleMouse` 32942EA0,
+ * `MsgProc` 32943960) and `SetMaximize`.  The virtual functions the Lua methods of the base class reach are the base class's: the box overrides only those and
  * `UpdateRects` (vtable slot 42, which is where the setters go), `SetDialog` (slot 15) and `GetPos` (slot 27).
  */
 import { Color, Vec2 } from "@els/host";
@@ -31,6 +32,7 @@ import type { UIContext, UIStringData, UITextureData } from "./control.ts";
 import type { DeviceSound } from "./device.ts";
 import { packColor } from "./font.ts";
 import type { ColorF, UKFont } from "./font.ts";
+import { pick2DRect, pick2DRectOfRect } from "./pick.ts";
 import { copyRect, ftoi, idiv, inflateRect, newRect, offsetRect, setRect } from "./rect.ts";
 import type { Rect } from "./rect.ts";
 import { VertexUI4 } from "./render.ts";
@@ -197,6 +199,19 @@ export class CKTDGUIListBox extends CKTDGUIControl implements Partial<CKTDGUILis
     this.m_pUKFont = null;
     this.m_pGroupUKFont = null;
     super.Destroy();
+  }
+
+  /**
+   * `ContainsPoint` (32942D10), virtual: the point is inside the box's quadrilateral (`m_NowPoint`) or inside the bounding box of its scroll
+   * bar (`Pick2DRect` on the four corners of the integer rectangle).  The exe does not look whether the box has a scroll bar when the point is
+   * outside the box: no bar is a null dereference there, and an error here.
+   */
+  override containsPoint(x: number, y: number): boolean {
+    const p = this.m_NowPoint;
+    if (pick2DRect(x, y, p.leftTopPoint, p.rightTopPoint, p.leftBottomPoint, p.rightBottomPoint)) return true;
+    const bar = this.m_pScrollBar;
+    if (!bar) throw new Error("CKTDGUIListBox::ContainsPoint: the box has no scroll bar (the exe reads its bounding box through a null pointer)");
+    return pick2DRectOfRect(x, y, bar.m_rcBoundingBox);
   }
 
   /**

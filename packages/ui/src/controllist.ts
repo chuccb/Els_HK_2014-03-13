@@ -25,12 +25,14 @@
  * `UpdateRenderControlList` 329504F0 and `UpdateScrollBar` 329506E0.  `UpdateScrollBar` has a bug that is kept: when the X bar needs showing
  * it sets the *Y* bar's track position to the X index (and faults when there is no Y bar).
  *
- * Not ported: what the list does while the game runs (`MsgProc`, `HandleMouse`, `OnFrameMove`, `OnFrameRender`, `ContainsPoint`).
+ * `ContainsPoint` (3294F490) holds the quadrilateral and the bounding boxes of the two scroll bars.  Not ported: what the list does with
+ * the mouse (`HandleMouse` 3294F5F0).
  */
 import { Vec2 } from "@els/host";
 import type { CKTDGUIContolList_Methods } from "@els/host";
 import { CKTDGUIControl, UCT, UIM, destroyTexture } from "./control.ts";
 import type { UIContext, UITextureData } from "./control.ts";
+import { pick2DRect, pick2DRectOfRect } from "./pick.ts";
 import { ftoi, imul, newRect, setRect } from "./rect.ts";
 import type { Rect } from "./rect.ts";
 import { CKTDGUIScrollBar } from "./scrollbar.ts";
@@ -150,6 +152,20 @@ export class CKTDGUIContolList extends CKTDGUIControl implements Partial<CKTDGUI
     p.leftBottomPoint.set(left, bottom);
     p.rightBottomPoint.set(right, bottom);
     return 0;
+  }
+
+  /**
+   * `ContainsPoint` (3294F490), virtual: the point is inside the list's quadrilateral (`m_NowPoint`), or inside the bounding box of the
+   * horizontal scroll bar, or inside the bounding box of the vertical one (a bar the list does not have holds nothing).
+   */
+  override containsPoint(x: number, y: number): boolean {
+    const p = this.m_NowPoint;
+    if (pick2DRect(x, y, p.leftTopPoint, p.rightTopPoint, p.leftBottomPoint, p.rightBottomPoint)) return true;
+    const barX = this.m_pScrollBarX;
+    if (barX && pick2DRectOfRect(x, y, barX.m_rcBoundingBox)) return true;
+    const barY = this.m_pScrollBarY;
+    if (!barY) return false;
+    return pick2DRectOfRect(x, y, barY.m_rcBoundingBox);
   }
 
   override textureData(out: UITextureData[]): void {

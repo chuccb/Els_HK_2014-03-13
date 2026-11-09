@@ -10,6 +10,7 @@ import type { CPictureData, UIContext, UIPointData, UIStringData, UITextureData 
 import type { DeviceTexture } from "./device.ts";
 import type { CMovieData } from "./movie.ts";
 import { VertexUI4 } from "./render.ts";
+import { pick2DRect } from "./pick.ts";
 import { ftoi } from "./rect.ts";
 import { draw2DString, drawUKString, spreadText } from "./stringdraw.ts";
 import type { CKTDGUIItem_Methods, CKTDGUIStatic_Methods } from "@els/host";
@@ -51,6 +52,18 @@ export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStat
   /** `CanHaveFocus` (32928E80), virtual: a static can have the focus whenever it is shown */
   override canHaveFocus(): boolean {
     return this.m_bShow;
+  }
+
+  /**
+   * `ContainsPoint` (32928E90), virtual: the point is inside the quadrilateral of the point data of one of the pictures (a picture that has
+   * none is passed over); each is tested as `CKTDGUIControl::ContainsPoint` tests `m_NowPoint`.  A static with no picture holds no point.
+   */
+  override containsPoint(x: number, y: number): boolean {
+    for (const picture of this.m_PictureDataList) {
+      const p = picture.pPoint;
+      if (p && pick2DRect(x, y, p.leftTopPoint, p.rightTopPoint, p.leftBottomPoint, p.rightBottomPoint)) return true;
+    }
+    return false;
   }
 
   override textureData(out: UITextureData[]): void {

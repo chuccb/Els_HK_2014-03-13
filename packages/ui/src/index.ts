@@ -7,6 +7,7 @@ export * from "./radiobutton.ts";
 export * from "./checkbox.ts";
 export * from "./slot.ts";
 export * from "./rect.ts";
+export * from "./pick.ts";
 export * from "./font.ts";
 export * from "./fontmanager.ts";
 export * from "./listbox.ts";

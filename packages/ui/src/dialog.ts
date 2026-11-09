@@ -15,7 +15,7 @@
 import { LuaError } from "@els/lua";
 import { Color, KLuaManager, Vec2, Vec3 } from "@els/host";
 import type { CKTDGUIDialog_Methods } from "@els/host";
-import { CKTDGUIControl, CPictureData, approach } from "./control.ts";
+import { CKTDGUIControl, CPictureData, UCT, approach } from "./control.ts";
 import { CKTDGUIButton } from "./button.ts";
 import { CKTDGUICheckBox } from "./checkbox.ts";
 import { CKTDGUIRadioButton } from "./radiobutton.ts";
@@ -29,6 +29,8 @@ import { CKTDGUISlider } from "./slider.ts";
 import { CKTDGUIEditBox } from "./editbox.ts";
 import { CKTDGUINavigation } from "./navigation.ts";
 import type { RadioButtonGroupInfo } from "./radiobutton.ts";
+import { localPoint, resolutionScale } from "./pick.ts";
+import { ftoi } from "./rect.ts";
 import { DIALOG_SAMPLER_STATES, RSI_UI_DIALOG } from "./render.ts";
 import type { CKTDGUIDialogManager } from "./dialogmanager.ts";
 import { WStringMap } from "./stdmap.ts";
@@ -104,6 +106,16 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
   m_bCheckAutoDeleteEnd = false;
   m_bEnableMoveByDrag = false;
   m_bMouseDownForDrag = false;
+  /**
+   * `m_pControlMouseOver`: the control the mouse is over, the last of the list that is not a static, holds the point and is shown (`OnMouseMove`);
+   * `m_pControlMouseOverStatic`: the last control of any kind that holds the point and is shown; `m_pControlMouseOverShowDlg`: the last control
+   * that holds the point, shown or not, for a dialog with `m_bMouseOverShowDlg` (only the chat window's: the game's code sets it).  The exe never
+   * clears them when a control is destroyed.
+   */
+  m_pControlMouseOver: CKTDGUIControl | null = null;
+  m_pControlMouseOverShowDlg: CKTDGUIControl | null = null;
+  m_pControlMouseOverStatic: CKTDGUIControl | null = null;
+  m_bMouseOverShowDlg = false;
   readonly m_vSize = new Vec2();
   m_bEnableDraggingRange = false;
   readonly m_vDraggingRangeCenter = new Vec2(512, 384);
@@ -248,16 +260,99 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
   /**
    * `SetShow(bShow)` (3295B900), the dialog's own: a change of the flag; hiding also hides the guide dialog, and shows/hides count the modal dialogs of the
    * manager again (a dialog that is not modal); a hidden dialog's dragged slot is returned.  Showing makes the dialog take the mouse position
-   * (`OnMouseMove`: input, not ported: it throws).
+   * (`OnMouseMove` with the mouse, in pixels of the back buffer, less the dialog's position scaled: `x - (int)(float)(m_Pos.x * scale.x)`).
    */
   setShow(show: boolean): void {
     if (show !== this.m_bShow) {
       this.m_bShow = show;
-      if (show) throw new Error("CKTDGUIDialog::SetShow(true): OnMouseMove with the mouse position (input) is not ported");
-      this.m_pDialogGuideDesc?.setShow(false);
+      if (show) {
+        const scale = resolutionScale(this.ctx);
+        const mouse = this.ctx.mouse;
+        const x = mouse.GetXPos();
+        const y = mouse.GetYPos();
+        this.onMouseMove((x - ftoi(f(this.m_Pos.x * scale.x))) | 0, (y - ftoi(f(this.m_Pos.y * scale.y))) | 0);
+      } else {
+        this.m_pDialogGuideDesc?.setShow(false);
+      }
       if (!this.m_bModal && this.m_pkUIDialogManager !== null) this.m_pkUIDialogManager.countModalDialog(null);
     }
     if (CKTDGUISlot.s_pDragSlot !== null && CKTDGUISlot.s_pDragSlot.m_pDialog === this && !show) CKTDGUISlot.returnDraggingItem();
+  }
+
+  /**
+   * `GetControlAtPointAbsolute(pt)` (32957310): the last control of the list (the one drawn on top) that holds the point, whatever its type
+   * or whether it is shown; `(x, y)` is the point in the dialog's pixels (the mouse less the dialog's position), and each control is asked
+   * for it in its own layout pixels (`localPoint`).
+   */
+  getControlAtPointAbsolute(x: number, y: number): CKTDGUIControl | null {
+    const list = this.m_ControlsList;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const control = list[i];
+      if (!control) continue;
+      const p = localPoint(this.ctx, control, x, y);
+      if (control.containsPoint(p.x, p.y)) return control;
+    }
+    return null;
+  }
+
+  /** `GetControlAtPointForStatic(pt)` (329573C0): the last control of the list that holds the point, is shown and is not out of the list (a static too) */
+  getControlAtPointForStatic(x: number, y: number): CKTDGUIControl | null {
+    const list = this.m_ControlsList;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const control = list[i];
+      if (!control) continue;
+      const p = localPoint(this.ctx, control, x, y);
+      if (control.containsPoint(p.x, p.y) && control.m_bShow && !control.m_bOutofList) return control;
+    }
+    return null;
+  }
+
+  /**
+   * `GetControlMouseOver()` (329574A0): the control under the mouse as far as the outside world is concerned: none for a dialog that is
+   * disabled or hidden or almost transparent (`m_Color.a < 0.01`), or when the mouse is over nothing, or over a control named `INVISIBLE`;
+   * otherwise `m_pControlMouseOverStatic`.
+   */
+  getControlMouseOver(): CKTDGUIControl | null {
+    const over = this.m_pControlMouseOverStatic;
+    if (!this.m_bEnable || !this.m_bShow || this.m_Color.a < f(0.01) || over === null) return null;
+    return over.m_Name === "INVISIBLE" ? null : over;
+  }
+
+  /**
+   * `OnMouseMove(pt)` (3295A4D0): the mouse is at `(x, y)` in the dialog's pixels.  `m_pControlMouseOverStatic` becomes the control
+   * `GetControlAtPointForStatic` finds.  The control the mouse is over (`m_pControlMouseOver`) becomes the last of the list that is not a
+   * static, holds the point, is shown and is not out of the list; the control it was loses `m_bMouseOver` and the new one gets it (when they are
+   * not the same).  A dialog with `m_bMouseOverShowDlg` does the same for `m_pControlMouseOverShowDlg` with the control `GetControlAtPointAbsolute`
+   * finds (shown or not).
+   */
+  onMouseMove(x: number, y: number): void {
+    this.m_pControlMouseOverStatic = this.getControlAtPointForStatic(x, y);
+    let found: CKTDGUIControl | null = null;
+    const list = this.m_ControlsList;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const control = list[i];
+      if (!control || control.m_ControlType === UCT.STATIC) continue;
+      const p = localPoint(this.ctx, control, x, y);
+      if (control.containsPoint(p.x, p.y) && control.m_bShow && !control.m_bOutofList) {
+        found = control;
+        break;
+      }
+    }
+    if (this.m_bMouseOverShowDlg) {
+      const absolute = this.getControlAtPointAbsolute(x, y);
+      const old = this.m_pControlMouseOverShowDlg;
+      if (old !== absolute) {
+        if (old !== null) old.m_bMouseOver = false;
+        this.m_pControlMouseOverShowDlg = absolute;
+        if (absolute !== null) absolute.m_bMouseOver = true;
+      }
+    }
+    const old = this.m_pControlMouseOver;
+    if (found !== old) {
+      if (old !== null) old.m_bMouseOver = false;
+      this.m_pControlMouseOver = found;
+      if (found !== null) found.m_bMouseOver = true;
+    }
   }
 
   /** `ShowGuideDesc(pControl)` (3295BA30): makes the guide dialog (`CreateGuideDesc`) and puts the control's guide text in it, measured with a font: not ported */

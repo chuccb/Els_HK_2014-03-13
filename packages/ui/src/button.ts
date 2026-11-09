@@ -130,6 +130,11 @@ export class CKTDGUIButton extends CKTDGUIControl implements Partial<CKTDGUIButt
 
   // ---- virtual overrides -----------------------------------------------------------------------------------------------------
 
+  /** `ContainsPoint` (3292D460, the function Slot has too): the control's quadrilateral and, with one, its enable rectangle: `containsPointInEnableRect` */
+  override containsPoint(x: number, y: number): boolean {
+    return this.containsPointInEnableRect(x, y);
+  }
+
   /**
    * `OnFrameRender` (3292ED40): a shown button draws its quad from `m_NowPoint` (`UpdateVertex`, then `UpdateAnimVertex` with the texture
    * change step it is in, then `RenderVertex`), with the edge before (`DrawEdge(true)`: outside the quad) and after (`DrawEdge(false)`:
