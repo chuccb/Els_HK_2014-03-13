@@ -31,6 +31,10 @@ The control classes the finished dialogs hold, by the number of dialogs that hol
 
 Textures named by the strict runs: 27804 references resolve (file in the archives and key in its TET); 0 distinct files do not open, 267 distinct keys are not in their TET.
 
+## Destruction
+
+Once all the scripts ran, the 1001 dialogs they built (the 992 that finished, and the first tries of the scripts that wait for a global of a sibling, which leave a dialog half built) are destroyed with `CKTDGUIDialog::Destroy`, which destroys their 9707 controls (the destructors, FINDINGS 17.21). 0 `Destroy()` calls throw and 0 `CloseDevice` calls find no device: no destructor closes a reference it does not hold. The device manager is left with 0 textures and 0 render targets; the 416 sound references it still holds are the ones the exe itself leaks (`SetCustomMouseOverSound` and `SetCustomMouseUpSound` overwrite the pointer of the sound a button or radio button opened, `~CKTDGUIButton` never closes the mouse down sound): CARD_FLIP.OGG 96, X2_BUTTON_MOUSE_OVER.OGG 160, X2_BUTTON_MOUSE_UP.OGG 160, exactly the references the controls recorded as leaked.
+
 ## Classes
 
 | class (Lua name) | registered | implemented | called by DLG scripts |
