@@ -136,7 +136,7 @@ pip install --target /home/user/work/pycap unicorn pefile capstone   # CPU 模�
 pip install --target /home/user/work/pyav av numpy   # PyAV 內含 FFmpeg：MPEG-1 影片的 oracle
 PYTHONPATH=/home/user/work/pyav python3 tools/oracle-mpeg1.py --out /tmp/oracle.json data/movie/*.avi && ./node_modules/.bin/bun run tools/verify-mpeg1.ts --hashes /tmp/oracle.json   # 30 部影片、18,514 張畫面（約 22 秒）
 ./tools/setup-browser.sh                # puppeteer-core + 無頭 Chromium（WebGPU 走 SwiftShader），約 1 分鐘
-./node_modules/.bin/bun run tools/browser-test.ts --shots /home/user/work/shots   # 瀏覽器內 30 項檢查（約 32 秒），截圖留在 --shots
+./node_modules/.bin/bun run tools/browser-test.ts --shots /home/user/work/shots   # 瀏覽器內 30 項檢查（約 21–32 秒），截圖留在 --shots
 ./node_modules/.bin/bun run apps/server/src/main.ts --port 8080   # 資產檢視器 http://localhost:8080/（網格預覽需要支援 WebGPU 的瀏覽器）
 ./tools/corpus-diff.sh 1                # stub 環境全腳本差異測試（flavor 1/2/3，各約 3 分鐘）
 ./node_modules/.bin/tsc -p tsconfig.json --noEmit        # 型別檢查

@@ -314,6 +314,6 @@ pip install --target /home/user/work/pyav av numpy                              
 PYTHONPATH=/home/user/work/pyav python3 tools/oracle-mpeg1.py --out /home/user/work/mpeg1_oracle.json data/movie/*.avi
 ./node_modules/.bin/bun run tools/verify-mpeg1.ts --hashes /home/user/work/mpeg1_oracle.json   # 30 movies, 18,514 pictures, ~22 s
 ./tools/setup-browser.sh                                                              # puppeteer-core + headless Chromium with WebGPU (SwiftShader), ~1 min (tools/browser.mjs runs it when missing)
-./node_modules/.bin/bun run tools/browser-test.ts --shots /home/user/work/shots       # 30 checks of apps/client + apps/server in the browser (the dialogs of the client among them), ~32 s
+./node_modules/.bin/bun run tools/browser-test.ts --shots /home/user/work/shots       # 30 checks of apps/client + apps/server in the browser (the dialogs of the client among them), ~21–32 s
 ./node_modules/.bin/bun run apps/server/src/main.ts --port 8080                       # the asset viewer on http://localhost:8080/ (needs a WebGPU browser for the mesh previews)
 ```
