@@ -23,7 +23,7 @@ import type { DeviceSound } from "./device.ts";
 import type { UKFont } from "./font.ts";
 import { byte, channel, d3dColor, ONE_OVER_255, packArgb } from "./d3dcolor.ts";
 import { wcslen } from "./freetypefont.ts";
-import { NoImeHost } from "./imehost.ts";
+import { DummyImmHost, NoImeHost } from "./imehost.ts";
 import type { ImeHost, ImmBytes } from "./imehost.ts";
 import { resolutionScale } from "./pick.ts";
 import { ftoi, idiv, intersectRect, newRect, offsetRect, ptInRect, setRect } from "./rect.ts";
@@ -150,7 +150,19 @@ export class ImeSystem {
   private hklPrev = 0;
   private readonly dwID: [number, number] = [0, 0];
 
-  constructor(log: UniBufferLog, readonly host: ImeHost = new NoImeHost()) {
+  /**
+   * What the IME calls go to (imehost.ts): the platform's host, which stands for USER32, KERNEL32 and the `imm32.dll` the exe loads.  A platform puts
+   * its own here; `uninitialize()` puts the dummies of the imm32 table in front of it.
+   */
+  host: ImeHost;
+  /**
+   * `s_hDllImm32 != nullptr`: the imm32 table holds the library's functions.  A world has it from the start (the `LoadLibrary` of `Initialize` is
+   * not modelled), so `Uninitialize` has something to let go of in every world.
+   */
+  private immLoaded = true;
+
+  constructor(log: UniBufferLog, host: ImeHost = new NoImeHost()) {
+    this.host = host;
     this.s_CompString = new CKTDGUIUniBuffer(log, 0); // 328776C0
     this.s_CandList = new CandList(log);
   }
@@ -319,6 +331,18 @@ export class ImeSystem {
     if (this.s_bInitialised) return;
     this.s_CompString.SetBufferSize(256);
     this.s_bInitialised = true;
+  }
+
+  /**
+   * `CKTDGUIIMEEditBox::Uninitialize()` (3293B4B0), which the dialog manager's destructor calls: when `imm32.dll` is loaded its function table holds the
+   * `Dummy_*` functions again and the library is freed (`DummyImmHost`); the same for the IME's own DLL (`_GetReadingString`, `_ShowReadingWindow`) and
+   * `version.dll` (`_VerQueryValueA`, `_GetFileVersionInfoA`, `_GetFileVersionInfoSizeA`), which this port never loads.  A second call finds nothing
+   * loaded.  **Kept**: `s_bInitialised` stays set, so no `Initialize` loads the libraries again.
+   */
+  uninitialize(): void {
+    if (!this.immLoaded) return;
+    this.immLoaded = false;
+    this.host = new DummyImmHost(this.host);
   }
 
   /**

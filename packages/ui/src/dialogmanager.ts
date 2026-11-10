@@ -20,9 +20,9 @@
  * Constructor (328DD5F0): `m_bShow = true`, `m_bCanHide = false`.  `GetHideDialog()` (328DEF40) is `m_bCanHide && !m_bShow`: with a hidden
  * dialog layer `CKTDGUIDialog::OnFrameRender` draws only the chat box's edit box.
  *
- * `ExistDialogAtMousePos` (328DE620) asks every dialog of the set for `GetControlMouseOver` (329574A0).  Not ported: `OnLostDevice` /
- * `OnResetDevice` (328E09A0 / 328E0A40, the device reset the dialogs pass on to their controls), the destructor (328DD8A0) and the dialogs'
- * own `MsgProc` (`CKTDGUIDialog::MsgProc` 32958350, the input), which the manager's `MsgProc` loop (328DEFD0) calls.
+ * `ExistDialogAtMousePos` (328DE620) asks every dialog of the set for `GetControlMouseOver` (329574A0).  `OnLostDevice` / `OnResetDevice` (328E09A0 /
+ * 328E0A40) pass a reset of the device on to every dialog from the back to the front, and `Destroy` is the destructor (328DD8A0).  Everything of the
+ * class is ported.
  */
 import type { CKTDGUIDialogManager_Methods } from "@els/host";
 import { UCT } from "./control.ts";
@@ -377,6 +377,50 @@ export class CKTDGUIDialogManager implements CKTDGUIDialogManager_Methods {
       this.destroy(dialog);
     });
     return true;
+  }
+
+  /**
+   * `OnLostDevice()` (328E09A0): from the back to the front (a walk of `m_vecIterator`) every dialog that is there is told (`CKTDGUIDialog::OnLostDevice`).
+   * Returns 0.
+   */
+  onLostDevice(): number {
+    this.walkForward((dialog) => {
+      if (live(dialog)) dialog.onLostDevice();
+    });
+    return 0;
+  }
+
+  /** `OnResetDevice()` (328E0A40): the same walk, `CKTDGUIDialog::OnResetDevice` for every dialog that is there.  Returns 0. */
+  onResetDevice(): number {
+    this.walkForward((dialog) => {
+      if (live(dialog)) dialog.onResetDevice();
+    });
+    return 0;
+  }
+
+  /**
+   * `~CKTDGUIDialogManager()` (328DD8A0), in the exe's order:
+   * 1. `ClearAllDlg`: every dialog is destroyed;
+   * 2. the two font maps are emptied (`m_mapUKFontList`, which frees its nodes only: the fonts are the font manager's, and `m_mapFontToUKFont`);
+   * 3. the Lua global `g_pDialogManager` becomes a new userdata (class `CKTDGUIDialogManager`) that wraps this manager: the only place the exe ever sets
+   *    it, and no script reads it (the census of the host names the global `g_pDGManager`, which it guessed; the string is `g_pDialogManager`);
+   * 4. `CKTDGUIUniBuffer::Uninitialize` (32965AC0: puts the seven functions of `usp10.dll` back to their dummies; this port never loads it) and
+   *    `CKTDGUIIMEEditBox::Uninitialize` (`ImeSystem.uninitialize`: the imm32 table goes back to the dummies);
+   * 5. the containers are freed (the two maps of lookups and the two vectors of walks; the list is empty already, and so is the set: a dialog
+   *    only joins it with the list and leaves it with the list);
+   * 6. `~CKTDXStage` (32962570): the stage state goes to `SS_NULL`, the name and the device list are freed (the manager here is not a stage: nothing
+   *    of that is kept).
+   */
+  Destroy(): void {
+    this.clearAllDlg();
+    this.ctx.fonts.m_mapUKFontList.clear();
+    this.ctx.fonts.m_mapFontToUKFont.clear();
+    this.ctx.world.rt.setObject("g_pDialogManager", this, "CKTDGUIDialogManager");
+    this.ctx.ime.uninitialize();
+    this.m_mapDialogListChangeCountWhenLastGetDialog.clear();
+    this.m_vecReverseIterator.length = 0;
+    this.m_vecIterator.length = 0;
+    this.m_mapDialog.clear();
   }
 
   // ---- the walks ----------------------------------------------------------------------------------------------------------------

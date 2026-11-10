@@ -116,3 +116,33 @@ export class NoImeHost implements ImeHost {
   immGetCompositionString(_himc: number, _index: number, _bufferBytes: number): ImmBytes { return { result: 0, data: new Uint8Array(0) }; }
   immGetCandidateList(_himc: number, _index: number, _bufferBytes: number): ImmBytes { return { result: 0, data: new Uint8Array(0) }; }
 }
+
+/**
+ * The host of a world after `CKTDGUIIMEEditBox::Uninitialize` (3293B4B0): the table of the functions of `imm32.dll` holds the `Dummy_*` functions again
+ * (the library is freed), while USER32 and KERNEL32, which the table never held, are still the platform's.  A dummy answers 0 (no input context, false,
+ * no file of an IME, no candidates; a failing `ImmGetConversionStatus` leaves its two numbers alone) except `ImmGetCompositionStringW`'s, which answers
+ * `IMM_ERROR_GENERAL` (-2; 32935200).
+ */
+export class DummyImmHost implements ImeHost {
+  constructor(private readonly platform: ImeHost) {}
+  getKeyboardLayout(): number { return this.platform.getKeyboardLayout(); }
+  getAsyncKeyState(vk: number): number { return this.platform.getAsyncKeyState(vk); }
+  getFocus(): number { return this.platform.getFocus(); }
+  postMessage(hwnd: number, msg: number, wParam: number, lParam: number): void { this.platform.postMessage(hwnd, msg, wParam, lParam); }
+  sendMessage(msg: number, wParam: number, lParam: number): void { this.platform.sendMessage(msg, wParam, lParam); }
+  keybdEvent(vk: number, flags: number): void { this.platform.keybdEvent(vk, flags); }
+  getKeyboardLayoutCount(): number { return this.platform.getKeyboardLayoutCount(); }
+  getKeyboardLayoutList(count: number): number[] { return this.platform.getKeyboardLayoutList(count); }
+  getLocaleAbbreviation(lcid: number): string { return this.platform.getLocaleAbbreviation(lcid); }
+  getLocaleLanguage(lcid: number): string | null { return this.platform.getLocaleLanguage(lcid); }
+  immGetContext(): number { return 0; }
+  immReleaseContext(_himc: number): void {}
+  immAssociateContext(_himc: number): number { return 0; }
+  immNotifyIME(_himc: number, _action: number, _index: number, _value: number): number { return 0; }
+  immIsIME(_hkl: number): boolean { return false; }
+  immGetOpenStatus(_himc: number): boolean { return false; }
+  immGetConversionStatus(_himc: number): ImeConversionStatus | null { return null; }
+  immGetIMEFileName(_hkl: number): string { return ""; }
+  immGetCompositionString(_himc: number, _index: number, _bufferBytes: number): ImmBytes { return { result: -2, data: new Uint8Array(0) }; }
+  immGetCandidateList(_himc: number, _index: number, _bufferBytes: number): ImmBytes { return { result: 0, data: new Uint8Array(0) }; }
+}

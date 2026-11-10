@@ -869,6 +869,19 @@ export class CKTDGUIControl implements Partial<CKTDGUIControl_Methods> {
     return 0;
   }
 
+  /**
+   * Virtual `OnResetDevice` (vtable slot 4) and `OnLostDevice` (slot 5): the base's `xor eax, eax; ret` (32840850), 0.  No control class has an
+   * override (the thirteen constructors' vtables were read): a control keeps no video resource, its fonts and textures are the devices' and the
+   * font manager's.
+   */
+  onResetDevice(): number {
+    return 0;
+  }
+
+  onLostDevice(): number {
+    return 0;
+  }
+
   // ---- the frame's update (`OnFrameMove`) ----------------------------------------------------------------------------------------
 
   /**

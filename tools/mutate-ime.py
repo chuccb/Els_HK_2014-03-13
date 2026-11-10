@@ -35,8 +35,10 @@ me.TIMEOUT[IM] = 60  # the tests take 12 seconds; a mutant that loops for ever i
 REGIONS = {
     IM: [('function utf16(data: Uint8Array, bytes: number): string {', '\n}\n'), ('function compositionText(host: ImeHost, himc: number, index: number): string | null {', '\n}\n'),
          ('function compositionString(got: ImmBytes): string | null {', '\n}\n'),
-         # the IME system: CheckToggleState, the indicator, ResetCompositionString, StaticMsgProc and its two cases, GetPrivateReadingString, GetImeId
-         ('  checkToggleState(): void {', '\n}\n'),
+         # the IME system: CheckToggleState, the indicator, ResetCompositionString, StaticMsgProc and its two cases, GetPrivateReadingString, Initialize,
+         # GetImeId (not Uninitialize, between the two: tools/mutate-devicelost.py has it, with the tests that call it)
+         ('  checkToggleState(): void {', '  /**\n   * `CKTDGUIIMEEditBox::Uninitialize()` (3293B4B0)'),
+         ('  getImeId(uIndex: number): number {', '\n}\n'),
          ('  PlaceCaret(nCP: number): void {', '\n  }\n'),
          ('  // ================================================================ the input\n', '\n}\n')],
 }

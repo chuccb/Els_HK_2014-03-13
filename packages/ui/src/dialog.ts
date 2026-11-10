@@ -510,6 +510,30 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
     return 0;
   }
 
+  /**
+   * `OnLostDevice()` (3295A480): every control of the list that is there is told (`OnLostDevice`, virtual slot 5; none has a handler).  The list's
+   * length is read again after each call.  Returns 0.
+   */
+  onLostDevice(): number {
+    for (const control of this.m_ControlsList) control?.onLostDevice();
+    return 0;
+  }
+
+  /**
+   * `OnResetDevice()` (3295A610): every control of the list that is there is told (`OnResetDevice`, virtual slot 4; none has a handler), then, in a
+   * second pass, the combo boxes, the list boxes and the control lists (`m_ControlType`) make their rectangles again (`UpdateRects`, virtual slot 42:
+   * the sizes of the new back buffer's layout reach the scroll bars).  The list's length is read again after each call.  Returns 0.
+   */
+  onResetDevice(): number {
+    for (const control of this.m_ControlsList) control?.onResetDevice();
+    for (const control of this.m_ControlsList) {
+      if (control && (control.m_ControlType === UCT.COMBOBOX || control.m_ControlType === UCT.LISTBOX || control.m_ControlType === UCT.CONTROLLIST)) {
+        (control as CKTDGUIComboBox | CKTDGUIListBox | CKTDGUIContolList).updateRects();
+      }
+    }
+    return 0;
+  }
+
   /** `OpenScriptFile` (3295A6B0) */
   openScriptFile(fileName: string): boolean {
     if (fileName.length === 0) return false;
