@@ -32,7 +32,7 @@ import {
 } from "./device.ts";
 import type { BandiVideoLibrary, BandiVideoTexture, BvlFrame, DeviceManager, VideoInfo } from "./device.ts";
 import { VertexUI4 } from "./render.ts";
-import type { UIRender } from "./render.ts";
+import type { UIDevice, UIRender } from "./render.ts";
 
 /** the table at 334B10D0 the constructor walks: the `D3DFORMAT`, the `BVL_PIXEL_FORMAT` and the bytes of a pixel */
 const TEXTURE_FORMATS: readonly (readonly [number, number, number])[] = [
@@ -54,13 +54,14 @@ export class BandiVideoTextureDX9 implements BandiVideoTexture {
   /** the `Beep(frequency, duration)` calls `Open` made when no texture could be made */
   readonly beeps: [number, number][] = [];
 
-  /** `render`: `g_pD3D` (its `d3d`), `g_pd3dDevice`, the state manager and the vertex buffer manager; none (no Direct3D at all) leaves the format unknown */
+  /** `render`: `g_pD3D` (its `d3d`), `g_pd3dDevice`, the state manager and the vertex buffer manager; none (a world without a device: the exe's `g_pD3D` always exists) leaves the format unknown */
   constructor(private readonly render: UIRender | null) {
-    const d3d = render?.d3d;
-    const display = d3d?.GetAdapterDisplayMode(0);
-    if (!d3d || !display || display.hr < 0 || !display.mode) return;
+    if (!render) return;
+    const d3d = render.d3d;
+    const display = d3d.GetAdapterDisplayMode(0);
+    if (display.hr < 0) return;
     for (const [d3dFormat, bvlFormat, size] of TEXTURE_FORMATS) {
-      if (d3d.CheckDeviceFormat(0, D3DDEVTYPE.HAL, display.mode.Format, 0, D3DRTYPE.TEXTURE, d3dFormat) >= 0) {
+      if (d3d.CheckDeviceFormat(0, D3DDEVTYPE.HAL, display.mode!.Format, 0, D3DRTYPE.TEXTURE, d3dFormat) >= 0) {
         this.m_fmt_d3d = d3dFormat;
         this.m_fmt_bvl = bvlFormat;
         this.m_pixel_size = size;
@@ -69,12 +70,13 @@ export class BandiVideoTextureDX9 implements BandiVideoTexture {
     }
   }
 
-  /** `CalcTexSize(vid_size, pow2)` (32984660): no device is size 0; the size of the video unless the device wants a power of two (and one is asked for) */
-  private calcTexSize(vidSize: number, pow2: number): number {
-    const device = this.render?.device;
-    if (!device) return 0;
+  /**
+   * `CalcTexSize(vid_size, pow2)` (32984660): the size of the video unless the device wants a power of two (and one is asked for).  (The exe answers 0 when
+   * there is no device; `Open` has returned before it asks without one.)
+   */
+  private calcTexSize(device: UIDevice, vidSize: number, pow2: boolean): number {
     const caps = device.GetDeviceCaps();
-    if (pow2 !== 0 && (caps.TextureCaps & 2) !== 0) {
+    if (pow2 && (caps.TextureCaps & 2) !== 0) {
       let result = 16;
       while (result < vidSize) result *= 2;
       return result;
@@ -87,24 +89,24 @@ export class BandiVideoTextureDX9 implements BandiVideoTexture {
     const device = this.render?.device;
     if (!device) return E_FAIL;
     const caps = device.GetDeviceCaps();
-    const pow2 = (caps.TextureCaps & 0x100) === 0 ? 1 : 0;
-    const width = this.calcTexSize(vidWidth, pow2);
-    const height = this.calcTexSize(vidHeight, pow2);
+    const pow2 = (caps.TextureCaps & 0x100) === 0;
+    const width = this.calcTexSize(device, vidWidth, pow2);
+    const height = this.calcTexSize(device, vidHeight, pow2);
     let made = device.CreateTexture(width, height, 1, D3DUSAGE.DYNAMIC, this.m_fmt_d3d, D3DPOOL.MANAGED);
     if (made.hr < 0) {
       made = device.CreateTexture(width, height, 1, 0, this.m_fmt_d3d, D3DPOOL.MANAGED);
-      if (made.hr < 0 || !made.tex) {
+      if (made.hr < 0) {
         this.beeps.push([1000, 1000]);
         return made.hr;
       }
     }
     const texture = made.tex!;
     const locked = texture.LockRect(0, null, 0);
-    if (locked.hr >= 0 && locked.pBits) {
+    if (locked.hr >= 0) {
       const rowBytes = Math.imul(this.m_pixel_size, width);
       let at = 0;
       for (let rows = height; rows > 0; rows--) {
-        locked.pBits.fill(0, at, at + rowBytes);
+        locked.pBits!.fill(0, at, at + rowBytes);
         at += locked.pitch;
       }
       texture.UnlockRect(0);
@@ -134,8 +136,8 @@ export class BandiVideoTextureDX9 implements BandiVideoTexture {
     const texture = this.m_texture;
     if (!texture) return null;
     const locked = texture.LockRect(0, null, 0);
-    if (locked.hr < 0 || !locked.pBits) throw new Error("CBandiVideoTexture_DX9::Lock (32984B80): LockRect failed and the exe goes on with the pointer it did not set");
-    return { bits: locked.pBits, pitch: locked.pitch };
+    if (locked.hr < 0) throw new Error("CBandiVideoTexture_DX9::Lock (32984B80): LockRect failed and the exe goes on with the pointer it did not set");
+    return { bits: locked.pBits!, pitch: locked.pitch };
   }
 
   /** `Unlock()` (32984D60, slot 4): a texture that is not there is a null dereference of the exe */
@@ -190,8 +192,7 @@ export class BandiVideoTextureDX9 implements BandiVideoTexture {
     ];
     corners.forEach(([cx, cy, tu, tv], i) => {
       quad.setX(i, cx);
-      quad.setY(i, cy);
-      quad.setZ(i, 0);
+      quad.setY(i, cy); // (z is 0, which the exe stores: the buffer is new)
       quad.setRhw(i, 1);
       quad.setColor(i, 0xffffffff);
       quad.setU(i, tu);
@@ -284,7 +285,7 @@ export class Mpeg1VideoLibrary implements BandiVideoLibrary {
     const movie = this.movie;
     if (!this.created || !movie) return BVL_E_NOT_CREATED;
     const info = movie.info;
-    const frame = flag === BVL_SEEK.FRAME ? Number(value) : Math.floor((Number(value) * info.frameRate.num) / (1000 * info.frameRate.den));
+    const frame = flag === BVL_SEEK.FRAME ? Number(value) : this.framesIn(Number(value), info);
     this.origin = Math.max(0, Math.min(info.frameCount - 1, frame));
     this.given = -1;
     this.startedAt = this.clock();
@@ -292,23 +293,27 @@ export class Mpeg1VideoLibrary implements BandiVideoLibrary {
     return 0;
   }
 
-  /** the frame that is due now: the one the clock is at since `Play`, counted from where the movie started, but not past the last one */
+  /** the number of frames that have begun after `ms` milliseconds of the movie */
+  private framesIn(ms: number, info: Mpeg1Movie["info"]): number {
+    return Math.floor((ms * info.frameRate.num) / (1000 * info.frameRate.den));
+  }
+
+  /** the frame the clock is at: the number of frames since `Play`, counted from where the movie started (the movie's end not taken into account) */
+  private clockFrame(info: Mpeg1Movie["info"]): number {
+    return this.origin + this.framesIn(Math.max(0, this.clock() - this.startedAt), info);
+  }
+
+  /** the frame that is due now: the one the clock is at, but not past the last one (only a playing movie is asked: it has a movie) */
   private due(): number {
-    const movie = this.movie!;
-    const info = movie.info;
-    const elapsed = Math.max(0, this.clock() - this.startedAt);
-    const frame = this.origin + Math.floor((elapsed * info.frameRate.num) / (1000 * info.frameRate.den));
-    return Math.min(frame, info.frameCount - 1);
+    const info = this.movie!.info;
+    return Math.min(this.clockFrame(info), info.frameCount - 1);
   }
 
   /** a playing movie whose last frame was given and whose time is over has played to its end */
   private update(): void {
-    const movie = this.movie;
-    if (this.status !== BVL_STATUS.PLAYING || !movie) return;
-    const info = movie.info;
-    const elapsed = Math.max(0, this.clock() - this.startedAt);
-    const frame = this.origin + Math.floor((elapsed * info.frameRate.num) / (1000 * info.frameRate.den));
-    if (frame >= info.frameCount && this.given === info.frameCount - 1) this.status = BVL_STATUS.PLAYEND;
+    if (this.status !== BVL_STATUS.PLAYING) return;
+    const info = this.movie!.info;
+    if (this.clockFrame(info) >= info.frameCount && this.given === info.frameCount - 1) this.status = BVL_STATUS.PLAYEND;
   }
 
   getStatus(out: { status: number }): number {
@@ -318,9 +323,8 @@ export class Mpeg1VideoLibrary implements BandiVideoLibrary {
     return 0;
   }
 
+  /** only a playing movie has a frame due (a movie that is playing is a movie of a created player); `GetStatus` is where the end is noticed */
   isNextFrame(): number {
-    if (!this.created || !this.movie) return 0;
-    this.update();
     return this.status === BVL_STATUS.PLAYING && this.due() > this.given ? 1 : 0;
   }
 
@@ -358,9 +362,9 @@ export class Mpeg1VideoLibrary implements BandiVideoLibrary {
         }
       }
     }
-    this.given = number;
     frame.frame_number = BigInt(number);
     frame.frame_time = BigInt(Math.round((number * 1000 * movie.info.frameRate.den) / movie.info.frameRate.num));
+    this.given = number;
     return 0;
   }
 

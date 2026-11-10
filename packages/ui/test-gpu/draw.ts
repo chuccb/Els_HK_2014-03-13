@@ -291,6 +291,39 @@ export function forgetGlyphs(w: UIWorld): void {
 }
 
 /**
+ * The pixels of the textures that a world's devices hold, as the files say they are: found through the Direct3D texture the stage held (looked up when
+ * the composition asks, which is after the drawing; the files are decoded once).  `special` answers for the textures no file owns (the render target
+ * texture of a movie) and gives undefined for the others; a texture that nothing owns is an error.  Use it as the composition's `textureOf` (after the
+ * `image` a snapshot copied, if the recording had one).
+ */
+export function fileTextures(w: UIWorld, special?: (texture: Direct3DTexture9) => RefImage | undefined): (d: Draw) => RefImage | null {
+  let owner: Map<Direct3DTexture9, Uint8Array> | undefined;
+  const decoded = new Map<Direct3DTexture9, RefImage>();
+  return (d) => {
+    const t = d.texture;
+    if (!t) return null;
+    let img = decoded.get(t);
+    if (!img) {
+      const own = special?.(t);
+      if (own) {
+        decoded.set(t, own);
+        return own;
+      }
+      if (!owner) {
+        owner = new Map();
+        for (const c of w.devices.devices.values()) if (c.m_pTexture) owner.set(c.m_pTexture, c.data);
+      }
+      const bytes = owner.get(t);
+      if (!bytes) throw new Error("a texture on stage 0 that no device texture owns");
+      const decodedImage = decodeImage(bytes);
+      img = { width: decodedImage.width, height: decodedImage.height, rgba: decodedImage.rgba };
+      decoded.set(t, img);
+    }
+    return img;
+  };
+}
+
+/**
  * Open a dialog script (in `world`, or in a new one), run `frames` frames of it, draw it once on a cleared back buffer, and compose the
  * same quads on the CPU.  A world that draws several dialogs one after the other must `releaseTextures` between them.
  *
@@ -322,37 +355,15 @@ export async function drawDialog(
       }
     }
 
-    // the textures as the files say they are, found through the Direct3D texture the stage held (looked up when the composition asks, which is
-    // after the drawing)
-    let owner: Map<Direct3DTexture9, Uint8Array> | undefined;
-    const decoded = new Map<Direct3DTexture9, RefImage>();
-    const textureOf = (d: Draw): RefImage | null => {
-      const t = d.texture;
-      if (!t) return null;
-      let img = decoded.get(t);
-      if (!img) {
-        // the render target texture of a movie: `CMovieData::OnFrameRender` clears it to transparent black, and a movie that has no video texture (a world
-        // without a player: nothing here installs one) draws nothing into it; the alpha test of the quad that draws it keeps nothing of it
-        const movie = renderTargetMovie(dlg, t);
-        if (movie) {
-          if (movie.m_pBvt) throw new Error("the render target texture of a movie that has a video: its pixels are not the clear colour (movie-draw.test.ts composes those)");
-          const target = movie.m_pRenderTargetTexture!;
-          img = { width: target.width, height: target.height, rgba: new Uint8Array(target.width * target.height * 4) };
-          decoded.set(t, img);
-          return img;
-        }
-        if (!owner) {
-          owner = new Map();
-          for (const c of w.devices.devices.values()) if (c.m_pTexture) owner.set(c.m_pTexture, c.data);
-        }
-        const bytes = owner.get(t);
-        if (!bytes) throw new Error("a texture on stage 0 that no device texture owns");
-        const decodedImage = decodeImage(bytes);
-        img = { width: decodedImage.width, height: decodedImage.height, rgba: decodedImage.rgba };
-        decoded.set(t, img);
-      }
-      return img;
-    };
+    const textureOf = fileTextures(w, (t) => {
+      // the render target texture of a movie: `CMovieData::OnFrameRender` clears it to transparent black, and a movie that has no video texture (a world
+      // without a player: nothing here installs one) draws nothing into it; the alpha test of the quad that draws it keeps nothing of it
+      const movie = renderTargetMovie(dlg, t);
+      if (!movie) return undefined;
+      if (movie.m_pBvt) throw new Error("the render target texture of a movie that has a video: its pixels are not the clear colour (movie-draw.test.ts composes those)");
+      const target = movie.m_pRenderTargetTexture!;
+      return { width: target.width, height: target.height, rgba: new Uint8Array(target.width * target.height * 4) };
+    });
     const scene = await drawScene(
       w,
       () => {

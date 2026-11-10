@@ -20,28 +20,34 @@ export class Surface {
   GetDesc(): { Format: number; MultiSampleType: number; MultiSampleQuality: number } { return { Format: this.format, MultiSampleType: 0, MultiSampleQuality: 0 }; }
 }
 
-/** a texture of the fake device: its pixels start as 0xAA, the rows are `pitch` bytes apart */
+/**
+ * a texture of the fake device: its pixels start as 0xAA, the rows are `pitch` bytes apart; behind the last row there is one more of 0xAA (the memory
+ * after the texture, which a loop that runs one row too far would clear)
+ */
 export class FakeTexture {
   refs = 1;
   locks = 0;
   unlocks = 0;
   lockHr = 0;
+  /** the arguments of every `LockRect(level, rect, flags)` and `UnlockRect(level)` */
+  readonly lockCalls: [number, unknown, number][] = [];
+  readonly unlockCalls: number[] = [];
   readonly bits: Uint8Array;
   readonly surface: Surface;
   surfaceGiven = true;
   constructor(readonly id: number, readonly width: number, readonly height: number, readonly levels: number, readonly usage: number, readonly format: number, readonly pool: number, readonly pitch: number) {
-    this.bits = new Uint8Array(pitch * height).fill(0xaa);
+    this.bits = new Uint8Array(pitch * (height + 1)).fill(0xaa);
     this.surface = new Surface(`level0 of tex${id}`, format);
   }
   get name(): string { return `tex${this.id}`; }
   AddRef(): number { return ++this.refs; }
   Release(): number { return --this.refs; }
   LockRect(level: number, rect: unknown, flags: number): { hr: number; pBits: Uint8Array | null; pitch: number } {
-    void level; void rect; void flags;
+    this.lockCalls.push([level, rect, flags]);
     this.locks++;
     return { hr: this.lockHr, pBits: this.lockHr < 0 ? null : this.bits, pitch: this.pitch };
   }
-  UnlockRect(): number { this.unlocks++; return 0; }
+  UnlockRect(level: number): number { this.unlockCalls.push(level); this.unlocks++; return 0; }
   GetSurfaceLevel(level: number): Surface | null { return level === 0 && this.surfaceGiven ? this.surface : null; }
 }
 
@@ -83,7 +89,8 @@ export class MovieDevice extends Recorder {
     this.log.push(`tex ${stage} ${texture ? texture.name : "null"}`);
     return this.failSetTexture ? E_FAIL : 0;
   }
-  GetRenderTarget(): Surface | null { this.log.push("getrt"); return this.failGetTarget ? null : this.target; }
+  /** only the render target 0 is set (the device has no other: `D3DERR_NOTFOUND`, a null surface) */
+  GetRenderTarget(index = 0): Surface | null { this.log.push("getrt"); return this.failGetTarget || index !== 0 ? null : this.target; }
   SetRenderTarget(index: number, surface: Surface | null): number { this.log.push(`settarget ${index} ${surface ? surface.name : "null"}`); this.target = surface; return 0; }
   GetDepthStencilSurface(): Surface | null { this.log.push("getdepth"); return this.failGetDepth ? null : this.depth; }
   SetDepthStencilSurface(surface: Surface | null): number { this.log.push(`setdepth ${surface ? surface.name : "null"}`); this.depth = surface; return 0; }

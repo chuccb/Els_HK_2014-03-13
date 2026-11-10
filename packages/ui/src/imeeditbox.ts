@@ -11,8 +11,10 @@
  * rectangle is moved by the text's alignment offset and its width is not scaled), and the two windows of the IME, `RenderComposition`
  * 3293A2F0 (the string being composed) and `RenderCandidateReadingWindow` 32939C50 (the candidates, or the reading).
  *
- * Not ported: what the box does while the game runs (`MsgProc`, the keyboard / mouse / IME handling): that needs the window system and the
- * IME.  The constructor's calls into `imm32.dll` are answered as a window without an IME would, and so is `GetImeId`.
+ * The input (`MsgProc`, the keyboard, the mouse, the IME messages) and the IME system the boxes share are `ImeSystem` and the handlers below
+ * (FINDINGS 17.25), over the window system's `ImeHost`.  The constructor's calls into `imm32.dll` are answered as a window without an IME would,
+ * and so is `GetImeId`; the IME of a layout that has a file (`GetImeId`, `WM_INPUTLANGCHANGE`) and the private reading string of an input context
+ * (`ImmLockIMC`) are Errors.
  */
 import { D3DTOP, D3DTSS } from "@els/d3d9";
 import { Color } from "@els/host";

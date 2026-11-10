@@ -1003,7 +1003,7 @@ m(FM, 'OnFrameMove: the gap is always reached', 'if (!(article.fSpreadTimeGap > 
 m(FM, 'OnFrameMove: the time starts again', '      article.fNowSpreadTime = 0;\n', '')
 m(FM, 'OnFrameMove: the time starts again at 0', '      article.fNowSpreadTime = 0;\n', '      article.fNowSpreadTime = 1;\n')
 m(FM, 'OnFrameMove: the time starts again without the rest', '      article.fNowSpreadTime = 0;\n', '      article.fNowSpreadTime = f(article.fNowSpreadTime - article.fSpreadTimeGap);\n')
-m(FM, 'OnFrameMove: one more character shows', 'article.iSpreadCount++;', '')
+m(FM, 'OnFrameMove: one more character shows', 'article.iSpreadCount++;', 'void 0;')
 m(FM, 'OnFrameMove: one character shows, not two', 'article.iSpreadCount++;', 'article.iSpreadCount += 2;')
 m(FM, 'OnFrameMove: the characters stop at the length of the text', 'if (article.iSpreadCount < article.strMsg.length)', 'if (article.iSpreadCount <= article.strMsg.length)')
 m(FM, 'OnFrameMove: the characters stop before the length', 'if (article.iSpreadCount < article.strMsg.length)', 'if (article.iSpreadCount < article.strMsg.length - 1)')

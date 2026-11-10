@@ -88,7 +88,7 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
   m_bOKAndCancelMsgBox = false;
   /** not in the exe: the dialog's slot of the `KJohnObjMan` table was freed (`Destroy`), so every handle to it resolves to nothing */
   destroyed = false;
-  /** the guide text's static and dialog (made by `CreateGuideDesc` when a control shows its guide text; the guide text is not ported, so null) */
+  /** the guide text's static and dialog (made by `CreateGuideDesc` when a control shows its guide text: FINDINGS 17.26; null until then) */
   m_pStaticGuideDesc: CKTDGUIStatic | null = null;
   m_pDialogGuideDesc: CKTDGUIDialog | null = null;
   m_ID = 0;

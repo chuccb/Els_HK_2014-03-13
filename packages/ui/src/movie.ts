@@ -92,7 +92,8 @@ export class CMovieData implements Partial<CKTDGUIControl__CMovieData_Methods> {
    * when the player says a frame is due (`IsNextFrame`) and there is a video texture whose `Lock` gives a place, the frame is copied there
    * (`GetFrame(&frame, 1)`: the buffer, its size `pitch * m_Info.height`, the pitch, the video's size and the texture's pixel format) and the
    * texture is unlocked.  A player that is not created fails `GetStatus` without writing the status, which the exe's local is not initialised
-   * for: the value is 0 here, and it cannot matter, since every call after it fails or answers 0 as well.
+   * for (the stack's old value is not known): the port starts it at `BVL_STATUS_CLOSED` (0), so a failing `GetStatus` seeks and stops nothing, and
+   * every call after it fails or answers 0 as well.  Only PLAYEND is ever looked at, so any other first value does the same.
    */
   onFrameMove(): void {
     const bvl = this.m_Bvl;

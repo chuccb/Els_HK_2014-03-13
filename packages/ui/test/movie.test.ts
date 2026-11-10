@@ -10,7 +10,7 @@
  * The world is 1536 x 1536 pixels, so the layout of 1024 x 768 is scaled by (1536 * 0.0009765625, 1536 / 768) = (1.5, 2).
  */
 import { describe, expect, test } from "bun:test";
-import { D3DFMT, D3DPOOL, D3DUSAGE } from "@els/d3d9";
+import { D3DFMT, D3DPOOL, D3DSAMP, D3DTEXF, D3DUSAGE } from "@els/d3d9";
 import type { Direct3DDevice9 } from "@els/d3d9";
 import {
   BVLPF, BVL_E_NOT_CREATED, BVL_SEEK, BVL_STATUS, BandiVideoTextureDX9, CKTDGUIDialog, CKTDGUIStatic, CMovieData, DeviceRenderTargetTexture, NoVideoLibrary, NoVideoTexture,
@@ -393,12 +393,16 @@ describe("CKTDXDeviceRenderTargetTexture", () => {
     expect([target.deviceID, target.refCount, target.width, target.height, target.format]).toEqual(["MOVEDATA", 1, 300, 100, D3DFMT.A8R8G8B8]);
   });
 
-  test("an unknown format becomes the back buffer's (once: it stays)", () => {
+  test("a known format is kept (the back buffer's is another one); an unknown one becomes the back buffer's, and stays when the objects are made again", () => {
     const m = movieWorld();
-    m.dev.back.format; // A8R8G8B8
-    const target = m.w.devices.openRenderTargetTexture("Other", 64, 32, D3DFMT.UNKNOWN)!;
-    expect(target.format).toBe(D3DFMT.A8R8G8B8);
-    expect(m.dev.made[0]!.format).toBe(D3DFMT.A8R8G8B8);
+    Object.assign(m.dev.back, { format: D3DFMT.X1R5G5B5 });
+    const known = m.w.devices.openRenderTargetTexture("Known", 64, 32, D3DFMT.A8R8G8B8)!;
+    expect([known.format, m.dev.made[0]!.format]).toEqual([D3DFMT.A8R8G8B8, D3DFMT.A8R8G8B8]);
+    const unknown = m.w.devices.openRenderTargetTexture("Other", 64, 32, D3DFMT.UNKNOWN)!;
+    expect([unknown.format, m.dev.made[1]!.format]).toEqual([D3DFMT.X1R5G5B5, D3DFMT.X1R5G5B5]);
+    Object.assign(m.dev.back, { format: D3DFMT.X8R8G8B8 }); // the back buffer changed: the format that was taken stays
+    expect(unknown.onResetDevice(m.dev as unknown as Direct3DDevice9)).toBe(0);
+    expect([unknown.format, m.dev.made[2]!.format]).toEqual([D3DFMT.X1R5G5B5, D3DFMT.X1R5G5B5]);
   });
 
   test("OnResetDevice starts with OnLostDevice: what was made is released, and made again", () => {
@@ -479,10 +483,13 @@ describe("CKTDXDeviceRenderTargetTexture", () => {
     dev.failSetTexture = false;
     dev.log.length = 0;
     target.setDeviceTexture(render, 20);
-    expect(dev.log).toEqual(["tex 20 tex0"]);
+    target.setDeviceTexture(render, 16); // the first stage that is not remembered: set every time, and the list is not written
+    target.setDeviceTexture(render, 16);
+    expect(dev.log).toEqual(["tex 20 tex0", "tex 16 tex0", "tex 16 tex0"]);
     expect(render.states.apd3dTextures.length).toBe(16);
     target.setDeviceTexture(render, 15); // the last stage of the list is remembered, too
     expect(render.states.apd3dTextures[15] === (texture as unknown)).toBe(true);
+    expect(dev.log.length).toBe(4);
   });
 
   test("Draw pushes akRSICKTDXDeviceTexture for its quad and pops it; the vertices are the whole texture over the rectangle", () => {
@@ -503,6 +510,22 @@ describe("CKTDXDeviceRenderTargetTexture", () => {
     expect(dev.log).toEqual([
       "rs 25 6", "rs 27 1", "rs 7 0", "rs 14 0", "rs 22 2", "tss 0 4 4", "tss 0 5 0", "tss 0 6 2", "tex 0 tex0", "dvb 3 5 2 1",
       "tss 0 6 1", "tss 0 5 2", "tss 0 4 2", "rs 22 3", "rs 14 1", "rs 7 1", "rs 27 0", "rs 25 8",
+    ]);
+  });
+
+  test("Draw turns the whole numbers it is given into single precision before it scales them: 16,777,219 is 16,777,220 there", () => {
+    const { target, render, dvb } = scene();
+    render.resolutionScale.set(1.5, 1.5);
+    target.draw(render, 16777219, 16777219, 16777219, 16777219, 0xffffffff);
+    // (float)16777219 is a tie between 16777218 and 16777220 (the floats of 2^24 .. 2^25 are two apart) and the even one is taken: 16777220.
+    // x = 1.5 * 16777220 = 25165830 (a float: it is even), the left edge x - 0.5 = 25165829.5 is nearer 25165830 than 25165828; the right edge is
+    // 1.5 * 16777220 + x = 50331660 (the floats of 2^25 .. 2^26 are four apart: 50331660 = 4 * 12582915 is one).  The same numbers cut off after the product
+    // would be 1.5 * 16777219 = 25165828.5 -> 25165828, and 25165828 + 25165830 = 50331658 -> 50331656, a tie that goes to the even one.
+    expect(quadOf(dvb[0]!.data)).toEqual([
+      [25165830, 25165830, 1, 1, 0xffffffff, 0, 0],
+      [25165830, 50331660, 1, 1, 0xffffffff, 0, 1],
+      [50331660, 25165830, 1, 1, 0xffffffff, 1, 0],
+      [50331660, 50331660, 1, 1, 0xffffffff, 1, 1],
     ]);
   });
 
@@ -550,6 +573,7 @@ describe("CBandiVideoTexture_DX9", () => {
       const t = new BandiVideoTextureDX9(render);
       expect([accepted, t.m_fmt_d3d, t.m_fmt_bvl, t.m_pixel_size]).toEqual([accepted, ...want]);
       expect(t.getFormat()).toBe(want[1]!);
+      expect([t.m_texture, t.m_vid_width, t.m_vid_height, t.m_tex_width, t.m_tex_height]).toEqual([null, 0, 0, 0, 0]); // nothing is made before Open
     }
   });
 
@@ -609,6 +633,9 @@ describe("CBandiVideoTexture_DX9", () => {
       [0x2 | 0x100, [300, 100], [300, 100]],
       [0x0, [300, 100], [300, 100]],
       [0x4, [300, 100], [300, 100]],
+      [0x1, [300, 100], [300, 100]], // bit 0 is neither of the two bits that count
+      [0x1 | 0x2, [300, 100], [512, 128]],
+      [0x1 | 0x2 | 0x4, [1, 17], [16, 32]],
     ];
     for (const [caps, [w, h], want] of cases) {
       const { render, dev } = scene();
@@ -631,6 +658,9 @@ describe("CBandiVideoTexture_DX9", () => {
       expect([row, tex.bits.slice(row * 48 + 40, row * 48 + 48).every((b) => b === 0xaa)]).toEqual([row, true]);
     }
     expect([tex.locks, tex.unlocks]).toEqual([1, 1]);
+    // the memory behind the last row is not touched, and the texture is locked at level 0, whole, with no flags, and unlocked at level 0
+    expect([tex.bits.length, tex.bits.slice(6 * 48).every((b) => b === 0xaa)]).toEqual([7 * 48, true]);
+    expect([tex.lockCalls, tex.unlockCalls]).toEqual([[[0, null, 0]], [0]]);
   });
 
   test("Open with another pixel size (R5G6B5: 2 bytes) clears 2 * width bytes of a row", () => {
@@ -680,6 +710,7 @@ describe("CBandiVideoTexture_DX9", () => {
     expect([locked.bits === tex.bits, locked.pitch, tex.locks]).toEqual([true, 48, 2]); // one lock by Open, one by Lock
     t.unlock();
     expect(tex.unlocks).toBe(2);
+    expect([tex.lockCalls[1], tex.unlockCalls]).toEqual([[0, null, 0], [0, 0]]); // level 0, the whole texture, no flags
     tex.lockHr = -3;
     expect(() => t.lock()).toThrow(/LockRect failed/);
   });
@@ -702,6 +733,38 @@ describe("CBandiVideoTexture_DX9", () => {
     ]);
     expect(render.states.stackPointer).toBe(0);
     expect([render.states.adwSamplerState[1], render.states.adwSamplerState[2]]).toEqual([1, 1]);
+  });
+
+  test("Draw pushes clamped addressing and linear filters on stage 0 whatever the filters were (here point), and sets them back in the reverse order", () => {
+    const { render, dev } = scene();
+    const t = new BandiVideoTextureDX9(render);
+    t.open(64, 32);
+    render.states.setSamplerState(0, D3DSAMP.MAGFILTER, D3DTEXF.POINT);
+    render.states.setSamplerState(0, D3DSAMP.MINFILTER, D3DTEXF.POINT);
+    const before = render.states.stackPointer;
+    dev.log.length = 0;
+    expect(t.draw(0, 0, 1, 1)).toBe(0);
+    // (sampler states: 1 ADDRESSU, 2 ADDRESSV, 5 MAGFILTER, 6 MINFILTER; values: WRAP 1 / CLAMP 3, POINT 1 / LINEAR 2)
+    expect(dev.log).toEqual(["tex 0 tex0", "ss 0 1 3", "ss 0 2 3", "ss 0 5 2", "ss 0 6 2", "dvb 3 5 2 1", "ss 0 6 1", "ss 0 5 1", "ss 0 2 1", "ss 0 1 1"]);
+    expect([D3DSAMP.ADDRESSU, D3DSAMP.ADDRESSV, D3DSAMP.MAGFILTER, D3DSAMP.MINFILTER, D3DTEXF.POINT, D3DTEXF.LINEAR]).toEqual([1, 2, 5, 6, 1, 2]);
+    expect(render.states.stackPointer).toBe(before);
+    expect([5, 6].map((type) => render.states.adwSamplerState[type])).toEqual([1, 1]);
+  });
+
+  test("Draw: every corner is a float (x + width and y + height are sums of two floats, rounded once)", () => {
+    const { render, dev, dvb } = scene();
+    dev.textureCaps = 0x2;
+    const t = new BandiVideoTextureDX9(render);
+    t.open(300, 100); // the texture is 512 x 128
+    // float(3.9) = 3.9000000953674316 and float(20.3) = 20.299999237060547: the sum 24.19999885559082 is the float 24.19999885559082 (adding 20.3 as a double and rounding
+    // once gives 24.200000762939453); float(0.3) = 0.30000001192092896: 0.30000001192092896 + 20.299999237060547 = 20.599998474121094 (against 20.600000381469727)
+    expect(t.draw(3.9, 0.3, 20.3, 20.3)).toBe(0);
+    expect(quadOf(dvb[0]!.data)).toEqual([
+      [3.9000000953674316, 0.30000001192092896, 0, 1, 0xffffffff, 0, 0],
+      [24.19999885559082, 0.30000001192092896, 0, 1, 0xffffffff, 0.5859375, 0],
+      [3.9000000953674316, 20.599998474121094, 0, 1, 0xffffffff, 0, 0.78125],
+      [24.19999885559082, 20.599998474121094, 0, 1, 0xffffffff, 0.5859375, 0.78125],
+    ]);
   });
 
   test("Draw: the state manager's list remembers the texture (a second Draw does not set it again; the old one is released and the new one referenced)", () => {

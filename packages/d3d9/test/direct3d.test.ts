@@ -54,4 +54,12 @@ describe("CreateTexture: a dynamic texture in the managed pool", () => {
     expect(create(D3DUSAGE.DYNAMIC, D3DPOOL.MANAGED)).toBe(D3DERR_INVALIDCALL);
     expect(create(D3DUSAGE.DYNAMIC | D3DUSAGE.WRITEONLY, D3DPOOL.MANAGED)).toBe(D3DERR_INVALIDCALL);
   });
+
+  test("every other combination is made: dynamic in the default pool or in system memory, managed without the flag, a plain default texture", () => {
+    // (a texture of the system's memory is made from its pixels alone: the host is not touched until it is drawn)
+    for (const [usage, pool] of [
+      [D3DUSAGE.DYNAMIC, D3DPOOL.DEFAULT], [D3DUSAGE.DYNAMIC, D3DPOOL.SYSTEMMEM], [D3DUSAGE.DYNAMIC | D3DUSAGE.WRITEONLY, D3DPOOL.DEFAULT],
+      [0, D3DPOOL.MANAGED], [D3DUSAGE.WRITEONLY, D3DPOOL.MANAGED], [0, D3DPOOL.DEFAULT],
+    ] as const) expect([usage, pool, create(usage, pool)]).toEqual([usage, pool, D3D_OK]);
+  });
 });

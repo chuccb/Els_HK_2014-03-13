@@ -8,7 +8,8 @@ source by operator, like those of tools/mutate-edit.py (every comparison, logica
 time), by swaps no operator makes (an enum member for its neighbour, `true` for `false`, a call for the one beside it, the x of a size for its y, a float32
 rounding left out), by exchanging two statements that follow each other (the order of the calls is what the exe's code is) and by hand.  Their names are the
 text of the line.  The tests that run for each are those of the file (packages/ui/test/movie.test.ts, video.test.ts, ...), whose every number is worked out
-from the decompile and the disassembly of the exe: there is no oracle for the movies (the player is the platform's, the frames are the decoder's, FINDINGS 13).
+from the decompile and the disassembly of the exe: there is no oracle for the movies (the player is the platform's, the frames are the decoder's: FINDINGS 13; the unit:
+FINDINGS 17.28).
 
     python3 tools/mutate-movie.py [--list] [--check] [--survivors=LOG] [--shard=K/N] [substring of a mutant name ...]
 
@@ -48,6 +49,7 @@ REGIONS = [
     (MOVIE, 'CMovieData', None, '  SetLoop(loop: boolean): void {', '\n  }\n}\n'),
     (STATIC, 'CKTDGUIStatic', None, '    const scale = resolutionScale(this.ctx);\n    for (const movie of this.m_MovieDataList) {', '      movie.onFrameRender();\n    }\n'),
     (STATIC, 'CKTDGUIStatic', None, '    for (const movie of this.m_MovieDataList) movie.onFrameMove()', ';\n'),
+    (DEVICE, None, 'drawDeviceTexture', 'function drawDeviceTexture(', '\n}\n'),  # (the quad of CKTDXDeviceTexture::Draw and of the render target texture's: one function)
     (DEVICE, 'DeviceRenderTargetTexture', None, 'export class DeviceRenderTargetTexture {', '\n}\n'),
     (DEVICE, 'DeviceManager', None, '  openRenderTargetTexture(deviceID: string, width: number, height: number, format: number): DeviceRenderTargetTexture | undefined {', '\n  }\n'),
     (DEVICE, 'NoVideoLibrary', None, 'export class NoVideoLibrary implements BandiVideoLibrary {', '\n}\n'),
@@ -114,8 +116,8 @@ def swap_mutants(f, first, last, cls, rename):
         if not (a <= pos[n] < b):
             continue
         st = line.strip()
-        if not st or st.startswith(('*', '/*', '//')):
-            continue
+        if not st or st.startswith(('*', '/*', '//', 'function ', 'export function ', 'export class ', 'class ')):
+            continue  # (the head of a declaration is no statement: renaming it makes no program)
         code = line.split(' // ')[0]  # a trailing comment is no code
         for regex, news in patterns:
             for hit in re.finditer(regex, code):
@@ -143,12 +145,53 @@ def swap_mutants(f, first, last, cls, rename):
 def simple(line):
     """a line that is one whole statement a neighbour can change places with (no declaration, no jump, no block)"""
     st = line.strip()
-    return (st.endswith(';') and not re.match(r'(const|let|var|return|throw|if|for|while|break|continue|case)\b', st) and not st.startswith(('} ', '//', '*', '/*'))
+    return (st.endswith(';') and not re.match(r'(const|let|var|return|throw|if|else|for|while|break|continue|case)\b', st) and not st.startswith(('} ', '//', '*', '/*'))
             and sum(st.count(c) for c in '([{') == sum(st.count(c) for c in ')]}'))
 
 
+# a statement that only stores: `this.m_x = value;` / `cache[stage] = value;` (the right side calls nothing but the functions that compute a number), or the
+# store of one field of one vertex, `quad.setX(i, value);`
+PURE_CALL = re.compile(r'^(?:Math\.\w+|BigInt|Number|ftoi|f|fround|this\.clock)$')  # (`this.clock()`: the platform's time, no field of the player)
+CALL = re.compile(r'([A-Za-z_][\w.]*)\s*\(')
+ASSIGN_RE = re.compile(r'^((?:this\.\w+|\w+\[\w+\]|\w+\.\w+)) = (.*);$')
+SETTER_RE = re.compile(r'^(\w+)\.set(\w+)\((\w+), (.*)\);$')
+# a statement that only counts a reference: `x.AddRef();`, `x?.Release();`
+REFCOUNT_RE = re.compile(r'^([\w.\[\]]+)\??\.(?:AddRef|Release)\(\);$')
+
+
+def computes(text):
+    """the text calls no function but those that compute a number"""
+    return all(PURE_CALL.match(name) for name in CALL.findall(text))
+
+
+def store_of(line):
+    """(the place the statement writes, the text it reads) of a statement that only stores, else None"""
+    st = line.strip()
+    mo = ASSIGN_RE.match(st)
+    if mo and computes(mo.group(2)):
+        return mo.group(1), mo.group(2)
+    mo = SETTER_RE.match(st)
+    if mo and computes(mo.group(4)):
+        return f'{mo.group(1)}.{mo.group(2)}[{mo.group(3)}]', mo.group(3) + ',' + mo.group(4)
+    return None
+
+
+def commute(one, two):
+    """two statements that cannot tell their order: two stores to different places that read neither of them (in either order the same is stored), or a
+    store and a reference count (`x.AddRef()`, `x?.Release()`) of an object that is not the place the store writes to (a count is no value a store reads)"""
+    a, b = store_of(one), store_of(two)
+    if a and b:
+        return a[0] != b[0] and a[0] not in b[1] and b[0] not in a[1]
+    for count, store in ((one, b), (two, a)):
+        mo = REFCOUNT_RE.match(count.strip())
+        if mo and store:
+            return store[0] != mo.group(1)
+    return False
+
+
 def order_mutants(f, first, last, cls, rename):
-    """[(name, anchor, replacement)]: two statements that follow each other, exchanged (the order of the calls is what the code is)"""
+    """[(name, anchor, replacement)]: two statements that follow each other, exchanged (the order of the calls is what the code is); two stores that
+    commute are not (the exchange of `this.m_vid_width = w; this.m_tex_width = t;` is no other program)"""
     text = src(f)
     lines = text.split('\n')
     pos = [0]
@@ -166,6 +209,8 @@ def order_mutants(f, first, last, cls, rename):
         indent = len(one) - len(one.lstrip())
         # (the statements of a method are at 4 spaces or more, those of a function of the module at 2; the members of a class are no statements)
         if not (simple(one) and simple(two) and one != two and indent == len(two) - len(two.lstrip()) and indent >= (2 if rename else 4)):
+            continue
+        if commute(one, two):
             continue
         # the anchor: the two lines, with the lines before them while the text is not unique
         k, anchor, repl = 0, one + '\n' + two, two + '\n' + one
@@ -347,7 +392,7 @@ HAND = [
     (STATIC, 'CKTDGUIStatic.OnFrameRender: no movie is drawn', '      movie.onFrameRender();\n    }\n    return 0;', '      void movie;\n    }\n    return 0;'),
     (STATIC, 'CKTDGUIStatic.OnFrameRender: the place is left for the movie to take', '      movie.m_vPos.x = f(f(left + movie.m_vOriginPos.x) + this.m_OffsetPos.x) * scale.x;',
      '      movie.m_vPos.x = movie.m_vPos.x;'),
-    (STATIC, 'CKTDGUIStatic.OnFrameRender: the movies are drawn before the strings', '    const scale = resolutionScale(this.ctx);\n    for (const movie of this.m_MovieDataList) {',
+    (STATIC, 'CKTDGUIStatic.OnFrameRender: the loop over the movies is not run', '    const scale = resolutionScale(this.ctx);\n    for (const movie of this.m_MovieDataList) {',
      '    const scale = resolutionScale(this.ctx);\n    for (const movie of this.m_MovieDataList.slice(0, 0)) {'),
 ]
 
@@ -365,6 +410,36 @@ for _f, _name, _a, _b in HAND:
     MUTANTS.append((_f, _name, _a, _b))
 
 # ---- the mutants that no input can tell from the original (name -> why)
+
+# the first value of the status the player did not write: `OnFrameMove` only asks whether the status is PLAYEND (a player that fails to answer leaves any
+# other member, and the test statusFails pins CLOSED against PLAYEND)
+for _member in ('READY', 'PLAYING'):
+    add(f'CMovieData.onFrameMove: BVL_STATUS.CLOSED -> BVL_STATUS.{_member} in `const state = {{ status: BVL_STATUS.CLOSED as number }};`',
+        'the status is only compared with PLAYEND: every other member starts the same')
+# two statements that follow each other and touch nothing the other reads (the render target texture is opened from the ARGUMENTS, the fields are stores)
+add('CMovieData.SetRect: statements exchanged `this.m_vOriginPos.set(x, y);` <-> `this.m_vSize.set(width, height);`', 'two stores to two members')
+add('CMovieData.SetRect: statements exchanged `this.m_vSize.set(width, height);` <-> `this.m_pRenderTargetTexture = this.ctx.devic`',
+    'openRenderTargetTexture is given the arguments width and height, not the member m_vSize')
+# the destructor works on locals it took before (`target`, `texture`): the member's store does not change what the call after it reads
+add('CMovieData.Destroy: statements exchanged `this.ctx.devices.closeDevice(target.deviceID` <-> `this.m_pRenderTargetTexture = null;`',
+    'closeDevice is given target.deviceID (a local); nothing reads the member in between')
+add('CMovieData.Destroy: statements exchanged `texture.Destroy();` <-> `this.m_pBvt = null;`', 'Destroy is called on the local texture; nothing reads the member in between')
+# the file name is a member the player is never asked about: Create / Verify / Close take no name, Open is given the member after both
+add('CMovieData.SetMovieFileName: statements exchanged `bvl.verify(\"KOG_ELSWORD_20131203\", \"1b9b533c` <-> `this.m_wstrMovieFileName = `${devices.curren`',
+    'Verify takes two constants and does not read m_wstrMovieFileName; Open (after both) is given it')
+add('CMovieData.SetMovieFileName: statements exchanged `this.m_wstrMovieFileName = `${devices.curren` <-> `bvl.close();`',
+    'Close takes no file name and does not read m_wstrMovieFileName; Open (after both) is given it')
+
+# the platform's player: the values its members start with are never read (`Open` sets what a movie is played from, `Play` and `Seek` the time, and a
+# movie that is not open is not played: every method that reads them asks for one)
+for _name in ('0 -> 1 in `private origin = 0;`', '-1 -> 0 in `private given = -1;`'):
+    add(f'Mpeg1VideoLibrary.fields: {_name}', 'Open sets it (frame 0, nothing given) before any movie can be played, sought or asked for a frame')
+add('Mpeg1VideoLibrary.fields: 0 -> 1 in `private startedAt = 0;`',
+    'Play and Seek set it; only a playing movie reads the time (and Seek of a movie that is not playing does not start one)')
+add('Mpeg1VideoLibrary.open: condition false in `if (!bytes) return E_FAIL;`',
+    'Mpeg1Movie.open(null) throws (the AVI parser reads the bytes) and the catch after it answers the same E_FAIL')
+add('Mpeg1VideoLibrary.clockFrame: 0 -> 1 in `return this.origin + this.framesIn(Math.max(0, this.clock() - this.start...`',
+    'max(1, t) and max(0, t) are the same frame while a frame lasts longer than a millisecond (a rate below 1,000 frames per second: floor(1 * rate / 1000) = 0)')
 
 for _f, _name, _a, _b in MUTANTS:
     me.m(_f, _name, _a, _b, WHY.get(_name, ''))

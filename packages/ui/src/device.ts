@@ -299,24 +299,24 @@ export class DeviceRenderTargetTexture {
     this.m_pBackupZBuffer = backZ;
     if (this.format === D3DFMT.UNKNOWN) this.format = back.GetDesc().Format;
     const made = D3DXCreateTexture(device, this.width, this.height, 1, D3DUSAGE.RENDERTARGET, this.format, D3DPOOL.DEFAULT);
-    if (made.hr < 0 || !made.tex) {
-      this.m_pRenderTargetTexture = null;
-      this.log.push(0x4e, this.deviceID);
+    if (made.hr < 0) {
+      this.log.push(0x4e, this.deviceID); // (the failing call leaves the texture null: `OnLostDevice` made it null already)
       return E_FAIL;
     }
-    this.m_pRenderTargetTexture = made.tex;
-    const level = made.tex.GetSurfaceLevel(0);
+    const texture = made.tex!; // (a texture is made whenever the call succeeds)
+    this.m_pRenderTargetTexture = texture;
+    const level = texture.GetSurfaceLevel(0);
     if (!level) {
       this.log.push(0x4f, this.deviceID);
       return E_FAIL;
     }
     this.m_pRenderTargetSurface = level;
     const z = device.CreateDepthStencilSurface(this.width, this.height, backZ.GetDesc().Format);
-    if (z.hr < 0 || !z.surface) {
+    if (z.hr < 0) {
       this.log.push(0x50, this.deviceID);
       return E_FAIL;
     }
-    this.m_pRenderTargetZSurface = z.surface;
+    this.m_pRenderTargetZSurface = z.surface!; // (a surface is made whenever the call succeeds)
     return 0;
   }
 

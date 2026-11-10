@@ -21,11 +21,41 @@ const suite = existsSync(FILE) ? describe : describe.skip;
 
 const bytes = (): Uint8Array => new Uint8Array(readFileSync(FILE));
 
-/** a player on the movie with a clock the test sets */
-function open(created = true) {
+const tag = (data: Uint8Array, at: number): string => String.fromCharCode(...data.subarray(at, at + 4));
+
+/** the movie with another frame rate: dwRate / dwScale of the header of its video stream (`strh`: scale at 20, rate at 24 of the chunk's data) are `num` / `den` */
+function rated(num: number, den: number): Uint8Array {
+  const data = bytes();
+  let at = 12;
+  while (!(tag(data, at) === "strh" && tag(data, at + 8) === "vids")) at++;
+  const view = new DataView(data.buffer);
+  view.setUint32(at + 8 + 20, den, true);
+  view.setUint32(at + 8 + 24, num, true);
+  return data;
+}
+
+/** the movie with one more chunk of its video stream at the end of the `movi` list (four zero bytes: no picture in it), which the table counts as a frame */
+function withEmptyChunk(): Uint8Array {
+  const data = bytes();
+  let list = 12;
+  while (!(tag(data, list) === "LIST" && tag(data, list + 8) === "movi")) list++;
+  const view = new DataView(data.buffer);
+  const end = list + 8 + view.getUint32(list + 4, true); // the `idx1` chunk starts here
+  const out = new Uint8Array(data.length + 12);
+  out.set(data.subarray(0, end), 0);
+  out.set([0x30, 0x30, 0x64, 0x63, 4, 0, 0, 0], end); // "00dc", 4 bytes of data (zeros)
+  out.set(data.subarray(end), end + 12);
+  const sizes = new DataView(out.buffer);
+  sizes.setUint32(list + 4, view.getUint32(list + 4, true) + 12, true);
+  sizes.setUint32(4, view.getUint32(4, true) + 12, true);
+  return out;
+}
+
+/** a player on the movie (or on the bytes of another file) with a clock the test sets */
+function open(created = true, file: () => Uint8Array = bytes) {
   const clock = { t: 0 };
   const asked: string[] = [];
-  const lib = new Mpeg1VideoLibrary((path) => (asked.push(path), path === "es.avi" ? bytes() : null), () => clock.t);
+  const lib = new Mpeg1VideoLibrary((path) => (asked.push(path), path === "es.avi" ? file() : null), () => clock.t);
   if (created) {
     lib.create();
     expect(lib.open("es.avi")).toBe(0);
@@ -33,10 +63,13 @@ function open(created = true) {
   return { lib, clock, asked };
 }
 
-/** a frame buffer of `width` x `height` pixels of `bytesPerPixel` bytes, rows `pitch` bytes apart, filled with 0xAA (the bytes between the rows must stay) */
-function buffer(format: number, width = 400, height = 220, bytesPerPixel = 4, padding = 16): BvlFrame {
+/**
+ * a frame buffer of `width` x `height` pixels of `bytesPerPixel` bytes, rows `pitch` bytes apart, filled with 0xAA (the bytes between the rows must stay),
+ * and `guard` more bytes behind the last row (memory that is not the frame's, which must stay as well)
+ */
+function buffer(format: number, width = 400, height = 220, bytesPerPixel = 4, padding = 16, guard = 0): BvlFrame {
   const pitch = width * bytesPerPixel + padding;
-  return { frame_buf: new Uint8Array(pitch * height).fill(0xaa), frame_buf_size: pitch * height, pitch, width, height, pixel_format: format, frame_time: -1n, frame_number: -1n };
+  return { frame_buf: new Uint8Array(pitch * height + guard).fill(0xaa), frame_buf_size: pitch * height, pitch, width, height, pixel_format: format, frame_time: -1n, frame_number: -1n };
 }
 
 /** the decoder's frame `n` as B, G, R, 255 bytes (the order of a little-endian X8R8G8B8 pixel) */
@@ -93,9 +126,48 @@ suite("Mpeg1VideoLibrary: the player of the platform", () => {
     const { lib } = open();
     const info = lib.getVideoInfo();
     expect([info.width, info.height, info.fps_rate, info.fps_scale, info.total_frames, info.total_time]).toEqual([400, 220, 24, 1, 459n, 19125n]);
+    expect([info.samplerate, info.channels]).toEqual([0, 0]); // (no sound: the exe makes the library without a sound object)
     const closed = open(false).lib;
     closed.create();
     expect([closed.getVideoInfo().width, closed.getVideoInfo().height]).toEqual([0, 0]);
+  });
+
+  test("GetVideoInfo with other rates: the time is the frames' time in milliseconds, rounded to the nearest (459 frames at 30000 / 1001: 15,315.3; at 13: 35,307.69; at 7: 65,571.43)", () => {
+    for (const [num, den, time] of [[30000, 1001, 15315n], [13, 1, 35308n], [7, 1, 65571n]] as const) {
+      const info = open(true, () => rated(num, den)).lib.getVideoInfo();
+      expect([num, den, info.fps_rate, info.fps_scale, info.total_frames, info.total_time]).toEqual([num, den, num, den, 459n, time]);
+    }
+  });
+
+  test("Open starts a movie from its first frame: where Seek put the movie before it, and the frame it gave, are forgotten", () => {
+    const { lib, clock } = open();
+    lib.play();
+    expect(lib.seek(100n, BVL_SEEK.FRAME)).toBe(0);
+    const frame = buffer(BVLPF.X8R8G8B8);
+    expect(lib.getFrame(frame, 1)).toBe(0);
+    expect(frame.frame_number).toBe(100n); // the movie is at frame 100 and has given it
+    expect(lib.open("es.avi")).toBe(0);
+    expect([status(lib), lib.isNextFrame()]).toEqual([BVL_STATUS.READY, 0]);
+    expect(lib.play()).toBe(0);
+    expect(lib.isNextFrame()).toBe(1); // frame 0 is due, and no frame was given: not "100 was"
+    expect(lib.getFrame(frame, 1)).toBe(0);
+    expect(frame.frame_number).toBe(0n); // not 100: the place Seek chose is gone
+    clock.t = 41; // (41 ms * 24 / 1000 = 0.98: the next frame is not due yet)
+    expect(lib.isNextFrame()).toBe(0);
+  });
+
+  test("Stop forgets where the movie was and the frame it gave: Play after it starts at frame 0 again, whatever Seek had chosen", () => {
+    const { lib } = open();
+    lib.play();
+    expect(lib.seek(100n, BVL_SEEK.FRAME)).toBe(0);
+    const frame = buffer(BVLPF.X8R8G8B8);
+    expect(lib.getFrame(frame, 1)).toBe(0);
+    expect(frame.frame_number).toBe(100n);
+    expect(lib.stop()).toBe(0);
+    expect(lib.play()).toBe(0);
+    expect(lib.isNextFrame()).toBe(1); // frame 0 is due, and nothing was given since
+    expect(lib.getFrame(frame, 1)).toBe(0);
+    expect(frame.frame_number).toBe(0n);
   });
 
   test("a movie that has not been told to play has no frame due; Play at t = 5,000 ms: frame 0 is due at once, frame 1 from 41.67 ms on", () => {
@@ -186,14 +258,53 @@ suite("Mpeg1VideoLibrary: the player of the platform", () => {
     }
   });
 
-  test("a buffer smaller than the video gets the part that fits (the rows and columns it has)", () => {
+  test("a buffer smaller than the video gets the part that fits (the rows and columns it has); what follows the last row is not written", () => {
     const { lib, clock } = open();
     lib.play();
     clock.t = 1000;
-    const frame = buffer(BVLPF.X8R8G8B8, 300, 100, 4, 0);
+    const frame = buffer(BVLPF.X8R8G8B8, 300, 100, 4, 0, 1200);
     expect(lib.getFrame(frame, 1)).toBe(0);
     const want = decoded(24);
     for (const y of [0, 50, 99]) expect(Array.from(frame.frame_buf.subarray(y * 1200, (y + 1) * 1200))).toEqual(Array.from(want.bgra.subarray(y * 1600, y * 1600 + 1200)));
+    expect(frame.frame_buf.subarray(100 * 1200).every((b) => b === 0xaa)).toBe(true);
+  });
+
+  test("a buffer larger than the video gets the picture in its corner: the columns and rows beyond it stay as they were", () => {
+    const { lib, clock } = open();
+    lib.play();
+    clock.t = 1000;
+    const frame = buffer(BVLPF.X8R8G8B8, 420, 230, 4, 0, 1680); // 420 x 230 pixels, pitch 1680, and a row more
+    expect(lib.getFrame(frame, 1)).toBe(0);
+    const want = decoded(24);
+    for (const y of [0, 1, 110, 219]) {
+      expect([y, Array.from(frame.frame_buf.subarray(y * 1680, y * 1680 + 1600))]).toEqual([y, Array.from(want.bgra.subarray(y * 1600, (y + 1) * 1600))]);
+      expect([y, frame.frame_buf.subarray(y * 1680 + 1600, (y + 1) * 1680).every((b) => b === 0xaa)]).toEqual([y, true]);
+    }
+    expect(frame.frame_buf.subarray(220 * 1680).every((b) => b === 0xaa)).toBe(true); // rows 220 to 229 and the row of guard
+  });
+
+  test("a buffer that has the video's size and no more is written to its last byte, and not beyond (rows 0 to 219)", () => {
+    const { lib, clock } = open();
+    lib.play();
+    clock.t = 1000;
+    const frame = buffer(BVLPF.X8R8G8B8, 400, 220, 4, 0, 1600);
+    expect(lib.getFrame(frame, 1)).toBe(0);
+    const want = decoded(24);
+    expect(Array.from(frame.frame_buf.subarray(219 * 1600, 220 * 1600))).toEqual(Array.from(want.bgra.subarray(219 * 1600, 220 * 1600)));
+    expect(frame.frame_buf.subarray(220 * 1600).every((b) => b === 0xaa)).toBe(true);
+  });
+
+  test("a frame the decoder cannot give (the table counts a frame that has no picture) is E_FAIL: nothing is written, and it was not given", () => {
+    const { lib, clock } = open(true, withEmptyChunk);
+    expect(lib.getVideoInfo().total_frames).toBe(460n);
+    lib.play();
+    clock.t = 30000; // the due frame is the last of the table, 459
+    const frame = buffer(BVLPF.X8R8G8B8);
+    expect(lib.getFrame(frame, 1)).toBe(E_FAIL);
+    expect([frame.frame_number, frame.frame_time, frame.frame_buf.every((b) => b === 0xaa)]).toEqual([-1n, -1n, true]);
+    expect([lib.isNextFrame(), status(lib)]).toEqual([1, BVL_STATUS.PLAYING]); // still due: nothing was given
+    expect(lib.getFrame(frame, 0)).toBe(0); // the next one of the sequence is frame 0
+    expect(frame.frame_number).toBe(0n);
   });
 
   test("the movie plays to its end: the last frame is due from 458 * 1000 / 24 ms, and the status is PLAYEND once it has been given and the movie's 19,125 ms are over", () => {
@@ -261,6 +372,64 @@ suite("Mpeg1VideoLibrary: the player of the platform", () => {
     expect(Array.from(frame.frame_buf.subarray(110 * frame.pitch + 800, 110 * frame.pitch + 804))).toEqual(Array.from(decoded(458).bgra.subarray(110 * 1600 + 800, 110 * 1600 + 804)));
   });
 
+  test("Seek beyond the end puts the movie at its last frame (458): that frame is due, and the movie is over one frame's time after it", () => {
+    const { lib, clock } = open();
+    lib.play();
+    expect(lib.seek(9999n, BVL_SEEK.FRAME)).toBe(0);
+    const frame = buffer(BVLPF.X8R8G8B8);
+    expect(lib.getFrame(frame, 1)).toBe(0);
+    expect(frame.frame_number).toBe(458n);
+    expect(status(lib)).toBe(BVL_STATUS.PLAYING); // the last frame is on show for its 41.67 ms
+    clock.t = 41;
+    expect(status(lib)).toBe(BVL_STATUS.PLAYING); // 458 + floor(41 * 24 / 1000) = 458
+    clock.t = 42;
+    expect(status(lib)).toBe(BVL_STATUS.PLAYEND); // 458 + 1 = 459: past the last
+  });
+
+  test("Seek by time: the frame is floor(ms * rate / 1000): 999 ms at 24 frames per second is 23.98, frame 23 (not 24)", () => {
+    const { lib } = open();
+    lib.play();
+    const frame = buffer(BVLPF.X8R8G8B8);
+    for (const [ms, want] of [[999n, 23n], [1000n, 24n], [1030n, 24n], [1050n, 25n], [41n, 0n], [42n, 1n]] as const) {
+      expect(lib.seek(ms, BVL_SEEK.TIME)).toBe(0);
+      expect(lib.getFrame(frame, 1)).toBe(0);
+      expect([ms, frame.frame_number]).toEqual([ms, want]);
+    }
+  });
+
+  test("the time of a frame is counted with the movie's own rate (30000 / 1001): frame 29 is at 1,000 ms and 967.63 ms, frame 30 at 1,001 ms", () => {
+    const { lib, clock } = open(true, () => rated(30000, 1001));
+    lib.play();
+    clock.t = 1000; // floor(1000 * 30000 / (1000 * 1001)) = floor(29.97)
+    const frame = buffer(BVLPF.X8R8G8B8);
+    expect(lib.getFrame(frame, 1)).toBe(0);
+    expect([frame.frame_number, frame.frame_time]).toEqual([29n, 968n]); // 29 * 1000 * 1001 / 30000 = 967.63 ms
+    clock.t = 1001; // floor(30.0)
+    expect(lib.getFrame(frame, 1)).toBe(0);
+    expect([frame.frame_number, frame.frame_time]).toEqual([30n, 1001n]);
+    expect(lib.seek(1001n, BVL_SEEK.TIME)).toBe(0); // the same number from a time
+    expect(lib.getFrame(frame, 1)).toBe(0);
+    expect(frame.frame_number).toBe(30n);
+    expect(lib.seek(999n, BVL_SEEK.TIME)).toBe(0); // 29.94
+    expect(lib.getFrame(frame, 1)).toBe(0);
+    expect(frame.frame_number).toBe(29n);
+  });
+
+  test("the clock is counted from Play (the milliseconds since it), a clock that stands still or is set back is the first frame", () => {
+    const { lib, clock } = open();
+    clock.t = 100000;
+    lib.play();
+    clock.t = 100999; // 999 ms since Play: frame 23
+    const frame = buffer(BVLPF.X8R8G8B8);
+    expect(lib.getFrame(frame, 1)).toBe(0);
+    expect(frame.frame_number).toBe(23n);
+    expect(lib.seek(0n, BVL_SEEK.FRAME)).toBe(0); // a new run from the clock of that moment
+    clock.t = 100500; // set back by 499 ms: nothing has passed
+    expect([lib.isNextFrame(), status(lib)]).toEqual([1, BVL_STATUS.PLAYING]);
+    expect(lib.getFrame(frame, 1)).toBe(0);
+    expect(frame.frame_number).toBe(0n);
+  });
+
   test("Play and Stop need an open movie (the player may be created without one)", () => {
     const { lib } = open(false);
     lib.create();
@@ -276,6 +445,17 @@ suite("Mpeg1VideoLibrary: the player of the platform", () => {
     expect(lib.play()).toBe(BVL_E_NOT_CREATED);
     expect(lib.open("es.avi")).toBe(0);
     lib.destroy();
+    expect(lib.getFrame(buffer(BVLPF.X8R8G8B8), 1)).toBe(BVL_E_NOT_CREATED);
+  });
+
+  test("Destroy forgets the movie and its state too: a player that is created again has no movie, is CLOSED, and has no frame due", () => {
+    const { lib } = open();
+    expect(lib.play()).toBe(0);
+    expect(status(lib)).toBe(BVL_STATUS.PLAYING);
+    lib.destroy();
+    expect(lib.isNextFrame()).toBe(0);
+    expect(lib.create()).toBe(0);
+    expect([status(lib), lib.isNextFrame(), lib.getVideoInfo().width, lib.play(), lib.seek(0n, 0), lib.stop()]).toEqual([BVL_STATUS.CLOSED, 0, 0, BVL_E_NOT_CREATED, BVL_E_NOT_CREATED, BVL_E_NOT_CREATED]);
     expect(lib.getFrame(buffer(BVLPF.X8R8G8B8), 1)).toBe(BVL_E_NOT_CREATED);
   });
 });

@@ -999,7 +999,7 @@ export class CKTDGUIControl implements Partial<CKTDGUIControl_Methods> {
 
   /**
    * `ShowGuideDesc()` (32927C30): a control with a guide text asks its dialog to show it (`CKTDGUIDialog::ShowGuideDesc` 3295BA30 builds the
-   * guide dialog and measures the text with a font: not ported, so it throws).
+   * guide dialog and measures the text with a font).
    */
   showGuideDesc(): void {
     if (this.m_GuideDesc.length !== 0 && this.m_pDialog !== null) this.m_pDialog.showGuideDesc(this);
