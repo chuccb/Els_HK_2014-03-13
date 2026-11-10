@@ -225,7 +225,7 @@ function markdown(rows: Row[]): string {
   out.push(`| DLG scripts | ${n(rows.length)} |`);
   out.push(`| the script ran to its end | ${n(ok.filter((r) => r.opened).length)} |`);
   out.push(`| ... only the second time (it needs a global that a sibling defines) | ${n(ok.filter((r) => r.opened && r.retried).length)} |`);
-  out.push(`| the script did not run (a game state defines what it needs, FINDINGS 17.1) | ${n(ok.filter((r) => !r.opened).length)} |`);
+  out.push(`| the script did not run (a dead script of this build: it reads a global that nothing defines, FINDINGS 17.30) | ${n(ok.filter((r) => !r.opened).length)} |`);
   out.push(`| drawn without an exception | ${n(ok.length)} |`);
   out.push(`| ... whose frame ended in an exception first (what \`OnFrameMove\` does there is not ported) | ${n(ok.filter((r) => r.frameError).length)} |`);
   out.push(`| ... that draw at least one quad or string | ${n(drawn.length)} |`);

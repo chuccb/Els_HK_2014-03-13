@@ -7,7 +7,7 @@ Every `DLG_*.lua` of the archives is opened in one UI world with a device (one L
 | DLG scripts | 1,024 |
 | the script ran to its end | 992 |
 | ... only the second time (it needs a global that a sibling defines) | 9 |
-| the script did not run (a game state defines what it needs, FINDINGS 17.1) | 32 |
+| the script did not run (a dead script of this build: it reads a global that nothing defines, FINDINGS 17.30) | 32 |
 | drawn without an exception | 1,024 |
 | ... whose frame ended in an exception first (what `OnFrameMove` does there is not ported) | 0 |
 | ... that draw at least one quad or string | 902 |

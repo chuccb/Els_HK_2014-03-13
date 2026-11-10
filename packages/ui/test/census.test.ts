@@ -75,8 +75,8 @@ describe.skipIf(!haveData)("the DLG scripts of the client", () => {
     const devices = world.ui.devices;
     expect([devices.devices.size, devices.renderTargets.size, [...devices.sounds.keys()].sort()]).toEqual([0, 0, ["CARD_FLIP.OGG", "X2_BUTTON_MOUSE_OVER.OGG", "X2_BUTTON_MOUSE_UP.OGG"]]);
 
-    // the rest are the scripts of the game states: each reads a table or an object that the state (the village map, the shop, the video
-    // recorder) puts into Lua when it starts, and no state is ported yet.  A bound that only goes down.
+    // the rest are dead scripts of this build (FINDINGS 17.30): each reads a global that nothing defines (the village map, the shop, the video
+    // recorder: the exe has no such states and never opens them).  A bound that only goes down.
     const rest = dlg.filter((n) => !host.get(n)!.ok);
     expect(rest.length).toBeLessThanOrEqual(32);
     for (const n of rest) expect(host.get(n)!.error).toMatch(/attempt to index global '(STATE_[A-Z_]*UI_CUSTOM_MSG|SHOP_UI_CUSTOM_MSG|UI_RECORD_VIDEO_CUSTOM_MSG|WORLD_MISSION_UI_MSG|g_pShopCharStatus|g_pShopInventory)'/);
