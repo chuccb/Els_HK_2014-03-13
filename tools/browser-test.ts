@@ -7,9 +7,13 @@
  * Starts the server in this process (or uses --url), loads the page and checks, against the same decoders run in Bun on the same files:
  *   - the 173 archives mount over HTTP Range requests (97,891 members)
  *   - a TGA, an AVI picture and the frames of a mesh come out pixel-identical / animated, through the real WebGPU canvas path
+ *   - a DLG script runs as a dialog (Lua VM + packages/ui + the Direct3D 9 layer on the canvas): its picture is the one Bun's WebGPU device makes of
+ *     the same dialog (tools/ui-draw.ts, through ./tools/gpu.sh), the mouse changes it, and a mesh after it is drawn as before
  * It exits 1 on a failed check or when the page logged an error (console.error, uncaught exception, failed request, HTTP >= 400).
  */
-import { mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Mpeg1Movie, decodeImage, yuv420ToBgra } from "@els/assets";
 import { startServer } from "../apps/server/src/main.ts";
 import { withPage } from "./browser.mjs";
@@ -35,6 +39,19 @@ function fnv(b: Uint8Array): string {
 }
 /** the same hash in the page */
 const PAGE_FNV = `(b) => { let h = 0x811c9dc5; for (let i = 0; i < b.length; i++) { h ^= b[i]; h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16).padStart(8, "0"); }`;
+
+/** the picture the same dialog makes in Bun on its own WebGPU device (tools/ui-draw.ts: one frame of no time, as a paused dialog of the page): its pixels */
+function bunPicture(script: string): { width: number; height: number; rgba: Uint8Array } {
+  const dir = mkdtempSync(join(tmpdir(), "els-dialog-"));
+  try {
+    const run = Bun.spawnSync(["./tools/gpu.sh", process.execPath, "run", "tools/ui-draw.ts", "--only", `^${script.replace(/\./g, "\\.")}$`, "--png", dir], { stdout: "pipe", stderr: "pipe" });
+    if (run.exitCode !== 0) throw new Error(`ui-draw.ts exited with ${run.exitCode}: ${run.stderr.toString().slice(-400)}${run.stdout.toString().slice(-400)}`);
+    const img = decodeImage(new Uint8Array(readFileSync(join(dir, `ui-${script.replace(/\.LUA$/i, "")}.png`))));
+    return { width: img.width, height: img.height, rgba: img.rgba };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 const server = opt("--url") ? null : startServer({ port: 0, hostname: "127.0.0.1" });
 const base = opt("--url") ?? `http://127.0.0.1:${server!.port}/`;
@@ -128,7 +145,13 @@ try {
       await open(page, "general.ess");
       const info = await page.evaluate<string>("document.querySelector('.info').textContent");
       check("text: general.ess (a loose file) opens as text", /^loose file, .*text/.test(info), info);
-      const luaName = [...index.values()].find((e) => /^dlg_.*\.lua$/i.test(e.entry.name))!.entry.name;
+      // (a DLG_ script opens as a dialog now: the listing is what any other script of the archives shows)
+      let luaName = "";
+      for (const e of index.values()) {
+        if (!/\.lua$/i.test(e.entry.name) || /^dlg_/i.test(e.entry.name)) continue;
+        const head = (await kom(e.entry.name)).subarray(0, 3);
+        if (head[0] === 0x1b && head[1] === 0x4b && head[2] === 0x4c) { luaName = e.entry.name; break; }
+      }
       await open(page, luaName);
       const lua = await page.evaluate<string>("document.querySelector('.info').textContent");
       check(`text: ${luaName} opens as a LuaJIT bytecode listing`, /LuaJIT 2\.0 bytecode/.test(lua) && /listing lines/.test(lua), lua);
@@ -178,6 +201,78 @@ try {
       const d = await page.evaluate<Look>(freeze({ set: 0, time: 0, yaw: 0.6, pitch: 0.35 }));
       check("kme: Elder_Village_bigsang.Y is a static KME mesh (693 vertices after welding, 494 faces, 30 subsets, 9 textures) and is drawn", /KME static mesh, 693 vertices, 494 faces, 30 subsets of 71 materials, 9 textures/.test(d.info) && d.lit > 30000 && d.h > 100, `${d.info}; lit ${d.lit}, ${d.w} x ${d.h}`);
       await shot(page, "05c-kme");
+    }
+    // ---- a dialog that runs: the party list is executed by the Lua VM, built by packages/ui and drawn every frame through the Direct3D 9 layer
+    {
+      const meshHash = async (): Promise<string> => {
+        await open(page, "MESH_ELSWORD_BASIC_WEAPON.X");
+        await page.waitForFunction("__els.viewer.preview.state().frames >= 2", { timeout: 60000, polling: 50 });
+        return page.evaluate<string>(`(async () => { const p = __els.viewer.preview; p.control({ autoRotate: false, paused: true, yaw: 0.6, pitch: 0.25, distance: 2.6, set: 0, time: 0 });
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); const s = await p.snapshot(); return (${PAGE_FNV})(s.rgba); })()`);
+      };
+      const meshBefore = await meshHash();
+      await page.evaluate("__els.viewer.startPaused = true"); // frames of no time, as the picture of Bun is made
+      // (the filter box still holds the name of the mesh that was opened: clear it)
+      await page.evaluate("(() => { const s = document.querySelector('aside input[type=search]'); s.value = ''; s.dispatchEvent(new Event('input')); [...document.querySelectorAll('.chips button')].find((b) => b.textContent === 'dialogs').click(); })()");
+      const listed = await page.evaluate<string>("document.querySelector('.count').textContent");
+      check("dialogs: the chip lists the 1,024 DLG_ scripts of the archives", /^1,024 matches/.test(listed), listed);
+      const name = "DLG_UI_Partylist.lua";
+      await open(page, name);
+      await page.waitForFunction("__els.viewer.preview.state().frames >= 1", { timeout: 60000, polling: 50 });
+      const st = await page.evaluate<{ moveError: string; renderError: string; messageError: string; rounds: number; fetched: number }>("__els.viewer.preview.state()");
+      const info = await page.evaluate<string>("document.querySelector('.info').textContent");
+      check(`dialog: ${name} is run and built by packages/ui (103 controls, all shown) and drawn without a failed frame`, /dialog: 103 controls \(103 shown\)/.test(info) && !st.moveError && !st.renderError, info);
+      const pixels = async (): Promise<Uint8Array> => Uint8Array.from(Buffer.from(await page.evaluate<string>(`(async () => { const s = await __els.viewer.preview.snapshot(); let bin = "";
+        for (let i = 0; i < s.rgba.length; i += 0x8000) bin += String.fromCharCode.apply(null, s.rgba.subarray(i, i + 0x8000)); return btoa(bin); })()`), "base64"));
+      const mine = await pixels();
+      let worst = 0, differing = 0, lit = 0;
+      try {
+        const ref = bunPicture(name.toUpperCase());
+        for (let i = 0; i < ref.rgba.length; i += 4) {
+          let d = 0;
+          for (let c = 0; c < 3; c++) d = Math.max(d, Math.abs(mine[i + c]! - ref.rgba[i + c]!));
+          if (d > 0) differing++;
+          if (mine[i] !== 0x2d || mine[i + 1] !== 0x33 || mine[i + 2] !== 0x40) lit++;
+          worst = Math.max(worst, d);
+        }
+        check("dialog: the picture is the one Bun's WebGPU device makes of the same dialog (1024x768; largest channel difference <= 3, the tolerance of the GPU tests)",
+          ref.width === 1024 && ref.height === 768 && mine.length === ref.rgba.length && lit > 50000 && worst <= 3, `${differing} of ${ref.width * ref.height} pixels differ, largest difference ${worst}; ${lit} pixels are not the background`);
+      } catch (e) {
+        check("dialog: the picture is the one Bun's WebGPU device makes of the same dialog", false, e instanceof Error ? e.message : String(e));
+      }
+      // the mouse: the red X (a CKTDGUIButton named Exit) has a picture of its own under the mouse and one when it is pressed
+      const mouse = await page.evaluate<{ away: string; over: string; overName: string | null; down: string; up: string; again: string; after: string | null }>(`(async () => {
+        const p = __els.viewer.preview, out = {};
+        const frame = async () => { const f = p.state().frames; p.control({}); while (p.state().frames === f) await new Promise((r) => requestAnimationFrame(r)); };
+        const hash = async () => (${PAGE_FNV})((await p.snapshot()).rgba);
+        p.control({ mouse: [10, 10] }); await frame(); out.away = await hash();
+        p.control({ mouse: [960, 168] }); await frame(); out.over = await hash(); out.overName = p.state().mouseOver;
+        p.control({ button: "left-down" }); await frame(); out.down = await hash();
+        p.control({ button: "left-up" }); await frame(); out.up = await hash();
+        p.control({ mouse: [10, 10] }); await frame(); out.again = await hash(); out.after = p.state().mouseOver;
+        return out; })()`);
+      check("dialog: the mouse reaches the dialog: the red X has a picture of its own under the mouse and one when pressed, and nothing stays behind",
+        mouse.overName === "CKTDGUIButton:Exit" && new Set([mouse.away, mouse.over, mouse.down]).size === 3 && mouse.up === mouse.over && mouse.again === mouse.away && mouse.after === null, JSON.stringify(mouse));
+      await shot(page, "05d-dialog");
+      // the script listing is a button away, and the picture comes back
+      await page.evaluate("[...document.querySelectorAll('.bar button')].find((b) => b.textContent === 'script listing').click()");
+      const listing = await page.evaluate<boolean>("!!document.querySelector('pre.text') && !document.querySelector('canvas.dialog')");
+      await page.evaluate("[...document.querySelectorAll('.bar button')].find((b) => b.textContent === 'picture').click()");
+      const back = await page.evaluate<boolean>("!document.querySelector('pre.text') && !!document.querySelector('canvas.dialog')");
+      check("dialog: the script listing and the picture can be switched", listing && back);
+      // a script that stops is no dialog: the listing is shown, with the reason (the 32 scripts of the game's states need globals that no script sets here)
+      await open(page, "DLG_Map_Village_Front.lua");
+      await page.waitForFunction("!!document.querySelector('.info') && /not shown as a dialog|dialog:/.test(document.querySelector('.info').textContent)", { timeout: 60000, polling: 50 });
+      const stopped = await page.evaluate<string>("document.querySelector('.info').textContent");
+      const shownAsListing = await page.evaluate<boolean>("!!document.querySelector('pre.text') && !document.querySelector('canvas.dialog')");
+      check("dialog: DLG_Map_Village_Front.lua (its script stops at line 0 on a global) is shown as its listing, with the reason", shownAsListing && /not shown as a dialog: the script stopped: .+/.test(stopped), stopped);
+      // a second dialog is built from the same files; a mesh after the dialogs is the picture it was before (the device is reset around a dialog)
+      await open(page, "DLG_UI_Key_Setting.lua");
+      await page.waitForFunction("__els.viewer.preview.state().frames >= 1", { timeout: 60000, polling: 50 });
+      const second = await page.evaluate<string>("document.querySelector('.info').textContent");
+      check("dialog: DLG_UI_Key_Setting.lua (a second one in the same page) is built too: 165 controls", /dialog: 165 controls/.test(second), second);
+      const meshAfter = await meshHash();
+      check("dialog: a mesh drawn after dialogs is the picture it was before", meshAfter === meshBefore, `${meshBefore} / ${meshAfter}`);
     }
     // ---- --smoke N: a deterministic pseudo-random sample of the X / Y files through the whole browser stack
     if (smoke > 0) {

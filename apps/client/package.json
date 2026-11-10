@@ -8,6 +8,7 @@
     "@els/d3d9": "workspace:*",
     "@els/engine": "workspace:*",
     "@els/kom": "workspace:*",
-    "@els/lua": "workspace:*"
+    "@els/lua": "workspace:*",
+    "@els/ui": "workspace:*"
   }
 }

@@ -30,6 +30,7 @@
         "@els/engine": "workspace:*",
         "@els/kom": "workspace:*",
         "@els/lua": "workspace:*",
+        "@els/ui": "workspace:*",
       },
     },
     "apps/server": {

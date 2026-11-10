@@ -6,6 +6,8 @@ export interface PreviewEnv {
   vfs: Vfs;
   d3d: () => Promise<BrowserD3D>;
   status: (text: string) => void;
+  /** dialogs start paused (`?paused` in the address; tests set it): frames of no time, as the draw tests run them */
+  startPaused?: boolean;
 }
 
 export interface Preview {

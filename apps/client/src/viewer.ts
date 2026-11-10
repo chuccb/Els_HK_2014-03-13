@@ -4,6 +4,7 @@ import { el, fmtBytes } from "./ui.ts";
 import type { Row, Vfs } from "./vfs.ts";
 import { getBrowserD3D } from "./gpu.ts";
 import { audioPreview } from "./previews/audio.ts";
+import { dialogPreview } from "./previews/dialog.ts";
 import { imagePreview } from "./previews/image.ts";
 import { meshPreview } from "./previews/mesh.ts";
 import { moviePreview } from "./previews/movie.ts";
@@ -11,11 +12,12 @@ import { tablePreview, textPreview } from "./previews/text.ts";
 
 interface Item { name: string; lower: string; kom: string | null; size: number; ext: string }
 
-const KINDS: { id: string; label: string; exts: readonly string[] | null }[] = [
+const KINDS: { id: string; label: string; exts: readonly string[] | null; /** only the names this matches */ name?: RegExp }[] = [
   { id: "all", label: "all", exts: null },
   { id: "image", label: "images", exts: ["tga", "dds", "bmp", "png", "jpg"] },
   { id: "mesh", label: "meshes", exts: ["x", "y"] },
   { id: "script", label: "lua", exts: ["lua"] },
+  { id: "dialog", label: "dialogs", exts: ["lua"], name: /^dlg_/i },
   { id: "table", label: "tables", exts: ["xet", "tet", "kim", "ess"] },
   { id: "audio", label: "audio", exts: ["ogg", "wav"] },
   { id: "movie", label: "movies", exts: ["avi"] },
@@ -41,6 +43,8 @@ export class Viewer implements PreviewEnv {
   private readonly viewEl = el("div", { id: "view" });
   private readonly statusEl = el("div", { id: "status" });
   readonly opened: { name: string; ms: number }[] = [];
+  /** `?paused` in the address, or set by a test: the dialogs that open start paused */
+  startPaused = new URLSearchParams(location.search).has("paused");
 
   constructor(root: HTMLElement, readonly vfs: Vfs) {
     this.items = [
@@ -76,12 +80,14 @@ export class Viewer implements PreviewEnv {
   }
 
   private refresh(): void {
-    const exts = KINDS.find((k) => k.id === this.kind)!.exts;
+    const kind = KINDS.find((k) => k.id === this.kind)!;
+    const exts = kind.exts;
     const words = this.needle.split(/\s+/).filter(Boolean);
     const out: Item[] = [];
     let total = 0;
     for (const it of this.items) {
       if (exts && !exts.includes(it.ext)) continue;
+      if (kind.name && !kind.name.test(it.name)) continue;
       if (words.length && !words.every((w) => it.lower.includes(w))) continue;
       total++;
       if (out.length < MAX_ROWS) out.push(it);
@@ -107,8 +113,8 @@ export class Viewer implements PreviewEnv {
     this.viewEl.replaceChildren(el("div", { class: "welcome" },
       el("h2", { text: "Original client data, in the browser" }),
       el("p", {}, `Every member of the ${this.vfs.manager.archives.length} KOM archives is read over HTTP Range requests through the same mass-file manager the exe has (packages/kom), decoded by packages/assets and drawn by the Direct3D 9 layer on WebGPU (packages/d3d9).`),
-      el("p", {}, "Try: ", link("MESH_ELSWORD_BASIC_WEAPON.X"), ", ", link("dlg_first_loading0_hk.tga"), ", ", link("movie/movie_create_aisha_base.avi"), ", ", link("general.ess", "general.ess (hex)"), "."),
-      el("p", { class: "dim", text: "Keys: up / down in the list. Mesh view: drag to orbit, wheel to zoom." })));
+      el("p", {}, "Try: ", link("MESH_ELSWORD_BASIC_WEAPON.X"), ", ", link("DLG_UI_PARTYLIST.LUA", "DLG_UI_PARTYLIST.LUA (a dialog that runs)"), ", ", link("dlg_first_loading0_hk.tga"), ", ", link("movie/movie_create_aisha_base.avi"), ", ", link("general.ess", "general.ess (hex)"), "."),
+      el("p", { class: "dim", text: "Keys: up / down in the list. Mesh view: drag to orbit, wheel to zoom. Dialogs (the DLG_ scripts, chip \"dialogs\"): they run - hover, click and scroll with the mouse." })));
   }
 
   // ---- opening things
@@ -152,6 +158,13 @@ export class Viewer implements PreviewEnv {
           catch (e) { note = ` (not shown as a mesh: ${e instanceof Error ? e.message : e})`; preview = textPreview(it.name, bytes); }
           break;
         case "xet": case "tet": preview = tablePreview(it.name, bytes); break;
+        case "lua":
+          // a DLG script is a dialog: it runs, and the dialog is drawn (what the script needs that is not ported stops it, and the listing is shown instead)
+          if (/^dlg_/i.test(it.name)) {
+            try { preview = await dialogPreview(this, it.name, bytes); }
+            catch (e) { note = ` (not shown as a dialog: ${e instanceof Error ? e.message.split("\n")[0] : e})`; preview = textPreview(it.name, bytes); }
+          } else preview = textPreview(it.name, bytes);
+          break;
         default: preview = textPreview(it.name, bytes);
       }
       if (ticket !== this.opening) { preview.dispose(); return; }

@@ -30,3 +30,4 @@ export * from "./render.ts";
 export * from "./world.ts";
 export * from "./stdmap.ts";
 export * from "./census.ts";
+export * from "./prefetch.ts";
