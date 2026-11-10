@@ -23,7 +23,8 @@ M = [
  ('slider.ts', 'slider: value below the minimum', r'if (this.m_nMin > v) v = this.m_nMin;', r'if (false) v = this.m_nMin;', ''),
  ('slider.ts', 'slider: value above the maximum', r'if (this.m_nMax < v) v = this.m_nMax;', r'if (this.m_nMax < v) v = this.m_nMin;', ''),
  ('slider.ts', 'slider: an unchanged value is silent', r'if (v === this.m_nValue) return;', r'if (false) return;', ''),
- ('slider.ts', 'slider: control event argument', r'this.sendInternelEvent(UIM.CONTROL_EVENT, 0);', r'this.sendInternelEvent(UIM.CONTROL_EVENT, 1);', ''),
+ ('slider.ts', 'slider: control event argument (mouse up)', r'if (this.m_CustomMsgValueChanged === -1) this.sendInternelEvent(UIM.CONTROL_EVENT, 0);', r'if (this.m_CustomMsgValueChanged === -1) this.sendInternelEvent(UIM.CONTROL_EVENT, 1);', ''),
+ ('slider.ts', 'slider: control event argument (set value)', r'if (custom === -1) this.sendInternelEvent(UIM.CONTROL_EVENT, 0);', r'if (custom === -1) this.sendInternelEvent(UIM.CONTROL_EVENT, 1);', ''),
  ('slider.ts', 'slider: custom message argument', r'else this.sendInternelEvent(UIM.CUSTOM_MSG, custom);', r'else this.sendInternelEvent(UIM.CUSTOM_MSG, 0);', ''),
  ('slider.ts', 'slider: width or height missing', r'if (this.m_width === 0 || this.m_height === 0) return;', r'if (this.m_width === 0 && this.m_height === 0) return;', ''),
  ('slider.ts', 'slider: default button height', r'if (this.m_iButtonHeight === 0) this.m_iButtonHeight = this.m_height;', r'if (this.m_iButtonHeight === 0) this.m_iButtonHeight = this.m_width;', ''),
@@ -57,7 +58,7 @@ M = [
  ('controllist.ts', 'list: X bar threshold', r'if (x && this.m_iMaxIndexX >= this.m_iViewSizeX) {', r'if (x && this.m_iMaxIndexX > this.m_iViewSizeX) {', ''),
  ('controllist.ts', 'list: setIndex sends only when asked', r'if (sendMessage && this.m_CustomMsgScroll !== -1)', r'if (this.m_CustomMsgScroll !== -1)', ''),
  ('controllist.ts', 'list: setIndex needs a custom message', r'if (sendMessage && this.m_CustomMsgScroll !== -1)', r'if (sendMessage)', ''),
- ('controllist.ts', 'list: the old bar is deleted', r'old?.destroy();', r'', ''),
+ ('controllist.ts', 'list: the old bar is deleted', r'old?.Destroy();', r'', ''),
  ('controllist.ts', 'list: bounding box right', r'ftoi(f(f(width) + x))', r'ftoi(f(f(width)))', ''),
  ('controllist.ts', 'list: SetScrollOffset times the view', r'this.setBoundingBox(imul(x | 0, this.m_iViewSizeX), imul(y | 0, this.m_iViewSizeY));', r'this.setBoundingBox(imul(x | 0, this.m_iViewSizeY), imul(y | 0, this.m_iViewSizeX));', ''),
  ('controllist.ts', 'list: SetShow cells', r'(row === -1 || row === r) && (col === -1 || col === c)', r'(row === -1 || row === r) || (col === -1 || col === c)', ''),
@@ -131,7 +132,7 @@ M = [
  ('device.ts', 'device: CloseDevice deletes a render target at zero', r'if (--target.refCount <= 0) this.renderTargets.delete(id);', r'if (--target.refCount <= 1) this.renderTargets.delete(id);', ''),
  ('device.ts', 'device: render target ids are upper case', "const id = towupperAscii(deviceID);\n    let target = this.renderTargets.get(id);", "const id = deviceID;\n    let target = this.renderTargets.get(id);", ''),
  # ---- scrollbar.ts
- ('scrollbar.ts', 'scrollbar: the destructor closes the sound', "this.ctx.devices.closeDevice(this.m_pSndMouseDown.deviceID);\n      this.m_pSndMouseDown = undefined;", "this.m_pSndMouseDown = undefined;", ''),
+ ('scrollbar.ts', 'scrollbar: the destructor closes the sound', "this.m_pSndMouseDown = this.closeHeldDevice(this.m_pSndMouseDown);", "this.m_pSndMouseDown = undefined;", ''),
 ]
 
 

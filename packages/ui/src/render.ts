@@ -113,6 +113,11 @@ export class UIRender {
    */
   readonly viewport: Viewport = { x: 0, y: 0, width: 1024, height: 768, minZ: 0, maxZ: 1 };
   /**
+   * `DXUTGetBackBufferSurfaceDesc()->Width` / `Height`: the size of the back buffer, which DXUT keeps in a `D3DSURFACE_DESC` (the guide text reads the
+   * width).  `setBackBufferSize` gives it; 1024 x 768 until then, as the view port is.
+   */
+  readonly backBuffer = { width: 1024, height: 768 };
+  /**
    * `g_pKTDXApp->m_WorldMatrix`, `m_ViewMatrix` and `m_ProjectionMatrix` (row vectors, `D3DXMATRIX`): the camera the game sets and the UI
    * only reads (`CUKFont::OutProjectionText` projects a point with the last two, and makes the world matrix the identity).  The exe's
    * constructor leaves them as they are; the port starts them as the identity.
@@ -152,6 +157,8 @@ export class UIRender {
     this.viewport.height = height;
     this.viewport.minZ = 0;
     this.viewport.maxZ = 1;
+    this.backBuffer.width = width;
+    this.backBuffer.height = height;
   }
 
   /** a drawing step that is not ported: counted, not drawn */

@@ -763,9 +763,10 @@ m(EB, 'onFrameRender: the box answers 0', r'''      this.DrawRect(rcCaret, this.
 
 # ---- imeeditbox.ts: the drawing, by operator
 IM = 'imeeditbox.ts'
-# the code the mutants are made of: the unsigned compare of GetImeId, then everything from the font colour to the end of
-# RenderCandidateReadingWindow (the helpers, CalcTextRect, DrawTextW, DrawRect, OnFrameRender, RenderComposition, the window of candidates)
-IM_REGIONS = [('  getImeId(uIndex: number): number {', '\n  }\n'), ('  /** the font colour the text is drawn in', '  override textureData(')]
+# the code the mutants are made of: everything from the font colour to the end of RenderCandidateReadingWindow (the helpers, CalcTextRect,
+# DrawTextW, DrawRect, OnFrameRender, RenderComposition, the window of candidates).  (GetImeId, which was here while it was the one unsigned compare of
+# the drawing, is the IME system's now: tools/mutate-ime.py makes its mutants and runs the scenes of the exe that kill them.)
+IM_REGIONS = [('  /** the font colour the text is drawn in', '  override textureData(')]
 # what the mutants of a colour field swap it for (a colour of the tests that no other field has)
 IM_OTHER_COLOUR = {'m_TextColor': 'm_SelTextColor'}
 IM_COLOUR = 'm_TextColor'

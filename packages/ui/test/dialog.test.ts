@@ -128,10 +128,6 @@ describe("CKTDGUIDialog: controls and names", () => {
     expect([d.m_bFront, d.m_iLayer, manager.m_iDialogListChangeCount]).toEqual([false, 8, 5]);
   });
 
-  test("a fade-in is not ported", () => {
-    expect(() => new CKTDGUIDialog(bare(), { moveTime: 0.5 })).toThrow("not ported");
-  });
-
   test("OpenScriptFile: a Lua error in the script is error log 0x49; a method nobody ported is not swallowed", () => {
     const w = bare();
     w.world.execScript = () => {

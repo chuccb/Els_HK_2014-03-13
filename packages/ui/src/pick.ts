@@ -64,6 +64,11 @@ export function resolutionScale(ctx: UIContext): { readonly x: number; readonly 
   return ctx.render?.resolutionScale ?? { x: 1, y: 1 };
 }
 
+/** the width of the back buffer in pixels (`DXUTGetBackBufferSurfaceDesc()->Width`; 1024 without a render, the size the layout is made for) */
+export function backBufferWidth(ctx: UIContext): number {
+  return ctx.render?.backBuffer.width ?? 1024;
+}
+
 /** the point `(x, y)` of the screen in the layout pixels of `control` (what every dialog function hands to `ContainsPoint` and `HandleMouse`) */
 export function localPoint(ctx: UIContext, control: CKTDGUIControl, x: number, y: number): { x: number; y: number } {
   const scale = resolutionScale(ctx);

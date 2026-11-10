@@ -15,7 +15,7 @@
 import { LuaError } from "@els/lua";
 import { Color, KLuaManager, Vec2, Vec3 } from "@els/host";
 import type { CKTDGUIDialog_Methods } from "@els/host";
-import { CKTDGUIControl, CPictureData, UCT, UIM, approach, clearFocus, requestFocus } from "./control.ts";
+import { CKTDGUIControl, CPictureData, UCT, UIM, UIStringData, approach, clearFocus, requestFocus } from "./control.ts";
 import type { UIStage } from "./control.ts";
 import { CKTDGUIButton } from "./button.ts";
 import { CKTDGUICheckBox } from "./checkbox.ts";
@@ -30,11 +30,12 @@ import { CKTDGUISlider } from "./slider.ts";
 import { CKTDGUIEditBox } from "./editbox.ts";
 import { CKTDGUINavigation } from "./navigation.ts";
 import type { RadioButtonGroupInfo } from "./radiobutton.ts";
-import { localAxis, localPoint, resolutionScale } from "./pick.ts";
+import { backBufferWidth, localAxis, localPoint, resolutionScale } from "./pick.ts";
 import { ftoi } from "./rect.ts";
 import { DIALOG_SAMPLER_STATES, RSI_UI_DIALOG } from "./render.ts";
 import type { CKTDGUIDialogManager } from "./dialogmanager.ts";
 import { WStringMap } from "./stdmap.ts";
+import { untilNul } from "./unibuffer.ts";
 import type { UIContext } from "./control.ts";
 import { CKTDGUIItem, CKTDGUIStatic } from "./static.ts";
 
@@ -48,7 +49,7 @@ export interface DialogOptions {
   stage?: unknown;
   /** `wstrScriptFileName` (empty: no script) */
   scriptFileName?: string;
-  /** `fMoveTime`: > 0 fades the dialog in over that time (not ported) */
+  /** `fMoveTime`: > 0 fades the dialog in over that time (its colour from alpha 0 to 1, where it is) */
   moveTime?: number;
   /** `iLayer` */
   layer?: number;
@@ -165,7 +166,20 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
     this.m_iLayer = opts.layer ?? 0;
     const script = opts.scriptFileName ?? "";
     if (script.length !== 0) this.m_bSuccessInitOpenScript = this.openScriptFile(script);
-    if ((opts.moveTime ?? 0) > 0) throw new Error("CKTDGUIDialog: the fade-in of fMoveTime > 0 is not ported");
+    const fMoveTime = f(opts.moveTime ?? 0);
+    if (fMoveTime > 0) {
+      // the fade-in: the colour the script left is the colour to fade to, from alpha 0 to 1, in place; nothing the script queued is left to do and a
+      // finished move does not delete the dialog.  (The exe stores `m_bFadeInOut = true` again behind this: it is the constructor's default.)
+      const { r, g, b } = this.m_Color;
+      const x = this.m_Pos.x, y = this.m_Pos.y;
+      this.m_Color.set(r, g, b, 0);
+      this.m_queMoveItems.length = 0;
+      this.m_fAnimateTime = 0;
+      this.m_GoalPos.set(x, y);
+      this.m_GoalColor.set(r, g, b, 1);
+      this.m_bAutoDelete = false;
+      this.m_fChangeTime = fMoveTime;
+    }
   }
 
   /**
@@ -367,9 +381,99 @@ export class CKTDGUIDialog implements Partial<CKTDGUIDialog_Methods> {
     }
   }
 
-  /** `ShowGuideDesc(pControl)` (3295BA30): makes the guide dialog (`CreateGuideDesc`) and puts the control's guide text in it, measured with a font: not ported */
+  /**
+   * `CreateGuideDesc()` (32956BD0): the first time a control of the dialog shows its guide text the dialog that shows it is made: `DLG_GuideDesc.lua`
+   * (a static named `GuideDesc` and nothing else), layer 400, with the stage of this dialog and a fade-in of 0.07 s; it is put where this dialog is
+   * (and its goal too, as it is fading in), handed to the dialog manager, and its static gets the one string it shows: UK font 2, white with a white
+   * outline, at (5, 5), empty, none of the other flags; the static is hidden.  A dialog that already has one does nothing.  A script that makes no
+   * `GuideDesc` leaves the exe with a null static: an Error here.
+   */
+  createGuideDesc(): void {
+    if (this.m_pDialogGuideDesc !== null) return;
+    const guide = new CKTDGUIDialog(this.ctx, { stage: this.m_pStage, scriptFileName: "DLG_GuideDesc.lua", moveTime: 0.07, layer: 400 });
+    const x = this.m_Pos.x, y = this.m_Pos.y;
+    this.m_pDialogGuideDesc = guide;
+    guide.m_Pos.set(x, y);
+    guide.m_GoalPos.set(x, y); // (the exe asks whether it is fading in, `m_fChangeTime > m_fAnimateTime`: with the 0.07 s it was given, it is)
+    this.ctx.dialogManager.addDlg(guide);
+    const found = guide.GetStatic("GuideDesc");
+    if (!(found instanceof CKTDGUIStatic)) throw new Error("CKTDGUIDialog::CreateGuideDesc (32956BD0): DLG_GuideDesc.lua made no static \"GuideDesc\"; the exe goes on with a null pointer");
+    this.m_pStaticGuideDesc = found;
+    const data = new UIStringData();
+    found.m_StringDataList.push(data);
+    data.fontIndex = 2;
+    data.color.set(1, 1, 1, 1);
+    data.outlineColor.set(1, 1, 1, 1);
+    data.pos.set(5, 5);
+    found.SetShow(false);
+  }
+
+  /**
+   * `ShowGuideDesc(pControl)` (3295BA30): the control's guide text goes up in the guide dialog (`CreateGuideDesc`), a black box of 70 % with the text in
+   * UK font 2, next to the control.  The box is as wide as the widest line plus 12 and as high as the lines plus 12 plus one for each line break, all
+   * in layout pixels (`(int)((float)size / scale)`).  Its place is the control's `GetGuideDescPos`, centred on it and above it (the box's bottom edge
+   * there) or, when the control says `m_bGuideDescPosLT`, with its left-top corner there; it is then moved into the screen: to the left edge, or to
+   * the right edge when it would pass the back buffer, 4 pixels from the top at least.  The static gets that place as its offset, relative to this
+   * dialog's position (a control whose guide position is absolute also adds its own offset and takes the dialog's position off the height, which
+   * is how the exe does it: the height always gets the control's offset, the width only for an absolute position).  The exe first asks THIS dialog to
+   * bring the guide's static to the front, and it is not in this dialog's list: nothing happens.  A font 2 that does not exist or a static without a
+   * picture or a string leaves the exe with a null pointer: an Error here.
+   */
   showGuideDesc(control: CKTDGUIControl): void {
-    throw new Error(`CKTDGUIDialog::ShowGuideDesc (3295BA30: the guide dialog, the text of ${control.m_Name} measured with a font) is not ported`);
+    this.createGuideDesc();
+    const guide = this.m_pDialogGuideDesc!;
+    const stat = this.m_pStaticGuideDesc;
+    if (stat === null) throw new Error("CKTDGUIDialog::ShowGuideDesc (3295BA30): the guide dialog has no static (CreateGuideDesc found none); the exe calls through a null pointer");
+    this.changeSequence(stat, true);
+    stat.SetShow(true);
+    guide.setShow(true);
+    const x0 = this.m_Pos.x, y0 = this.m_Pos.y;
+    const moving = guide.m_fChangeTime > guide.m_fAnimateTime;
+    guide.m_Pos.set(x0, y0);
+    if (moving) guide.m_GoalPos.set(x0, y0);
+    const text = control.m_GuideDesc;
+    const line = untilNul(text);
+    const font = this.ctx.fonts.getUKFont(2);
+    if (font === null) throw new Error("CKTDGUIDialog::ShowGuideDesc (3295BA30): UK font 2 does not exist; the exe measures the text with a null pointer");
+    const scale = resolutionScale(this.ctx);
+    const screenW = ftoi(f(f(backBufferWidth(this.ctx) >>> 0) / scale.x));
+    const width = (ftoi(f(f(font.GetWidth(line)) / scale.x)) + 12) | 0;
+    const height = ftoi(f(f(font.GetHeight(line)) / scale.y));
+    const breaks = text.split("\n").length - 1;
+    const boxHeight = (height + 12 + breaks) | 0;
+    const w = f(width);
+    let x: number, y: number;
+    if (control.m_bGuideDescPosLT) {
+      x = control.getGuideDescPos().x;
+      y = control.getGuideDescPos().y;
+    } else {
+      x = f(f(x0 + control.getGuideDescPos().x) - f(w * 0.5));
+      y = f(control.getGuideDescPos().y - f(boxHeight));
+    }
+    // (a comparison with NaN is "below": the box goes to the edge)
+    let px: number;
+    if (!(x >= 0)) px = 0;
+    else if (f(w + x) < f(screenW)) px = ftoi(x);
+    else px = (screenW - width) | 0;
+    const py = !(y >= 0) ? 4 : ftoi(y);
+    const absolute = control.getIsGuideDescAbsolutePos();
+    let ox = f(px);
+    let oy = f(f(py) + control.m_OffsetPos.y);
+    if (absolute) {
+      oy = f(oy - y0);
+      ox = f(ox + control.m_OffsetPos.x);
+    }
+    ox = f(ox - x0);
+    stat.setOffsetPos(new Vec2(ox, oy));
+    const picture = stat.GetPicture(0);
+    if (picture === undefined) throw new Error("CKTDGUIDialog::ShowGuideDesc (3295BA30): the static of the guide text has no picture; the exe writes through a null pointer");
+    picture.setSize(new Vec2(w, f(boxHeight)));
+    const point = stat.GetPicture(0)!.pPoint;
+    if (!point) throw new Error("CKTDGUIDialog::ShowGuideDesc (3295BA30): the picture of the guide text has no point; the exe writes through a null pointer");
+    point.color.set(0, 0, 0, f(0.7));
+    const string = stat.GetString(0);
+    if (string === undefined) throw new Error("CKTDGUIDialog::ShowGuideDesc (3295BA30): the static of the guide text has no string; the exe writes through a null pointer");
+    string.msg = line;
   }
 
   /**

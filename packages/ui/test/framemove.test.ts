@@ -18,6 +18,13 @@ import { rig } from "./rig.ts";
 import { fontWorld } from "./fontworld.ts";
 import { setup } from "./harness.ts";
 
+/** what a dialog is asked to show a guide text for (`ShowGuideDesc` itself is the subject of guide.test.ts): the controls, in order */
+function askedFor(d: CKTDGUIDialog): CKTDGUIControl[] {
+  const asked: CKTDGUIControl[] = [];
+  d.showGuideDesc = (control: CKTDGUIControl): void => void asked.push(control);
+  return asked;
+}
+
 const f = Math.fround;
 const corners = (p: UIPointData) => [
   p.leftTopPoint.x, p.leftTopPoint.y, p.rightTopPoint.x, p.rightTopPoint.y, p.leftBottomPoint.x, p.leftBottomPoint.y, p.rightBottomPoint.x, p.rightBottomPoint.y,
@@ -814,27 +821,34 @@ describe("CKTDGUIButton::OnFrameMove (3292EA10)", () => {
     expect(corners(b.m_NowPoint)).toEqual([2, 4, 12, 4, 2, 20, 12, 20]);
   });
 
-  test("the guide text is asked for in the mouse over state (and, with m_bShowDescriptionWhenDisable and the mouse over, in the disabled one): not ported, so it throws", () => {
+  test("the guide text is asked for in the mouse over state (and, with m_bShowDescriptionWhenDisable and the mouse over, in the disabled one)", () => {
     const { b, w } = button();
     const d = new CKTDGUIDialog(w);
+    const asked = askedFor(d);
     d.AddControl(b);
     b.m_ButtonState = BCS.MOUSEOVER;
     b.m_bMouseOver = true;
     b.onFrameMove(0, 0.1); // no guide text: nothing is asked
+    expect(asked.length).toBe(0);
     b.m_GuideDesc = "a hint";
-    expect(() => b.onFrameMove(0, 0.1)).toThrow("ShowGuideDesc");
+    b.onFrameMove(0, 0.1);
+    expect([asked.length, asked[0] === b]).toEqual([1, true]);
     b.m_ButtonState = BCS.DISABLE;
     b.m_bEnable = false;
     b.onFrameMove(0, 0.1); // not asked in the disabled state without m_bShowDescriptionWhenDisable
+    expect(asked.length).toBe(1);
     b.m_bShowDescriptionWhenDisable = true;
-    expect(() => b.onFrameMove(0, 0.1)).toThrow("ShowGuideDesc");
+    b.onFrameMove(0, 0.1);
+    expect(asked.length).toBe(2);
     b.m_bMouseOver = false;
     b.onFrameMove(0, 0.1); // ... or without the mouse over it
+    expect(asked.length).toBe(2);
     b.m_pDialog = null; // a control that is in no dialog has nobody to ask
     b.m_bMouseOver = true;
     b.m_ButtonState = BCS.MOUSEOVER;
     b.m_bEnable = true;
     b.onFrameMove(0, 0.1);
+    expect(asked.length).toBe(2);
   });
 
   test("the Enter key: a button with the focus and an edge answers it with a click (LButtonMouseUp) and takes the key's lock; any other case leaves the key alone", () => {
@@ -1017,7 +1031,8 @@ describe("CKTDGUIRadioButton::OnFrameMove (3294ACD0)", () => {
   });
 
   test("a hidden button does nothing; the guide text is asked for in the mouse over state", () => {
-    const { r } = radio();
+    const { r, d } = radio();
+    const asked = askedFor(d);
     r.m_bShow = false;
     r.onFrameMove(0, 0.1);
     expect(r.m_RadioButtonState).toBe(O);
@@ -1025,12 +1040,15 @@ describe("CKTDGUIRadioButton::OnFrameMove (3294ACD0)", () => {
     r.m_RadioButtonState = O;
     r.m_bMouseOver = true;
     r.m_GuideDesc = "hint";
-    expect(() => r.onFrameMove(0, 0.1)).toThrow("ShowGuideDesc");
+    r.onFrameMove(0, 0.1);
+    expect([asked.length, asked[0] === r]).toEqual([1, true]);
     r.m_RadioButtonState = X;
     r.m_bEnable = false;
     r.onFrameMove(0, 0.1);
+    expect(asked.length).toBe(1);
     r.m_bShowDescriptionWhenDisable = true;
-    expect(() => r.onFrameMove(0, 0.1)).toThrow("ShowGuideDesc");
+    r.onFrameMove(0, 0.1);
+    expect(asked.length).toBe(2);
   });
 });
 
@@ -1519,19 +1537,24 @@ describe("CKTDGUISlot::OnFrameMove (32952430)", () => {
     expect(run(X, { enable: false })).toEqual([X, 0, true]);
     const { c, w } = slot();
     const d = new CKTDGUIDialog(w);
+    const asked = askedFor(d);
     d.AddControl(c);
     c.m_GuideDesc = "hint";
     c.m_eControlState = X;
     c.m_bEnable = false;
     c.m_bMouseOver = true;
     c.onFrameMove(0, 0.1);
+    expect(asked.length).toBe(0);
     c.m_bShowDescriptionWhenDisable = true;
-    expect(() => c.onFrameMove(0, 0.1)).toThrow("ShowGuideDesc");
+    c.onFrameMove(0, 0.1);
+    expect([asked.length, asked[0] === c]).toEqual([1, true]);
     c.m_eControlState = O; // mouse over asks every frame
     c.m_bShowDescriptionWhenDisable = false;
-    expect(() => c.onFrameMove(0, 0.1)).toThrow("ShowGuideDesc");
+    c.onFrameMove(0, 0.1);
+    expect(asked.length).toBe(2);
     c.m_eControlState = 9; // a state it does not know
     c.onFrameMove(0, 0.1);
+    expect(asked.length).toBe(2);
   });
 
   test("ReturnDraggingItem (329534A0): the dragged slot is normal again (forced: the texture animation is not started again) and nobody drags; nothing dragged: nothing happens", () => {
@@ -1930,12 +1953,6 @@ describe("CKTDGUIDialog::OnFrameMove (32958A00)", () => {
     CKTDGUISlot.s_pDragSlot = null;
   });
 
-  test("ShowGuideDesc (3295BA30) builds a dialog and measures text with a font: not ported", () => {
-    const { d, w } = dlg();
-    const c = new CKTDGUINavigation(w);
-    c.m_Name = "NAV";
-    expect(() => d.showGuideDesc(c)).toThrow("NAV");
-  });
 });
 
 describe("CKTDGUIDialogManager: CheckDlg (328DE0F0), CheckFrontModalDlg (328DE180), CountModalDialog (328DE4C0)", () => {
