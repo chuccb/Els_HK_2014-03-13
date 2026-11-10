@@ -10,7 +10,7 @@ import type { CPictureData, UIContext, UIPointData, UIStringData, UITextureData 
 import type { DeviceTexture } from "./device.ts";
 import type { CMovieData } from "./movie.ts";
 import { VertexUI4 } from "./render.ts";
-import { pick2DRect } from "./pick.ts";
+import { pick2DRect, resolutionScale } from "./pick.ts";
 import { ftoi } from "./rect.ts";
 import { draw2DString, drawUKString, spreadText } from "./stringdraw.ts";
 import type { CKTDGUIItem_Methods, CKTDGUIStatic_Methods } from "@els/host";
@@ -140,8 +140,9 @@ export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStat
    * and has a point and a loaded texture: the edge (when `m_EdgeWidth` is not 0), the quad (`UpdateVertex`, the picture's two blend
    * states pushed around `RenderVertex(..., m_iDrawCount)`), the edge again (both times with the picture's own `m_bDrawEdgeOut`).  Then
    * every string that has text is drawn, in order (stringdraw.ts: the UK font's `OutTextMultiline`, or `Draw2DText` for a string that
-   * does not use a UK font; a string that spreads shows `iSpreadCount` characters).  The movies (`CMovieData::OnFrameRender` 32925150)
-   * are not ported: they are counted in `render.undrawn`.
+   * does not use a UK font; a string that spreads shows `iSpreadCount` characters).  Then every movie that is shown (the pointer is checked
+   * in the exe, the list holds none that is null) gets its place, `m_vPos = (dialog position + the movie's origin + this control's offset) *
+   * resolution scale` (single precision, the dialog's handle read once for each axis), and draws (`CMovieData::OnFrameRender` 32925150).
    */
   override onFrameRender(): number {
     if (!this.m_bShow) return 0;
@@ -165,15 +166,23 @@ export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStat
       if (data.bUseUkFont) drawUKString(this.ctx, this, data, text);
       else draw2DString(this.ctx, this, data, text);
     }
-    for (let i = 0; i < this.m_MovieDataList.length; i++) render?.noteUndrawn("CMovieData::OnFrameRender");
+    const scale = resolutionScale(this.ctx);
+    for (const movie of this.m_MovieDataList) {
+      if (!movie.m_bShow) continue;
+      const left = this.dialogPos().x;
+      const top = this.dialogPos().y;
+      movie.m_vPos.x = f(f(left + movie.m_vOriginPos.x) + this.m_OffsetPos.x) * scale.x; // (the store rounds the product to a float)
+      movie.m_vPos.y = f(f(top + movie.m_vOriginPos.y) + this.m_OffsetPos.y) * scale.y;
+      movie.onFrameRender();
+    }
     return 0;
   }
 
   /**
    * `OnFrameMove` (3292A120): a shown static runs the control's, then spreads its strings (`bSpread`: `iSpreadCount`, the number of characters shown,
    * goes up by one each `fSpreadTimeGap` seconds and the string stops spreading when it has shown all), runs the animations of the pictures that
-   * have one on (`CPictureData::OnFrameMove`) and of the movies (`CMovieData::OnFrameMove`, 32924DE0: the Bandi library is not ported, so it
-   * is counted in `render.undrawn`), and keeps the frame's time.
+   * have one on (`CPictureData::OnFrameMove`) and of the movies (`CMovieData::OnFrameMove`, 32924DE0: every movie of the list, shown or not),
+   * and keeps the frame's time.
    *
    * The exe skips colour codes while spreading with two `find` calls whose result it compares with 0 (not with the offset): a message that
    * starts with `#CX` while the count was 0 advances the count by 2 more, one that starts with `#C` (count - 1 = 0) by 7 more, and no other
@@ -210,7 +219,7 @@ export class CKTDGUIStatic extends CKTDGUIControl implements Partial<CKTDGUIStat
         picture.onFrameMove(fTime, fElapsedTime);
       }
     }
-    for (let i = 0; i < this.m_MovieDataList.length; i++) this.ctx.render?.noteUndrawn("CMovieData::OnFrameMove");
+    for (const movie of this.m_MovieDataList) movie.onFrameMove();
     this.m_fElapsedTime = dt;
     return 0;
   }

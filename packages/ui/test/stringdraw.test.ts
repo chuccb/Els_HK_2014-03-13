@@ -13,6 +13,7 @@
  * (a channel is `c < 1 ? (c > 0 ? (int)(c * 255 + 0.5) : 0) : 255`).
  */
 import { describe, expect, test } from "bun:test";
+import { Vec2 } from "@els/host";
 import { CKTDGUIButton, CKTDGUIDialog, CKTDGUIRadioButton, CKTDGUIStatic, CPictureData, drawUKString, draw2DString, spreadText, stringColors, stringPosition } from "../src/index.ts";
 import { fontWorld } from "./fontworld.ts";
 import { drawnCalls, quad, rig } from "./rig.ts";
@@ -188,12 +189,14 @@ describe("the strings of a static (3292A2B0): after the pictures, in order, thro
     expect(() => control.onFrameRender()).toThrow(/in no dialog/);
   });
 
-  test("the movies are still not drawn: they are counted (the strings are not)", () => {
-    const { control, w } = scene();
+  test("the movies are drawn after the strings (CMovieData::OnFrameRender: movie.test.ts), and nothing is counted as undrawn", () => {
+    const { control, calls, w } = scene();
     control.m_StringDataList.push(data());
-    control.m_MovieDataList.push({} as never);
+    const seen: number[] = [];
+    control.m_MovieDataList.push({ m_bShow: true, m_vOriginPos: new Vec2(0, 0), m_vPos: new Vec2(0, 0), onFrameRender: () => void seen.push(calls.length) } as never);
     control.onFrameRender();
-    expect([...w.render!.undrawn]).toEqual([["CMovieData::OnFrameRender", 1]]);
+    expect(seen).toEqual([1]); // the string's call was made before
+    expect([...w.render!.undrawn]).toEqual([]);
   });
 });
 

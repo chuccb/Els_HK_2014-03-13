@@ -9,7 +9,7 @@ Every `DLG_*.lua` of the archives is opened in one UI world with a device (one L
 | ... only the second time (it needs a global that a sibling defines) | 9 |
 | the script did not run (a game state defines what it needs, FINDINGS 17.1) | 32 |
 | drawn without an exception | 1,024 |
-| ... whose frame ended in an exception first (what `OnFrameMove` does there is not ported) | 7 |
+| ... whose frame ended in an exception first (what `OnFrameMove` does there is not ported) | 0 |
 | ... that draw at least one quad or string | 902 |
 | ... that draw nothing | 122 |
 | ... that draw text | 284 |
@@ -18,30 +18,22 @@ Every `DLG_*.lua` of the archives is opened in one UI world with a device (one L
 | ... a pixel is over 3 | 0 |
 | draws that are none of the three shapes the UI makes | 0 (in 0 dialogs) |
 | the state stack is not back where it was | 0 |
-| quads in all | 16,796 (208 of them bars of edges, 312 without area) |
+| quads in all | 16,845 (211 of them bars of edges, 322 without area) |
 | glyph quads in all | 26,982 (in 3,874 flushes of a glyph page) |
 
 The largest difference of a channel between the device and the CPU, per dialog: 0: 677, 1: 347.
 
 ## What the dialogs ask to draw that is not ported yet
 
-`render.undrawn`, summed over the dialogs: a control class whose `OnFrameRender` is not ported, or a part of one (the movies of a static).
+`render.undrawn`, summed over the dialogs: a control class whose `OnFrameRender` is not ported, or a part of one.
 
-| what | dialogs | times |
-|---|---:|---:|
-| `CMovieData::OnFrameMove` | 3 | 3 |
-| `CMovieData::OnFrameRender` | 3 | 3 |
+None.
 
 ## What a frame does that is not ported yet
 
 The exception the first `OnFrameMove` of a dialog ended in (the dialog is drawn as the frame left it).  Only the first exception of a dialog is kept.
 
-| the exception | dialogs | the first |
-|---|---:|---|
-| CKTDGUIDialog::ShowGuideDesc (3295BA30: the guide dialog, the text of RadioGuildLevel measured with a font) is not ported | 2 | `DLG_GUILD_BOARD.LUA` |
-| CKTDGUIDialog::ShowGuideDesc (3295BA30: the guide dialog, the text of Channel6 measured with a font) is not ported | 2 | `DLG_PVP_LOBBY_CHANNEL.LUA` |
-| CKTDGUIDialog::ShowGuideDesc (3295BA30: the guide dialog, the text of Channel4 measured with a font) is not ported | 2 | `DLG_UI_EMULATE.LUA` |
-| CKTDGUIDialog::ShowGuideDesc (3295BA30: the guide dialog, the text of Channel1 measured with a font) is not ported | 1 | `DLG_UI_EMULATE_ITEMMODE_VER1.LUA` |
+None.
 
 ## The error log
 

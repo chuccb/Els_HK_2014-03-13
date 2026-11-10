@@ -34,9 +34,9 @@ for f in ['control.ts', 'static.ts', 'button.ts', 'checkbox.ts', 'radiobutton.ts
 TESTS['controllist.ts'] = [DESTROY, T + 'controls.test.ts', T + 'widgets.test.ts']
 TESTS['editbox.ts'] = [DESTROY, T + 'editboxdraw.test.ts']
 TESTS['imeeditbox.ts'] = [DESTROY, T + 'imeeditbox.test.ts']
-TESTS['device.ts'] = [DESTROY, T + 'widgets.test.ts']
+TESTS['device.ts'] = [DESTROY, T + 'widgets.test.ts', T + 'movie.test.ts']
 TESTS['dialog.ts'] = [DESTROY, T + 'framemove.test.ts', T + 'dialog.test.ts']
-TESTS['movie.ts'] = [DESTROY, T + 'widgets.test.ts']
+TESTS['movie.ts'] = [DESTROY, T + 'widgets.test.ts', T + 'movie.test.ts']
 TESTS['listbox.ts'] = [DESTROY, T + 'listbox.test.ts']
 TESTS['combobox.ts'] = [DESTROY, T + 'combobox.test.ts']
 TESTS['slot.ts'] = [DESTROY, T + 'slot.test.ts']
@@ -421,7 +421,10 @@ DV = 'device.ts'
 m(DV, 'CloseDevice: the stray close is not told', '    this.onStrayClose?.(id);\n', '')
 m(DV, 'CloseDevice: the stray close is told the id as it was given', '    this.onStrayClose?.(id);', '    this.onStrayClose?.(deviceID);')
 m(DV, 'CloseDevice: a texture close is a stray close too', '      if (--tex.refCount <= 0) this.devices.delete(id);\n      return;', '      if (--tex.refCount <= 0) this.devices.delete(id);\n      this.onStrayClose?.(id);\n      return;')
-m(DV, 'CloseDevice: a render target close is a stray close too', '      if (--target.refCount <= 0) this.renderTargets.delete(id);\n      return;', '      if (--target.refCount <= 0) this.renderTargets.delete(id);\n      this.onStrayClose?.(id);\n      return;')
+m(DV, 'CloseDevice: a render target close is a stray close too', '        target.Destroy();\n      }\n      return;', '        target.Destroy();\n      }\n      this.onStrayClose?.(id);\n      return;')
+m(DV, 'CloseDevice: the last close of a render target keeps it in the map', '        this.renderTargets.delete(id);\n        target.Destroy();', '        target.Destroy();')
+m(DV, 'CloseDevice: the last close of a render target does not delete its device', '        this.renderTargets.delete(id);\n        target.Destroy();', '        this.renderTargets.delete(id);')
+m(DV, 'CloseDevice: a render target is deleted at every close', '      if (--target.refCount <= 0) {\n        this.renderTargets.delete(id);\n        target.Destroy();\n      }', '      --target.refCount;\n      this.renderTargets.delete(id);\n      target.Destroy();')
 m(DV, 'CloseDevice: a sound close is a stray close too', '      if (--snd.refCount <= 0) this.sounds.delete(id);\n      return;', '      if (--snd.refCount <= 0) this.sounds.delete(id);\n      this.onStrayClose?.(id);\n      return;')
 m(DV, 'CloseDevice: a sound close goes on to the stray close', '      if (--snd.refCount <= 0) this.sounds.delete(id);\n      return;\n    }\n    this.onStrayClose', '      if (--snd.refCount <= 0) this.sounds.delete(id);\n    }\n    this.onStrayClose')
 m(DV, 'CloseDevice: the empty id is a stray close', '    if (deviceID.length === 0) return;\n    const id = towupperAscii(deviceID);\n    const tex = this.devices.get(id);', '    if (deviceID.length === 0) return void this.onStrayClose?.(deviceID);\n    const id = towupperAscii(deviceID);\n    const tex = this.devices.get(id);')

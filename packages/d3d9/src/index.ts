@@ -9,6 +9,8 @@ export type { VertexElement, BufferLayout } from "./vertex.ts";
 export { formatInfo, supportedFormats, surfacePitch, surfaceBytes, mipSize, toRgba8, fromRgba8 } from "./formats.ts";
 export type { FormatInfo } from "./formats.ts";
 export { Direct3DDevice9 } from "./device.ts";
+export { Direct3D9 } from "./direct3d.ts";
+export type { DisplayMode } from "./direct3d.ts";
 export type { DeviceOptions } from "./device.ts";
 export { Direct3DTexture9, Direct3DSurface9, Direct3DVertexBuffer9, Direct3DIndexBuffer9, Direct3DVertexDeclaration9 } from "./resources.ts";
 export { generateWgsl, programKey } from "./ffp.ts";

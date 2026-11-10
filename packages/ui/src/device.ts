@@ -30,8 +30,8 @@
  */
 import { parseTet } from "@els/assets";
 import type { TetFile } from "@els/assets";
-import { D3DFMT, D3DPOOL, D3DPT, D3DXCheckTextureRequirements, D3DXCreateTextureFromFileInMemoryEx, D3DXGetImageInfoFromFileInMemory, D3DX_FILTER } from "@els/d3d9";
-import type { D3DXImageInfo, Direct3DDevice9, Direct3DTexture9 } from "@els/d3d9";
+import { D3DCLEAR, D3DFMT, D3DPOOL, D3DPT, D3DUSAGE, D3DXCheckTextureRequirements, D3DXCreateTexture, D3DXCreateTextureFromFileInMemoryEx, D3DXGetImageInfoFromFileInMemory, D3DX_FILTER } from "@els/d3d9";
+import type { D3DXImageInfo, Direct3DDevice9, Direct3DSurface9, Direct3DTexture9 } from "@els/d3d9";
 import { KGCMassFileManager, towupperAscii } from "@els/host";
 import { DVB_TYPE } from "@els/engine";
 import { RSI_DEVICE_TEXTURE, VertexUI4 } from "./render.ts";
@@ -93,51 +93,60 @@ export class DeviceTexture {
   }
 
   /**
-   * `Draw(nX, nY, nWidth, nHeight, color, fRotateDegree)` (329675F0): the whole texture as one quad at a place of the 1024 x 768 layout, every
-   * corner of the one `color` (ARGB).  `akRSICKTDXDeviceTexture` is pushed for the draw and popped after it.  The corners are
-   * `scale * nX - 0.5` and `scale * nY - 0.5` on the left and at the top, but `scale * nWidth + scale * nX` and `scale * nHeight + scale * nY`
-   * on the right and at the bottom (no half pixel is taken off there: the quad is half a pixel wider and higher than the layout says),
-   * all in single precision and with no cutting to whole pixels.  The vertices are left-top (u v 0 0), left-bottom (0 1), right-top (1 0) and
-   * right-bottom (1 1), z = rhw = 1; the texture goes to stage 0 (`SetDeviceTexture`, which logs error 0x5E for a texture that is not
-   * there and then draws with what the stage holds) and the strip is handed to the vertex buffer manager, type 3, once.
+   * `Draw(nX, nY, nWidth, nHeight, color, fRotateDegree)` (329675F0): the whole texture as one quad (`drawDeviceTexture`).
    *
    * Not ported: the rotated quad (`fRotateDegree != 0`: the corners turned about the middle with the CRT's `cos` and `sin`); no
    * control passes a rotation.  It throws.
    */
   draw(render: UIRender, nX: number, nY: number, nWidth: number, nHeight: number, color: number, rotateDegree: number): void {
     if (rotateDegree !== 0) throw new Error("CKTDXDeviceTexture::Draw with a rotation is not ported");
-    const f = Math.fround;
-    const states = render.states;
-    const top = states.stackPointer;
-    states.apply(RSI_DEVICE_TEXTURE);
-    const sx = render.resolutionScale.x;
-    const sy = render.resolutionScale.y;
-    const x = f(sx * f(nX));
-    const y = f(sy * f(nY));
-    const left = f(x - 0.5);
-    const upper = f(y - 0.5);
-    const right = f(f(f(nWidth) * sx) + x);
-    const lower = f(f(f(nHeight) * sy) + y);
-    const v = new VertexUI4();
-    const corners: [number, number, number, number][] = [
-      [left, upper, 0, 0],
-      [left, lower, 0, 1],
-      [right, upper, 1, 0],
-      [right, lower, 1, 1],
-    ];
-    corners.forEach(([cx, cy, u, w], i) => {
-      v.setX(i, cx);
-      v.setY(i, cy);
-      v.setZ(i, 1);
-      v.setRhw(i, 1);
-      v.setColor(i, color);
-      v.setU(i, u);
-      v.setV(i, w);
-    });
-    this.setDeviceTexture(render, 0);
-    render.dvb.drawPrimitive(DVB_TYPE.XYZRHW_DIFFUSE_TEX1, D3DPT.TRIANGLESTRIP, 2, v.bytes, 1);
-    states.popTo(top);
+    drawDeviceTexture(render, this, nX, nY, nWidth, nHeight, color);
   }
+}
+
+/**
+ * What `CKTDXDeviceTexture::Draw` (329675F0, without a rotation) and `CKTDXDeviceRenderTargetTexture::Draw` (32971200) both do (the exe has the code
+ * twice): the whole texture as one quad at a place of the 1024 x 768 layout, every corner of the one `color` (ARGB).  `akRSICKTDXDeviceTexture` is
+ * pushed for the draw and popped after it.  The corners are `scale * nX - 0.5` and `scale * nY - 0.5` on the left and at the top, but
+ * `scale * nWidth + scale * nX` and `scale * nHeight + scale * nY` on the right and at the bottom (no half pixel is taken off there: the quad is half a
+ * pixel wider and higher than the layout says), all in single precision and with no cutting to whole pixels.  The vertices are left-top (u v 0 0),
+ * left-bottom (0 1), right-top (1 0) and right-bottom (1 1), z = rhw = 1; the texture goes to stage 0 (its `SetDeviceTexture`, which logs an
+ * error for a texture that is not there and then draws with what the stage holds) and the strip is handed to the vertex buffer manager, type 3, once.
+ */
+function drawDeviceTexture(
+  render: UIRender, texture: { setDeviceTexture(target: TextureTarget, stage: number): void }, nX: number, nY: number, nWidth: number, nHeight: number, color: number,
+): void {
+  const f = Math.fround;
+  const states = render.states;
+  const top = states.stackPointer;
+  states.apply(RSI_DEVICE_TEXTURE);
+  const sx = render.resolutionScale.x;
+  const sy = render.resolutionScale.y;
+  const x = f(sx * f(nX));
+  const y = f(sy * f(nY));
+  const left = f(x - 0.5);
+  const upper = f(y - 0.5);
+  const right = f(f(f(nWidth) * sx) + x);
+  const lower = f(f(f(nHeight) * sy) + y);
+  const v = new VertexUI4();
+  const corners: [number, number, number, number][] = [
+    [left, upper, 0, 0],
+    [left, lower, 0, 1],
+    [right, upper, 1, 0],
+    [right, lower, 1, 1],
+  ];
+  corners.forEach(([cx, cy, u, w], i) => {
+    v.setX(i, cx);
+    v.setY(i, cy);
+    v.setZ(i, 1);
+    v.setRhw(i, 1);
+    v.setColor(i, color);
+    v.setU(i, u);
+    v.setV(i, w);
+  });
+  texture.setDeviceTexture(render, 0);
+  render.dvb.drawPrimitive(DVB_TYPE.XYZRHW_DIFFUSE_TEX1, D3DPT.TRIANGLESTRIP, 2, v.bytes, 1);
+  states.popTo(top);
 }
 
 /** where the device objects report their errors (`g_CKTDXLog.PushErrorLog`) */
@@ -218,9 +227,10 @@ export const D3DFMT_A8R8G8B8 = 21;
 export const E_FAIL = -2147467259;
 
 /**
- * `CKTDXDeviceRenderTargetTexture` (0x6C bytes): a texture that is drawn into.  Its constructor (32970D60) stores the size and the format
- * and, when the Direct3D device objects exist (`DXUTGetDeviceObjectsReset`), `OnResetDevice` (32971480) creates the texture, its surface and a
- * depth surface of the same size (a failing step is error log 0x4C..0x50 and `E_FAIL`).  The Direct3D resources belong to the renderer.
+ * `CKTDXDeviceRenderTargetTexture` (0x6C bytes, vtable 334B096C): a texture that is drawn into.  Its constructor (32970D60) stores the size and the
+ * format and, when the Direct3D device objects exist (`DXUTGetDeviceObjectsReset`: here `DeviceManager.d3dDevice`), makes its resources with
+ * `OnResetDevice` (32971480).  The four calls a movie makes (`CMovieData::OnFrameRender`) are `BeginRender` (32971050), `Clear` (329710B0),
+ * `EndRender` (329713D0) and `Draw` (32971200).  The Direct3D resources are the device's.
  */
 export class DeviceRenderTargetTexture {
   /** `m_DeviceID` (upper case) */
@@ -228,26 +238,203 @@ export class DeviceRenderTargetTexture {
   refCount = 0;
   readonly width: number;
   readonly height: number;
-  /** `m_D3DFormat` */
-  readonly format: number;
+  /** `m_D3DFormat`: D3DFMT_UNKNOWN (0) becomes the back buffer's format at the first `OnResetDevice` */
+  format: number;
+  /** `m_pRenderTargetTexture`, with its level 0 `m_pRenderTargetSurface` and the depth surface `m_pRenderTargetZSurface` of its size */
+  m_pRenderTargetTexture: Direct3DTexture9 | null = null;
+  m_pRenderTargetSurface: Direct3DSurface9 | null = null;
+  m_pRenderTargetZSurface: Direct3DSurface9 | null = null;
+  /** the render target and the depth surface of the device at the last `OnResetDevice`, which `EndRender` puts back */
+  m_pBackupBuffer: Direct3DSurface9 | null = null;
+  m_pBackupZBuffer: Direct3DSurface9 | null = null;
 
-  constructor(deviceID: string, width: number, height: number, format: number) {
+  /** `log`: `g_CKTDXLog` (the failing steps of `OnResetDevice` and `SetDeviceTexture` report there) */
+  constructor(deviceID: string, width: number, height: number, format: number, private readonly log: ErrorLogLike = { push() {} }) {
     this.deviceID = deviceID;
     this.width = width | 0;
     this.height = height | 0;
     this.format = format | 0;
   }
+
+  /**
+   * `OnLostDevice()` (32971400, vtable slot 1): every resource is released and forgotten (the exe's sixth one, `m_pDisplayVertexBuffer`, is never
+   * made).  S_OK.
+   */
+  onLostDevice(): number {
+    this.m_pRenderTargetTexture?.Release();
+    this.m_pRenderTargetTexture = null;
+    this.m_pRenderTargetSurface?.Release();
+    this.m_pRenderTargetSurface = null;
+    this.m_pRenderTargetZSurface?.Release();
+    this.m_pRenderTargetZSurface = null;
+    this.m_pBackupBuffer?.Release();
+    this.m_pBackupBuffer = null;
+    this.m_pBackupZBuffer?.Release();
+    this.m_pBackupZBuffer = null;
+    return 0;
+  }
+
+  /**
+   * `OnResetDevice()` (32971480, slot 0): `OnLostDevice`, then the device's current render target and depth surface are kept as the backups (`GetRenderTarget`
+   * and `GetDepthStencilSurface` add a reference each), an unknown format becomes the back buffer's, `D3DXCreateTexture` makes the texture (one level, usage
+   * `D3DUSAGE_RENDERTARGET`, the default pool), its level 0 is the render target surface and `CreateDepthStencilSurface` makes a depth surface of the
+   * size and the format of the backup's.  A step that fails is error 0x4C (the render target), 0x4D (the depth surface), 0x4E (the texture), 0x4F
+   * (its level) or 0x50 (the depth surface) with the id, and `E_FAIL`; what was made before it stays.
+   */
+  onResetDevice(device: Direct3DDevice9): number {
+    this.onLostDevice();
+    const back = device.GetRenderTarget(0);
+    if (!back) {
+      this.log.push(0x4c, this.deviceID);
+      return E_FAIL;
+    }
+    back.AddRef();
+    this.m_pBackupBuffer = back;
+    const backZ = device.GetDepthStencilSurface();
+    if (!backZ) {
+      this.log.push(0x4d, this.deviceID);
+      return E_FAIL;
+    }
+    backZ.AddRef();
+    this.m_pBackupZBuffer = backZ;
+    if (this.format === D3DFMT.UNKNOWN) this.format = back.GetDesc().Format;
+    const made = D3DXCreateTexture(device, this.width, this.height, 1, D3DUSAGE.RENDERTARGET, this.format, D3DPOOL.DEFAULT);
+    if (made.hr < 0 || !made.tex) {
+      this.m_pRenderTargetTexture = null;
+      this.log.push(0x4e, this.deviceID);
+      return E_FAIL;
+    }
+    this.m_pRenderTargetTexture = made.tex;
+    const level = made.tex.GetSurfaceLevel(0);
+    if (!level) {
+      this.log.push(0x4f, this.deviceID);
+      return E_FAIL;
+    }
+    this.m_pRenderTargetSurface = level;
+    const z = device.CreateDepthStencilSurface(this.width, this.height, backZ.GetDesc().Format);
+    if (z.hr < 0 || !z.surface) {
+      this.log.push(0x50, this.deviceID);
+      return E_FAIL;
+    }
+    this.m_pRenderTargetZSurface = z.surface;
+    return 0;
+  }
+
+  /**
+   * The deleting destructor (32970F70, slot 2): the same release as `OnLostDevice`.  `CKTDXDeviceManager::CloseDevice` calls it when the last
+   * reference goes.
+   */
+  Destroy(): void {
+    this.onLostDevice();
+  }
+
+  /**
+   * `SetDeviceTexture(stage)` (32971750, slot 5): what `CKTDXDeviceTexture::SetDeviceTexture` does for the render target's texture (a stage
+   * below 16 remembers it in `ms_apd3dTextures` and does nothing when the stage holds it already; a texture that is not there is simply set as
+   * none), and a failure of `SetTexture` is error 0x51 with the id.
+   */
+  setDeviceTexture(target: TextureTarget, stage: number): void {
+    const texture = this.m_pRenderTargetTexture;
+    let hr: number;
+    if (stage < 0x10) {
+      const cache = target.states.apd3dTextures;
+      if (cache[stage] === texture) return;
+      hr = target.device.SetTexture(stage, texture);
+      if (hr < 0) target.device.SetTexture(stage, null);
+      cache[stage]?.Release();
+      cache[stage] = texture;
+      texture?.AddRef();
+    } else {
+      hr = target.device.SetTexture(stage, texture);
+    }
+    if (hr < 0) this.log.push(0x51, this.deviceID);
+  }
+
+  /**
+   * `BeginRender(bClear)` (32971050): the render target and the depth surface of the device become this texture's and, when asked, both are
+   * cleared (`D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER`: colour 0, depth 1.0, stencil 0).  A texture that has no resources (its device objects were
+   * never made) hands the device null surfaces, which the device refuses (the exe reads `m_pRenderTargetSurface` the same way).
+   */
+  beginRender(device: UIRenderTargetDevice, clear: boolean): void {
+    device.SetRenderTarget(0, this.m_pRenderTargetSurface);
+    device.SetDepthStencilSurface(this.m_pRenderTargetZSurface);
+    if (clear) device.Clear(null, D3DCLEAR.TARGET | D3DCLEAR.ZBUFFER, 0, 1, 0);
+  }
+
+  /** `Clear(color)` (329710B0): the target and the depth surface of the device (this texture's after `BeginRender`) are cleared to `color`, depth 1.0 */
+  clear(device: UIRenderTargetDevice, color: number): void {
+    device.Clear(null, D3DCLEAR.TARGET | D3DCLEAR.ZBUFFER, color >>> 0, 1, 0);
+  }
+
+  /** `EndRender()` (329713D0): the backups are the device's render target and depth surface again */
+  endRender(device: UIRenderTargetDevice): void {
+    device.SetRenderTarget(0, this.m_pBackupBuffer);
+    device.SetDepthStencilSurface(this.m_pBackupZBuffer);
+  }
+
+  /**
+   * `Draw(nX, nY, nWidth, nHeight, color)` (32971200): the texture as one quad at a place of the 1024 x 768 layout, the way `CKTDXDeviceTexture::Draw`
+   * (329675F0) draws a texture without a rotation (`drawDeviceTexture`).
+   */
+  draw(render: UIRender, nX: number, nY: number, nWidth: number, nHeight: number, color: number): void {
+    drawDeviceTexture(render, this, nX, nY, nWidth, nHeight, color);
+  }
 }
 
-/** `BVL_VIDEO_INFO`: what `CMovieData` takes of it */
+/** what `BeginRender`, `Clear` and `EndRender` ask of `g_pKTDXApp->m_pd3dDevice` */
+export type UIRenderTargetDevice = Pick<UIRender["device"], "SetRenderTarget" | "SetDepthStencilSurface" | "Clear">;
+
+/**
+ * `BVL_VIDEO_INFO`: `CMovieData` takes the size (`m_Info`, and the video texture is made of it); a player fills the rest (the rate as a fraction,
+ * the sound's, the length in milliseconds and in frames) as bdvid32.dll does.
+ */
 export interface VideoInfo {
   width: number;
   height: number;
+  fps_rate?: number;
+  fps_scale?: number;
+  samplerate?: number;
+  channels?: number;
+  total_time?: bigint;
+  total_frames?: bigint;
+}
+
+/** `BVL_STATUS` (`IBandiVideo2::GetStatus`) */
+export const BVL_STATUS = { ERROR: -1, CLOSED: 0, OPENING: 1, READY: 2, PLAYING: 3, PAUSED: 4, PLAYEND: 5 } as const;
+/** `BVL_SEEK_FLAG`: what `Seek`'s value counts */
+export const BVL_SEEK = { TIME: 0, FRAME: 1 } as const;
+/** `BVL_PIXEL_FORMAT`: the layout of a frame's pixels (little-endian, as the `D3DFMT` of the same name) */
+export const BVLPF = { NULL: 0, X8R8G8B8: 1, R8G8B8: 2, R5G6B5: 3, R5G5B5: 4, A8R8G8B8: 5 } as const;
+
+/** what `CBandiVideoLibrary` answers: the library is not created (no `m_bvl`) */
+export const BVL_E_NOT_CREATED = -2054811613;
+/** `CBandiVideoLibrary::Create`: the library is created already (0x85861021), `GetProcAddress` failed (0x85861022), neither `LoadLibraryW` could load the DLL (0x85861020) nor the system is new enough (0x85861024) */
+export const BVL_E_ALREADY_CREATED = -2054811615;
+export const BVL_E_NO_ENTRY = -2054811614;
+export const BVL_E_NO_DLL = -2054811616;
+export const BVL_E_OLD_SYSTEM = -2054811612;
+
+/**
+ * `BVL_FRAME`: what `GetFrame` fills.  The caller sets the buffer (`frame_buf`, the locked texture's bytes from its first pixel, `frame_buf_size` of them,
+ * `pitch` bytes to the next row), the size to copy and the pixel format the texture has; the player copies the frame and writes the time and the
+ * number of the frame it gave.
+ */
+export interface BvlFrame {
+  frame_buf: Uint8Array;
+  frame_buf_size: number;
+  pitch: number;
+  width: number;
+  height: number;
+  pixel_format: number;
+  frame_time: bigint;
+  frame_number: bigint;
 }
 
 /**
- * `CBandiVideoLibrary` (Bandisoft's video player, a wrapper class that loads `bdvid32.dll`; an `IBandiVideo2`) as far as `CMovieData::SetMovieFileName`
- * uses it.  Every method that returns an `HRESULT` returns a negative number for a failure.
+ * `CBandiVideoLibrary` (Bandisoft's video player: a wrapper class of the exe, 329840C0 .. 32984450, that loads `bdvid32.dll` and forwards to the
+ * `IBandiVideo2` it makes; an `IBandiVideo2` itself) as far as `CMovieData` uses it.  Every method that returns an `HRESULT` returns a negative number
+ * for a failure; a library that is not created (`m_bvl` null) answers `BVL_E_NOT_CREATED` to every call that has to reach the player, 0 to `IsNextFrame`,
+ * and writes nothing.
  */
 export interface BandiVideoLibrary {
   isCreated(): boolean;
@@ -263,6 +450,16 @@ export interface BandiVideoLibrary {
   getVideoInfo(): VideoInfo;
   /** `Play()` */
   play(): number;
+  /** `Stop()` */
+  stop(): number;
+  /** `Seek(value, flag)` (`BVL_SEEK`) */
+  seek(value: bigint, flag: number): number;
+  /** `GetStatus(&status)`: the status (`BVL_STATUS`) goes to `out.status` when the call succeeds, which the exe's local is not initialised for */
+  getStatus(out: { status: number }): number;
+  /** `IsNextFrame()`: a frame is due (not 0) */
+  isNextFrame(): number;
+  /** `GetFrame(&frame, canSkip)`: the frame that is due is copied into `frame.frame_buf` (a frame behind is skipped when `canSkip` is not 0) */
+  getFrame(frame: BvlFrame, canSkip: number): number;
   /**
    * `Destroy()` (329842B0) and `~CBandiVideoLibrary` (329840E0), the same release: the video is stopped and released and the DLL freed, each only
    * when there is one.  `CMovieData`'s destructor calls `Destroy` for a library that was created and the destructor at its end.
@@ -270,10 +467,20 @@ export interface BandiVideoLibrary {
   destroy(): void;
 }
 
-/** `CBandiVideoTexture_DX9` (0x28 bytes): the Direct3D texture the video's frames are copied into */
+/** `CBandiVideoTexture_DX9` (0x28 bytes, vtable 334B10AC): the Direct3D texture the video's frames are copied into, and the quad it draws them with */
 export interface BandiVideoTexture {
+  /** slot 1: `Open(width, height)`, the size of the video */
   open(width: number, height: number): number;
+  /** slot 2 */
   close(): void;
+  /** slot 3: `Lock(&pitch)`, the texture's first pixel and the bytes to the next row; null when there is no texture */
+  lock(): { bits: Uint8Array; pitch: number } | null;
+  /** slot 4 */
+  unlock(): void;
+  /** slot 5: `Draw(x, y, width, height)`; the failure of `SetTexture` or 0 */
+  draw(x: number, y: number, width: number, height: number): number;
+  /** slot 7: `GetFormat()`, the `BVL_PIXEL_FORMAT` the texture takes */
+  getFormat(): number;
   /** the deleting destructor (the vtable's slot 0), which `CMovieData`'s destructor calls after `Close` */
   Destroy(): void;
 }
@@ -285,17 +492,17 @@ export class NoVideoLibrary implements BandiVideoLibrary {
   }
 
   create(): number {
-    return E_FAIL;
+    return BVL_E_NO_DLL;
   }
 
   verify(): number {
-    return E_FAIL;
+    return BVL_E_NOT_CREATED;
   }
 
   close(): void {}
 
   open(): number {
-    return E_FAIL;
+    return BVL_E_NOT_CREATED;
   }
 
   getVideoInfo(): VideoInfo {
@@ -303,7 +510,27 @@ export class NoVideoLibrary implements BandiVideoLibrary {
   }
 
   play(): number {
-    return E_FAIL;
+    return BVL_E_NOT_CREATED;
+  }
+
+  stop(): number {
+    return BVL_E_NOT_CREATED;
+  }
+
+  seek(): number {
+    return BVL_E_NOT_CREATED;
+  }
+
+  getStatus(): number {
+    return BVL_E_NOT_CREATED;
+  }
+
+  isNextFrame(): number {
+    return 0;
+  }
+
+  getFrame(): number {
+    return BVL_E_NOT_CREATED;
   }
 
   destroy(): void {}
@@ -316,6 +543,20 @@ export class NoVideoTexture implements BandiVideoTexture {
   }
 
   close(): void {}
+
+  lock(): null {
+    return null;
+  }
+
+  unlock(): void {}
+
+  draw(): number {
+    return 0;
+  }
+
+  getFormat(): number {
+    return BVLPF.NULL;
+  }
 
   Destroy(): void {}
 }
@@ -334,8 +575,8 @@ export class DeviceManager {
   currentDirectory = "";
   /** the video player a `CMovieData` creates (`CBandiVideoLibrary::CBandiVideoLibrary`); the default is a machine without one */
   createVideoLibrary: () => BandiVideoLibrary = () => new NoVideoLibrary();
-  /** the texture a movie that opened gets (`new CBandiVideoTexture_DX9`) */
-  createVideoTexture: () => BandiVideoTexture = () => new NoVideoTexture();
+  /** the texture a movie that opened gets (`new CBandiVideoTexture_DX9`, which works with the render's device, state manager and vertex buffers) */
+  createVideoTexture: (render: UIRender | null) => BandiVideoTexture = () => new NoVideoTexture();
   /**
    * `g_pKTDXApp->m_pDSManager->m_bInit`: whether the sound system (FMOD) is up.  `OpenSound` creates a sound device only then; without
    * it `OpenSound` answers null for every sound that is not open yet, as the exe does when FMOD failed to initialise.
@@ -473,8 +714,9 @@ export class DeviceManager {
       target.refCount++;
       return target;
     }
-    target = new DeviceRenderTargetTexture(id, width, height, format);
+    target = new DeviceRenderTargetTexture(id, width, height, format, this.massFiles.log);
     target.refCount = 1;
+    if (this.d3dDevice) target.onResetDevice(this.d3dDevice); // the constructor: `DXUTGetDeviceObjectsReset()`
     this.renderTargets.set(id, target);
     return target;
   }
@@ -496,7 +738,10 @@ export class DeviceManager {
     }
     const target = this.renderTargets.get(id);
     if (target) {
-      if (--target.refCount <= 0) this.renderTargets.delete(id);
+      if (--target.refCount <= 0) {
+        this.renderTargets.delete(id);
+        target.Destroy();
+      }
       return;
     }
     const snd = this.sounds.get(id);

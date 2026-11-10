@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Mutation check of the UI classes added with the dialog census (Navigation, CMovieData, Slider, ControlList, EditBox,
 CX2MapSelectWindow, ChangeSequence*, IntPairMap, ftoi, the render target devices, ScrollBar.destroy): apply one small change at a time to a
-source file of packages/ui/src, run packages/ui/test/widgets.test.ts and report whether a test notices (killed) or not (SURVIVED).
+source file of packages/ui/src, run packages/ui/test/widgets.test.ts (for the slider's mutants then also bars-input.test.ts, the oracle's scenes of its
+input: its mouse-up message sits in the code the input unit added) and report whether a test notices (killed) or not (SURVIVED).
 
     python3 tools/mutate-ui.py [--list] [substring of a mutant name ...]
 
@@ -15,6 +16,8 @@ import os, resource, subprocess, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUN = os.path.join(ROOT, 'node_modules/.bin/bun')
 TEST = os.path.join(ROOT, 'packages/ui/test/widgets.test.ts')
+# the tests that run after widgets.test.ts for the mutants of a file that kills nothing there
+EXTRA = {'slider.ts': [os.path.join(ROOT, 'packages/ui/test/bars-input.test.ts')]}
 SRC = 'packages/ui/src/'
 
 # (file, name, original text, mutated text, why it may survive ('' = must be killed))
@@ -98,13 +101,13 @@ M = [
  # ---- movie.ts
  ('movie.ts', 'movie: the verification key', r'"1b9b533c"', r'"1b9b533d"', ''),
  ('movie.ts', 'movie: a file that does not open', r'if (bvl.open(this.m_wstrMovieFileName, 0) < 0) return;', r'if (bvl.open(this.m_wstrMovieFileName, 0) <= 0) return;', ''),
- ('movie.ts', 'movie: the video texture is made once', "if (this.m_pBvt) this.m_pBvt.close();\n    else this.m_pBvt = devices.createVideoTexture();", r'this.m_pBvt = devices.createVideoTexture();', ''),
+ ('movie.ts', 'movie: the video texture is made once', "if (this.m_pBvt) this.m_pBvt.close();\n    else this.m_pBvt = devices.createVideoTexture(this.ctx.render);", r'this.m_pBvt = devices.createVideoTexture(this.ctx.render);', ''),
  ('movie.ts', 'movie: the render target size is cut', r'Math.trunc(width), Math.trunc(height)', r'Math.round(width), Math.round(height)', ''),
  ('movie.ts', 'movie: the render target id', r'openRenderTargetTexture("MoveData"', r'openRenderTargetTexture("MovieData"', ''),
  ('movie.ts', 'movie: the player is closed before it opens', "    bvl.close();\n    if (bvl.open", "    if (bvl.open", ''),
  ('movie.ts', 'movie: the library is created once', r'if (!bvl.isCreated()) bvl.create("bdvid32.dll");', r'bvl.create("bdvid32.dll");', ''),
  ('movie.ts', 'movie: SetLoop writes the loop flag', "SetLoop(loop: boolean): void {\n    this.m_bLoop = loop;", "SetLoop(loop: boolean): void {\n    this.m_bShow = loop;", ''),
- ('movie.ts', 'movie: the video starts playing', r'bvl.play();', r'', ''),
+ ('movie.ts', 'movie: the video starts playing', "this.m_pBvt.open(this.m_Info.width, this.m_Info.height);\n    bvl.play();", r'this.m_pBvt.open(this.m_Info.width, this.m_Info.height);', ''),
  # ---- mapselect.ts
  ('mapselect.ts', 'map: a new map goes in front of the first old one', r'list.splice(firstOld, 0, info);', r'list.splice(firstOld + 1, 0, info);', ''),
  ('mapselect.ts', 'map: the first old one', r'list.findIndex((e) => !e.m_bNew)', r'list.findIndex((e) => e.m_bNew)', ''),
@@ -129,7 +132,7 @@ M = [
  # ---- device.ts
  ('device.ts', 'device: no id, no render target', "if (deviceID.length === 0) return undefined;\n    const id = towupperAscii(deviceID);\n    let target", "const id = towupperAscii(deviceID);\n    let target", ''),
  ('device.ts', 'device: an open render target is referenced again', "target.refCount++;\n      return target;", "return target;", ''),
- ('device.ts', 'device: CloseDevice deletes a render target at zero', r'if (--target.refCount <= 0) this.renderTargets.delete(id);', r'if (--target.refCount <= 1) this.renderTargets.delete(id);', ''),
+ ('device.ts', 'device: CloseDevice deletes a render target at zero', r'if (--target.refCount <= 0) {', r'if (--target.refCount <= 1) {', ''),
  ('device.ts', 'device: render target ids are upper case', "const id = towupperAscii(deviceID);\n    let target = this.renderTargets.get(id);", "const id = deviceID;\n    let target = this.renderTargets.get(id);", ''),
  # ---- scrollbar.ts
  ('scrollbar.ts', 'scrollbar: the destructor closes the sound', "this.m_pSndMouseDown = this.closeHeldDevice(this.m_pSndMouseDown);", "this.m_pSndMouseDown = undefined;", ''),
@@ -161,9 +164,13 @@ def main():
             path = os.path.join(ROOT, SRC, f)
             orig = sources[path]
             open(path, 'w').write(orig.replace(a, b, 1))
+            killed = False
             try:
-                r = subprocess.run([BUN, 'test', TEST], cwd=ROOT, capture_output=True, text=True, timeout=90, preexec_fn=limits)
-                killed = r.returncode != 0
+                for test in [TEST] + EXTRA.get(f, []):
+                    r = subprocess.run([BUN, 'test', test], cwd=ROOT, capture_output=True, text=True, timeout=90, preexec_fn=limits)
+                    if r.returncode != 0:
+                        killed = True
+                        break
             except subprocess.TimeoutExpired:
                 killed = True
             finally:

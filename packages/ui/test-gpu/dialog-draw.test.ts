@@ -26,19 +26,6 @@ const dataDir = join(import.meta.dir, "..", "..", "..", "data");
 const haveData = existsSync(join(dataDir, "x2.exe")) && existsSync(join(dataDir, "data036.kom")) && existsSync(join(dataDir, "general.ess"));
 const HAVE_GPU = haveData && (await gpuAvailable());
 
-/**
- * What the dialog counts as not drawn: each movie of a shown static (`CMovieData::OnFrameRender` is not ported); nothing else is missing (every
- * control class of these dialogs is drawn, the strings of the statics, buttons, radio buttons, combo boxes, list boxes and slots included, and
- * the edit boxes and the IME edit boxes)
- */
-function expectedUndrawn(dlg: CKTDGUIDialog): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const c of drawnControls(dlg)) {
-    if (c instanceof CKTDGUIStatic && c.m_MovieDataList.length > 0) out["CMovieData::OnFrameRender"] = (out["CMovieData::OnFrameRender"] ?? 0) + c.m_MovieDataList.length;
-  }
-  return out;
-}
-
 /** a call of a UK font that draws (`OutTextMultiline`, or `Draw2DText` for a static's string that does not use a UK font) and the text it was given */
 interface Spoken {
   method: string;
@@ -251,7 +238,7 @@ function expectUIQuads(draws: Draw[]): { edgeBars: number; textDraws: number; fl
 }
 
 /**
- * the checks of a dialog that is drawn without anything but its movies missing; the picture is the one the rules of Direct3D 9 give.
+ * the checks of a dialog that is drawn completely: nothing is left uncounted and the picture is the one the rules of Direct3D 9 give.
  * `covers`: how many pixels of the window at least are not the clear colour (a window of the game fills much of it, a popup little)
  */
 function expectDrawnLikeDirect3D(name: string, r: Drawn, covers = 200_000): { edgeBars: number; textDraws: number; flatQuads: number } {
@@ -264,8 +251,9 @@ function expectDrawnLikeDirect3D(name: string, r: Drawn, covers = 200_000): { ed
   const { edgeBars, textDraws, flatQuads } = expectUIQuads(r.draws);
   expect(edgeBars).toBe(expectedEdgeBars(r.dlg));
   expect(r.w.render!.states.stackPointer).toBe(0);
-  // the movies are not ported: they are counted, nothing else is missing (no control class, no edge, no string)
-  expect(Object.fromEntries(r.w.render!.undrawn)).toEqual(expectedUndrawn(r.dlg));
+  // nothing is counted as not drawn: every control class of these dialogs is drawn, the strings of the statics, buttons, radio buttons, combo boxes, list
+  // boxes and slots included, the edit boxes and the IME edit boxes, and the movies (a movie without a player draws its empty render target texture)
+  expect(Object.fromEntries(r.w.render!.undrawn)).toEqual({});
   // the controls asked the fonts for the strings the scripts say, and a string with something to see made quads
   expect(spoken).toEqual(expectedStrings(r.dlg, r.w));
   expect(textDraws > 0).toBe(spoken.some((t) => /\S/.test(t.text)));

@@ -5,7 +5,7 @@ import { StringTable } from "@els/assets";
 import { LuaError, LuaTable } from "@els/lua";
 import {
   CKTDGUIContolList, CKTDGUIEditBox, CKTDGUINavigation, CKTDGUIScrollBar, CKTDGUISlider, CKTDGUIStatic, CMovieData, CX2MapSelectWindow,
-  CX2SlotManager, D3DFMT_A8R8G8B8, E_FAIL, IntPairMap, NoVideoLibrary, UCT, UIM, UIWorld, WStringMap, ftoi, setRect,
+  BVL_E_NOT_CREATED, CX2SlotManager, D3DFMT_A8R8G8B8, E_FAIL, IntPairMap, NoVideoLibrary, UCT, UIM, UIWorld, WStringMap, ftoi, setRect,
 } from "../src/index.ts";
 import type { BandiVideoLibrary, BandiVideoTexture, Rect } from "../src/index.ts";
 import { indexAllKoms, KomMassFileSource } from "../../../tools/komindex.ts";
@@ -163,6 +163,11 @@ describe("CMovieData", () => {
       open: (path, flags) => (calls.push(`open ${path} ${flags}`), openResult),
       getVideoInfo: () => (calls.push("info"), { width: 640, height: 360 }),
       play: () => (calls.push("play"), 0),
+      stop: () => (calls.push("stop"), 0),
+      seek: (value, flag) => (calls.push(`seek ${value} ${flag}`), 0),
+      getStatus: () => (calls.push("status"), -1),
+      isNextFrame: () => (calls.push("next"), 0),
+      getFrame: () => (calls.push("frame"), -1),
       destroy: () => void calls.push("destroy"),
     };
     const texture = {
@@ -171,11 +176,17 @@ describe("CMovieData", () => {
       deleted: 0,
       open(width: number, height: number) {
         this.opens.push([width, height]);
+        calls.push(`texture open ${width} ${height}`);
         return 0;
       },
       close() {
         this.closes++;
+        calls.push("texture close");
       },
+      lock: () => null,
+      unlock() {},
+      draw: () => 0,
+      getFormat: () => 1,
       Destroy() {
         this.deleted++;
       },
@@ -213,7 +224,7 @@ describe("CMovieData", () => {
   test("SetMovieFileName on a machine without the player: the name is <current directory>\\movie\\<file>, nothing opens", () => {
     const { w, mv, ud, m } = movie();
     w.devices.currentDirectory = "C:\\Els";
-    expect(new NoVideoLibrary().open()).toBe(E_FAIL);
+    expect(new NoVideoLibrary().open()).toBe(BVL_E_NOT_CREATED);
     m(ud, "SetMovieFileName", "intro.avi");
     expect([mv.m_wstrMovieFileName, ...some(mv.m_pBvt), mv.m_Bvl.isCreated()]).toEqual(["C:\\Els\\movie\\intro.avi", "none", false]);
   });
@@ -227,12 +238,14 @@ describe("CMovieData", () => {
     const mv = new CMovieData(s.w);
     mv.SetMovieFileName("a.avi");
     expect(calls).toEqual([
-      "create bdvid32.dll", "verify KOG_ELSWORD_20131203 1b9b533c", "close", "open C:\\Els\\movie\\a.avi 0", "info", "play",
+      "create bdvid32.dll", "verify KOG_ELSWORD_20131203 1b9b533c", "close", "open C:\\Els\\movie\\a.avi 0", "info", "texture open 640 360", "play",
     ]);
     expect([is(mv.m_pBvt, texture), texture.opens, texture.closes, mv.m_Info.width, mv.m_Info.height]).toEqual([true, [[640, 360]], 0, 640, 360]);
     calls.length = 0;
     mv.SetMovieFileName("b.avi");
-    expect(calls).toEqual(["verify KOG_ELSWORD_20131203 1b9b533c", "close", "open C:\\Els\\movie\\b.avi 0", "info", "play"]);
+    expect(calls).toEqual([
+      "verify KOG_ELSWORD_20131203 1b9b533c", "close", "open C:\\Els\\movie\\b.avi 0", "info", "texture close", "texture open 640 360", "play",
+    ]);
     expect([texture.opens, texture.closes]).toEqual([[[640, 360], [640, 360]], 1]); // the texture is closed and opened again, not made again
   });
 

@@ -326,6 +326,8 @@ export class Direct3DDevice9 implements ResourceHost {
 
   CreateTexture(width: number, height: number, levels: number, usage: number, format: number, pool: number): { hr: number; tex: Direct3DTexture9 | null } {
     if (!formatInfo(format) || width <= 0 || height <= 0) return { hr: D3DERR_NOTAVAILABLE, tex: null };
+    // a dynamic texture is made in the default pool: the runtime refuses `D3DUSAGE_DYNAMIC` with `D3DPOOL_MANAGED` (CBandiVideoTexture_DX9::Open tries it first)
+    if (usage & D3DUSAGE.DYNAMIC && pool === D3DPOOL.MANAGED) return { hr: D3DERR_INVALIDCALL, tex: null };
     const fi = formatInfo(format)!;
     if (usage & D3DUSAGE.RENDERTARGET && fi.compressed) return { hr: D3DERR_INVALIDCALL, tex: null };
     // floating point formats exist only as render targets here (the CPU side conversions are 8-bit)

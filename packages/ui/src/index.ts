@@ -16,6 +16,7 @@ export * from "./editbox.ts";
 export * from "./controllist.ts";
 export * from "./slider.ts";
 export * from "./movie.ts";
+export * from "./video.ts";
 export * from "./navigation.ts";
 export * from "./unibuffer.ts";
 export * from "./imeeditbox.ts";

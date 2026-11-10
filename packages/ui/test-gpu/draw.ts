@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { StringTable, decodeImage } from "@els/assets";
 import { D3DCLEAR, D3DRS, D3DSAMP, D3DTOP, D3DTSS } from "@els/d3d9";
 import type { Direct3DDevice9, Direct3DTexture9 } from "@els/d3d9";
-import { CX2SlotManager, UIWorld } from "../src/index.ts";
+import { CKTDGUIStatic, CX2SlotManager, UIWorld } from "../src/index.ts";
 import type { CKTDGUIControl, CKTDGUIDialog } from "../src/index.ts";
 import type { CKTDGDynamicTexture } from "../src/dynamictexture.ts";
 import { SGCFontCache } from "../src/freetypefont.ts";
@@ -159,12 +159,15 @@ export function listQuads(d: Draw): Uint8Array[] {
 }
 
 /**
- * Compose the draws on a cleared target by the rules of Direct3D 9 (`reference.ts`).  `textureOf` gives the pixels of the texture a draw
- * had on stage 0.  A quad it has no rule for, or a texture it cannot give, stops the composition: `referenceError` says why and
+ * Compose the draws on a target (default: the back buffer's size, cleared) by the rules of Direct3D 9 (`reference.ts`).  `textureOf` gives the
+ * pixels of the texture a draw had on stage 0.  A quad it has no rule for, or a texture it cannot give, stops the composition: `referenceError` says why and
  * `reference` is what was composed before.
  */
-export function composeDraws(draws: Draw[], textureOf: (d: Draw) => RefImage | null): { reference: RefImage; referenceError?: string } {
-  const reference = newTarget(WIDTH, HEIGHT, CLEAR[0]!, CLEAR[1]!, CLEAR[2]!);
+export function composeDraws(
+  draws: Draw[],
+  textureOf: (d: Draw) => RefImage | null,
+  reference: RefImage = newTarget(WIDTH, HEIGHT, CLEAR[0]!, CLEAR[1]!, CLEAR[2]!),
+): { reference: RefImage; referenceError?: string } {
   try {
     for (const d of draws) {
       // stage 0 that selects its second argument (the diffuse colour) for the colour and the alpha ignores the texture on it: a flat quad
@@ -328,6 +331,16 @@ export async function drawDialog(
       if (!t) return null;
       let img = decoded.get(t);
       if (!img) {
+        // the render target texture of a movie: `CMovieData::OnFrameRender` clears it to transparent black, and a movie that has no video texture (a world
+        // without a player: nothing here installs one) draws nothing into it; the alpha test of the quad that draws it keeps nothing of it
+        const movie = renderTargetMovie(dlg, t);
+        if (movie) {
+          if (movie.m_pBvt) throw new Error("the render target texture of a movie that has a video: its pixels are not the clear colour (movie-draw.test.ts composes those)");
+          const target = movie.m_pRenderTargetTexture!;
+          img = { width: target.width, height: target.height, rgba: new Uint8Array(target.width * target.height * 4) };
+          decoded.set(t, img);
+          return img;
+        }
         if (!owner) {
           owner = new Map();
           for (const c of w.devices.devices.values()) if (c.m_pTexture) owner.set(c.m_pTexture, c.data);
@@ -356,6 +369,15 @@ export async function drawDialog(
     else releaseDrawn({ w });
     throw e;
   }
+}
+
+/** the movie of a static of the dialog whose render target texture is `texture` (a Direct3D texture), or undefined */
+function renderTargetMovie(dlg: CKTDGUIDialog, texture: Direct3DTexture9): CKTDGUIStatic["m_MovieDataList"][number] | undefined {
+  for (const c of dlg.m_ControlsList) {
+    if (!(c instanceof CKTDGUIStatic)) continue;
+    for (const movie of c.m_MovieDataList) if (movie.m_pRenderTargetTexture?.m_pRenderTargetTexture === texture) return movie;
+  }
+  return undefined;
 }
 
 /** the controls the dialog draws: those that are shown and in its list (a hidden control draws nothing, DLG_UNIT_CREATE_BACK has 84 strings in Statics that are not shown) */

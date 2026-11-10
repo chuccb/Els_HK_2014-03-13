@@ -6,6 +6,7 @@
  * The world is 1536 x 1536 pixels, so the layout of 1024 x 768 is scaled by (1536 * 0.0009765625, 1536 / 768) = (1.5, 2).
  */
 import { describe, expect, test } from "bun:test";
+import { Vec2 } from "@els/host";
 import {
   BCS, CKTDGUIButton, CKTDGUIControl, CKTDGUIDialog, CKTDGUIStatic, CPictureData, DIALOG_SAMPLER_STATES, RSI_UI_DIALOG, TA,
   TexChangeData, UITextureData, UIRender, VertexUI4,
@@ -394,12 +395,24 @@ describe("CKTDGUIStatic.onFrameRender (3292A2B0)", () => {
     expect(dev.log.filter((l) => l.startsWith("tex"))).toEqual(["tex 0 P.TGA", "tex 0 Q.TGA"]);
   });
 
-  test("what is not ported is counted, not drawn: a movie (the strings are drawn: stringdraw.test.ts; the edge: controldraw.test.ts)", () => {
-    const { control, picture, w } = scene();
+  test("the movies come last: each one that is shown is placed and asked to draw, one that is hidden is passed over (the strings: stringdraw.test.ts; the edge: controldraw.test.ts; the movie itself: movie.test.ts)", () => {
+    const { control, picture, dev, w } = scene();
     picture.m_EdgeWidth = 0;
-    control.m_MovieDataList.push({} as never, {} as never);
+    control.m_OffsetPos.set(3, 4);
+    const spy = (name: string, shown: boolean, x: number, y: number) => ({
+      m_bShow: shown, m_vOriginPos: new Vec2(x, y), m_vPos: new Vec2(-1, -1), onFrameRender: () => void dev.log.push(`movie ${name}`),
+    });
+    const a = spy("a", true, 1.5, 2.25);
+    const hidden = spy("hidden", false, 0, 0);
+    const c = spy("c", true, -3, 0.5);
+    control.m_MovieDataList.push(a as never, hidden as never, c as never);
     control.onFrameRender();
-    expect([...w.render!.undrawn]).toEqual([["CMovieData::OnFrameRender", 2]]);
+    // the dialog is at (10.25, 20.5), the control's offset is (3, 4), the world is scaled by (1.5, 2): a = ((10.25 + 1.5) + 3, (20.5 + 2.25) + 4) * scale = (22.125, 53.5);
+    // c = ((10.25 - 3) + 3, (20.5 + 0.5) + 4) * scale = (15.375, 50)
+    expect(dev.log.filter((l) => l.startsWith("movie"))).toEqual(["movie a", "movie c"]);
+    expect([a.m_vPos.x, a.m_vPos.y, c.m_vPos.x, c.m_vPos.y, hidden.m_vPos.x, hidden.m_vPos.y]).toEqual([22.125, 53.5, 15.375, 50, -1, -1]);
+    expect(dev.log.indexOf("movie a")).toBeGreaterThan(dev.log.findIndex((l) => l.startsWith("draw"))); // after the picture's quad
+    expect([...w.render!.undrawn]).toEqual([]);
   });
 
   test("without a device each picture is error 0x82 and nothing else happens", () => {

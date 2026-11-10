@@ -634,17 +634,23 @@ describe("CKTDGUIStatic::OnFrameMove (3292A120)", () => {
     expect([none.m_fRemainTwinkleTime, none.m_fRemainFadeTime]).toEqual([1, 1]);
   });
 
-  test("a movie's frame is not ported: it is counted, once for each movie, and a hidden static counts none", () => {
+  test("every movie of a shown static is moved, in order and whether it is shown or not (CMovieData::OnFrameMove: movie.test.ts); a hidden static moves none, and counts nothing as undrawn", () => {
     const { w } = rig();
     const s = new CKTDGUIStatic(w);
-    s.AddMovieData(new CMovieData(w));
-    s.AddMovieData(new CMovieData(w));
+    const moved: string[] = [];
+    for (const [name, shown] of [["first", true], ["hidden", false], ["last", true]] as const) {
+      const movie = new CMovieData(w);
+      movie.m_bShow = shown;
+      movie.onFrameMove = () => void moved.push(name);
+      s.AddMovieData(movie);
+    }
     s.m_bShow = false;
     s.onFrameMove(0, 1);
-    expect([...w.render!.undrawn]).toEqual([]);
+    expect(moved).toEqual([]);
     s.m_bShow = true;
     s.onFrameMove(0, 1);
-    expect([...w.render!.undrawn]).toEqual([["CMovieData::OnFrameMove", 2]]);
+    expect(moved).toEqual(["first", "hidden", "last"]);
+    expect([...w.render!.undrawn]).toEqual([]);
   });
 });
 

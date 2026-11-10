@@ -5,7 +5,8 @@
  * Without one (`UIContext.render` is null) a control builds its data but draws nothing: the census and most tests run that way.
  */
 import { D3DBLEND, D3DCMP, D3DCULL, D3DRS, D3DSAMP, D3DTA, D3DTADDRESS, D3DTEXF, D3DTOP, D3DTSS, matIdentity } from "@els/d3d9";
-import type { Direct3DTexture9, Direct3DVertexDeclaration9, Mat4, Viewport } from "@els/d3d9";
+import { Direct3D9 } from "@els/d3d9";
+import type { D3DCAPS9, Direct3DSurface9, Direct3DTexture9, Direct3DVertexDeclaration9, Mat4, Rect, Viewport } from "@els/d3d9";
 import { CKTDGDynamicVBManager, CKTDGStateManager, DYNAMIC_VB_MODE, STATE_TYPE, akStates } from "@els/engine";
 import type { DynamicVBDevice, KStateID, StateDevice } from "@els/engine";
 import { Vec2 } from "@els/host";
@@ -17,6 +18,17 @@ export interface UIDevice extends StateDevice, DynamicVBDevice {
   SetVertexDeclaration(declaration: Direct3DVertexDeclaration9 | null): number;
   /** `CUKFont::OutProjectionText` sets the world transform (`D3DTS_WORLD`, 256) */
   SetTransform(state: number, matrix: ArrayLike<number>): number;
+  /** `CBandiVideoTexture_DX9::CalcTexSize` and `Open` read the capabilities of the device (`TextureCaps`) */
+  GetDeviceCaps(): D3DCAPS9;
+  /** `CBandiVideoTexture_DX9::Open` makes the texture the frames are copied into */
+  CreateTexture(width: number, height: number, levels: number, usage: number, format: number, pool: number): { hr: number; tex: Direct3DTexture9 | null };
+  /** `CKTDXDeviceRenderTargetTexture`: the surfaces of the device are kept, replaced and made again */
+  GetRenderTarget(index: number): Direct3DSurface9 | null;
+  SetRenderTarget(index: number, surface: Direct3DSurface9 | null): number;
+  GetDepthStencilSurface(): Direct3DSurface9 | null;
+  SetDepthStencilSurface(surface: Direct3DSurface9 | null): number;
+  CreateDepthStencilSurface(width: number, height: number, format: number): { hr: number; surface: Direct3DSurface9 | null };
+  Clear(rects: readonly Rect[] | null, flags: number, color: number, z: number, stencil: number): number;
 }
 
 /**
@@ -101,6 +113,8 @@ export const DIALOG_SAMPLER_STATES: readonly { stage: number; type: number; valu
 export class UIRender {
   /** `g_pd3dDevice` / `g_pKTDXApp->m_pd3dDevice` */
   readonly device: UIDevice;
+  /** `g_pD3D`: the Direct3D object the device was made by (`CBandiVideoTexture_DX9`'s constructor asks it for the display mode and the formats) */
+  d3d = new Direct3D9();
   /** the statics of `CKTDGStateManager` */
   readonly states: CKTDGStateManager;
   /** `g_pKTDXApp->m_pDVBManager` */

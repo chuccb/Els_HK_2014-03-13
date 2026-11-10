@@ -37,9 +37,9 @@ def tests_of(f):
 
 # (file, name, original text, mutated text, why it may survive ('' = must be killed))
 M = [
- # ---- device.ts: CKTDXDeviceTexture::Draw
+ # ---- device.ts: CKTDXDeviceTexture::Draw (and the render target texture's: `drawDeviceTexture`, the quad both draw)
  ('device.ts', 'draw: the states are set for good, not pushed', r'states.apply(RSI_DEVICE_TEXTURE);', r'states.set(RSI_DEVICE_TEXTURE);', ''),
- ('device.ts', 'draw: the states are not popped', "states.popTo(top);\n  }\n}\n\n/** where the device objects", "}\n}\n\n/** where the device objects", ''),
+ ('device.ts', 'draw: the states are not popped', "states.popTo(top);\n}\n\n/** where the device objects", "}\n\n/** where the device objects", ''),
  ('device.ts', 'draw: left has no half pixel off', r'const left = f(x - 0.5);', r'const left = x;', ''),
  ('device.ts', 'draw: top has no half pixel off', r'const upper = f(y - 0.5);', r'const upper = y;', ''),
  ('device.ts', 'draw: right is counted from the left side', r'const right = f(f(f(nWidth) * sx) + x);', r'const right = f(f(f(nWidth) * sx) + left);', ''),
@@ -51,7 +51,7 @@ M = [
  ('device.ts', 'draw: z', r'v.setZ(i, 1);', r'v.setZ(i, 0);', ''),
  ('device.ts', 'draw: rhw', r'v.setRhw(i, 1);', r'v.setRhw(i, 0);', ''),
  ('device.ts', 'draw: a rotation is not refused', r'if (rotateDegree !== 0) throw', r'if (false) throw', ''),
- ('device.ts', 'draw: the texture goes to stage 1', "this.setDeviceTexture(render, 0);\n    render.dvb.drawPrimitive", "this.setDeviceTexture(render, 1);\n    render.dvb.drawPrimitive", ''),
+ ('device.ts', 'draw: the texture goes to stage 1', "texture.setDeviceTexture(render, 0);\n  render.dvb.drawPrimitive", "texture.setDeviceTexture(render, 1);\n  render.dvb.drawPrimitive", ''),
  # ---- control.ts: the four bars
  ('control.ts', 'edge: the alpha is the edge colour\'s green', r'clampedByte(f(f(dc.a * edgeColor.a) * cc.a))', r'clampedByte(f(f(dc.a * edgeColor.g) * cc.a))', ''),
  ('control.ts', 'edge: the red ignores the dialog', r'clampedByte(f(f(dc.r * edgeColor.r) * cc.r))', r'clampedByte(f(edgeColor.r * cc.r))', ''),

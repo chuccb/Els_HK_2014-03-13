@@ -2,7 +2,7 @@
  * Every DLG script of the KOMs drawn through the whole stack, one after the other, and checked against the Direct3D 9 rules.
  *
  *   ./tools/gpu.sh ./node_modules/.bin/bun run tools/ui-draw.ts [--md docs/UI_DRAW.md] [--tsv docs/ui-draw.tsv] [--json OUT.json]
- *                                                              [--png DIR] [--only RE] [--limit N] [--frames N]
+ *                                                              [--png DIR] [--only RE] [--limit N] [--frames N] [--from OLD.json]
  *
  * The dialogs are opened in ONE UI world with a device (the client has one Lua state, so a script may use a global that another one
  * defined; `packages/ui/test-gpu/draw.ts`: the script on the Lua VM, the ported UI classes, the state manager, the dynamic vertex buffers,
@@ -12,13 +12,14 @@
  * pages (the strings) and glyph quads, what is still counted as not drawn, how many pixels are not the clear colour, how far the
  * device's picture is from the CPU's, and what went into the error log.
  * What it is for: a quad shape or a state the reference has no rule for shows up as an error; a dialog that draws nothing shows up in the
- * list of those, with the reason; what the dialogs ask for that is not ported (the movies, the controls whose drawing is not ported) is
- * counted over all of them.
+ * list of those, with the reason; what the dialogs ask for that is not ported (the controls whose drawing is not ported) is counted over all
+ * of them (none, since the movies are drawn: a movie without a player draws its empty render target texture).
  *
  * The textures of a dialog are closed after it is drawn (and their bytes forgotten), and the fonts forget their glyphs (a client that has
  * drawn nothing else; the exe's cache would overflow into a fifth page over a thousand dialogs, FINDINGS 17.12), so a run needs about 1.5 GB.  `--only` takes a
  * case-insensitive regular expression: the other dialogs are not run then, so a script that needs a sibling's global fails.
- * `--json` writes the rows as it goes (every 20 dialogs); `--png` saves every picture.  `--frames N` (default 1) is the number of frames of
+ * `--json` writes the rows as it goes (every 20 dialogs); `--from` writes the `--md` / `--tsv` reports of the rows of such a file (no dialog is run);
+ * `--png` saves every picture.  `--frames N` (default 1) is the number of frames of
  * no time (`OnFrameMove(0, 0)`) each dialog runs before it is drawn: 0 draws what the script built, as the first census did.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -185,7 +186,7 @@ function reasonOf(r: Row): string {
   if (!r.opened) return "the script did not run";
   if (r.controls === 0) return "the script made no control";
   if (r.shown === 0) return "no control is shown";
-  if (Object.keys(r.undrawn).length > 0) return "what the shown controls draw is not ported (movies, controls whose drawing is not ported)";
+  if (Object.keys(r.undrawn).length > 0) return "what the shown controls draw is not ported (controls whose drawing is not ported)";
   return "the shown controls have no picture and no text to draw";
 }
 
@@ -241,9 +242,11 @@ function markdown(rows: Row[]): string {
   out.push(`The largest difference of a channel between the device and the CPU, per dialog: ${[...hist].sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, c]) => `${k}: ${n(c)}`).join(", ")}.\n`);
 
   out.push("## What the dialogs ask to draw that is not ported yet\n");
-  out.push("`render.undrawn`, summed over the dialogs: a control class whose `OnFrameRender` is not ported, or a part of one (the movies of a static).\n");
-  out.push("| what | dialogs | times |\n|---|---:|---:|");
-  for (const [k, e] of [...undrawn].sort((a, b) => b[1].count - a[1].count)) out.push(`| \`${k}\` | ${n(e.dialogs)} | ${n(e.count)} |`);
+  out.push("`render.undrawn`, summed over the dialogs: a control class whose `OnFrameRender` is not ported, or a part of one.\n");
+  if (undrawn.size) {
+    out.push("| what | dialogs | times |\n|---|---:|---:|");
+    for (const [k, e] of [...undrawn].sort((a, b) => b[1].count - a[1].count)) out.push(`| \`${k}\` | ${n(e.dialogs)} | ${n(e.count)} |`);
+  } else out.push("None.");
   out.push("");
 
   const frames = new Map<string, { dialogs: number; example: string }>();
@@ -329,6 +332,13 @@ function tsv(rows: Row[]): string {
 // ---- main -------------------------------------------------------------------------------------------------------------------------------
 
 if (import.meta.main) {
+  // the reports of an earlier run (its `--json` file): no dialog is run
+  if (arg("--from")) {
+    const saved = JSON.parse(readFileSync(arg("--from")!, "utf8")) as Row[];
+    if (arg("--md")) writeFileSync(arg("--md")!, markdown(saved));
+    if (arg("--tsv")) writeFileSync(arg("--tsv")!, tsv(saved));
+    process.exit(0);
+  }
   if (arg("--png")) process.env.D3D9_TEST_OUT = arg("--png");
   const t0 = performance.now();
   const { source } = await getFixture();

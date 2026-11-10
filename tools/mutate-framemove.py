@@ -169,7 +169,10 @@ m(s, 'static: a picture with fade out is moved', 'picture.m_bFadeIn || picture.m
 m(s, 'static: a picture with a vibration is moved', 'picture.m_VibrateData.m_fMaxTime !== 0)) {', 'false)) {')
 m(s, 'static: a picture is moved', 'picture.onFrameMove(fTime, fElapsedTime);', '')
 m(s, 'static: a picture without animation is not moved', 'if (picture && (picture.m_bTwinkle', 'if (picture && (true || picture.m_bTwinkle', 'every part of CPictureData::OnFrameMove is guarded by its own flag, so the call for a picture without an animation does nothing (the exe\'s test only saves the call)')
-m(s, 'static: a movie counts', 'for (let i = 0; i < this.m_MovieDataList.length; i++) this.ctx.render?.noteUndrawn("CMovieData::OnFrameMove");', '')
+m(s, 'static: a movie is moved', 'for (const movie of this.m_MovieDataList) movie.onFrameMove();', 'for (const movie of this.m_MovieDataList) void movie;')
+m(s, 'static: a hidden movie is not moved', 'for (const movie of this.m_MovieDataList) movie.onFrameMove();', 'for (const movie of this.m_MovieDataList) if (movie.m_bShow) movie.onFrameMove();')
+m(s, 'static: the movies are moved in the other order', 'for (const movie of this.m_MovieDataList) movie.onFrameMove();', 'for (const movie of [...this.m_MovieDataList].reverse()) movie.onFrameMove();')
+m(s, 'static: only the first movie is moved', 'for (const movie of this.m_MovieDataList) movie.onFrameMove();', 'for (const movie of this.m_MovieDataList.slice(0, 1)) movie.onFrameMove();')
 m(s, 'static: the frame time is the static\'s', 'this.m_fElapsedTime = dt;\n    return 0;', 'return 0;', 'the control\'s OnFrameMove has just stored the same float (the static is shown: it got that far)')
 
 # ---- button.ts --------------------------------------------------------------------------------------------------------------------------
