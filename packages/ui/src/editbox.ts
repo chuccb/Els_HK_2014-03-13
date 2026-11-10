@@ -32,7 +32,7 @@ import { byte, channel, d3dColor, ONE_OVER_255, packArgb } from "./d3dcolor.ts";
 import type { DeviceSound } from "./device.ts";
 import type { UKFont } from "./font.ts";
 import { wcslen } from "./freetypefont.ts";
-import { pick2DRect, resolutionScale } from "./pick.ts";
+import { resolutionScale } from "./pick.ts";
 import { ftoi, intersectRect, newRect, offsetRect, setRect } from "./rect.ts";
 import type { Rect } from "./rect.ts";
 import { VertexUI4 } from "./render.ts";
@@ -515,14 +515,10 @@ export class CKTDGUIEditBox extends CKTDGUIControl implements Partial<CKTDGUIEdi
   /**
    * `ContainPTForEditBox(pt)` (329331C0): the point (the position `HandleMouse` worked out, in layout pixels) is inside the box's current quad: its
    * four corners moved by the dialog's position (the global null dialog's, (0, 0), for a box in no dialog) and the box's offset, each sum rounded to
-   * a float; the test of `Pick2DRect`, with every step in single precision (`Pick2DRect`'s own code is not called: the edit box has its copy).
+   * a float; the test of `Pick2DRect`, with every step in single precision (see `CKTDGUIControl.containPTForEditBox`, which the IME box shares).
    */
   ContainPTForEditBox(x: number, y: number): boolean {
-    const pos = this.dialogPos();
-    const offset = this.m_OffsetPos;
-    const corner = (p: { readonly x: number; readonly y: number }) => ({ x: f(f(pos.x + p.x) + offset.x), y: f(f(pos.y + p.y) + offset.y) });
-    const q = this.m_NowPoint;
-    return pick2DRect(x, y, corner(q.leftTopPoint), corner(q.rightTopPoint), corner(q.leftBottomPoint), corner(q.rightBottomPoint));
+    return this.containPTForEditBox(x, y);
   }
 
   /**

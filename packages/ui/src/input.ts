@@ -10,6 +10,14 @@
 export class UIKeyboard {
   readonly m_State = new Int8Array(256);
   readonly m_Locks = new Uint8Array(256);
+  /** `m_bExtraEnter`: the edit boxes set it when Enter came as a character (the chat box reads it, and clears it, in its `OnFrameMove`) */
+  m_bExtraEnter = false;
+
+  /** `SetLock(Num, State)` (32963180): the lock of a key is written (an edit box locks Enter, scan code 0x1C, so that the game does not see the press again) */
+  setLock(num: number, state: number): number {
+    this.m_Locks[num & 0xff] = state;
+    return 1;
+  }
 
   /**
    * `GetKeyState(Num)` (32962CF0): 1 once for a key that went down, 0 otherwise.  `Num` is an `unsigned __int8` in the exe (the callers pass

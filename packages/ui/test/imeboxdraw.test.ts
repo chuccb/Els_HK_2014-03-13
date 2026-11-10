@@ -1987,3 +1987,93 @@ describe("the statics of the IME", () => {
     expect([a.s_CandList.bShowWindow, a.s_CandList.dwCount, a.s_CandList.dwSelection, a.s_CandList.dwPageSize, a.s_CandList.nFirstSelected, a.s_CandList.nHoriSelectedLen, a.s_CandList.awszCandidate.length]).toEqual([false, 0, 0, 0, 0, 0, 10]);
   });
 });
+
+describe("CKTDGUIIMEEditBox::PlaceCaret (32939B50)", () => {
+  // "ABABAB" (6 characters); the text rectangle 4 .. 28 is 24 wide.  The buffer is a stand-in whose x is 8 a character and whose trailing edge is 3 (or
+  // `trail`) further: the exe's own `CPtoX` does not look at the trail, so only the calls and the decisions are what these tests pin down.
+  const boxed = () => {
+    const s = scene("ABABAB");
+    s.e.m_rcText.right = 28;
+    const b = s.e.m_Buffer;
+    const asked: [number, boolean][] = [];
+    const xs: number[] = [];
+    const edge = { trail: 3 };
+    b.CPtoX = ((cp: number, trail: boolean) => {
+      asked.push([cp, trail]);
+      return cp * 8 + (trail ? edge.trail : 0);
+    }) as typeof b.CPtoX;
+    b.XtoCP = ((x: number) => {
+      xs.push(x);
+      return { cp: Math.floor(x / 8), trail: 0 };
+    }) as typeof b.XtoCP;
+    return { ...s, asked, xs, edge };
+  };
+
+  test("the caret is stored; the buffer is asked for the x of the first visible character, of the caret and of the caret's trailing edge, in this order", () => {
+    const s = boxed();
+    s.e.PlaceCaret(2); // x 16, trailing 19: inside the 24 pixels, so XtoCP is not asked
+    expect([s.e.m_nCaret, s.e.m_nFirstVisible, s.xs]).toEqual([2, 0, []]);
+    expect(s.asked).toEqual([[0, false], [2, false], [2, true]]);
+  });
+
+  test("past the right side: the new first x is the trailing x + left - right (35 + 4 - 28 = 11); the first character that ends at it is 1, whose x 8 is short of 11: 2", () => {
+    const s = boxed();
+    s.e.PlaceCaret(4); // x 32, trailing 35 > 0 + 24
+    expect(s.e.m_nFirstVisible).toBe(2);
+    expect(s.xs).toEqual([11]);
+    expect(s.asked).toEqual([[0, false], [4, false], [4, true], [1, false]]);
+  });
+
+  test("an x that is hit exactly stays (first = XtoCP, not one more): caret 5 with no trailing edge, x 40 > 24: 40 + 4 - 28 = 16; XtoCP 2, its x 16 is not short of 16", () => {
+    const s = boxed();
+    s.edge.trail = 0;
+    s.e.PlaceCaret(5);
+    expect(s.e.m_nFirstVisible).toBe(2);
+    expect(s.xs).toEqual([16]);
+    expect(s.asked).toEqual([[0, false], [5, false], [5, true], [2, false]]);
+  });
+
+  test("the end of the text (6) asks for no trailing edge: its x 48 decides, 48 + 4 - 28 = 24, XtoCP 3 whose x 24 is hit exactly: 3 (with the trailing edge it would be 51: 27, XtoCP 3, 24 < 27: 4)", () => {
+    const s = boxed();
+    s.e.PlaceCaret(6);
+    expect([s.e.m_nCaret, s.e.m_nFirstVisible]).toEqual([6, 3]);
+    expect(s.xs).toEqual([24]);
+    expect(s.asked).toEqual([[0, false], [6, false], [3, false]]);
+  });
+
+  test("the trailing edge scrolls only past the right side counted from the first visible character's x: first 2 (x 16), the edge at 40 = 16 + 24 stays, 41 scrolls (XtoCP of 41 + 4 - 28 = 17 is 2, whose x 16 is short: 3)", () => {
+    const s = boxed();
+    s.edge.trail = 0;
+    s.e.m_nFirstVisible = 2;
+    s.e.PlaceCaret(5); // x 40 and its trailing edge 40: not past 16 + 24
+    expect([s.e.m_nFirstVisible, s.xs]).toEqual([2, []]);
+    s.edge.trail = 1;
+    s.e.PlaceCaret(5);
+    expect([s.e.m_nFirstVisible, s.xs]).toEqual([3, [17]]);
+  });
+
+  test("the trailing edge, not the caret's x, decides whether to scroll: caret 3 (x 24) with the edge at 27 > 24 scrolls: XtoCP of 27 + 4 - 28 = 3 is 0, whose x 0 is short: 1", () => {
+    const s = boxed();
+    s.e.PlaceCaret(3);
+    expect(s.e.m_nFirstVisible).toBe(1);
+    expect(s.xs).toEqual([3]);
+  });
+
+  test("left of the first visible character the first visible character is the caret (the buffer is not asked for more); at it, it stays", () => {
+    const s = boxed();
+    s.e.m_nFirstVisible = 4;
+    s.e.PlaceCaret(1);
+    expect([s.e.m_nCaret, s.e.m_nFirstVisible, s.xs]).toEqual([1, 1, []]);
+    s.e.m_nFirstVisible = 4;
+    s.e.PlaceCaret(4);
+    expect(s.e.m_nFirstVisible).toBe(4);
+  });
+
+  test("a caret whose x is the first visible character's x is not left of it: nothing moves the first visible character (every x is equal here, XtoCP is never asked)", () => {
+    const s = boxed();
+    s.e.m_Buffer.CPtoX = (() => 0) as typeof s.e.m_Buffer.CPtoX;
+    s.e.m_nFirstVisible = 4;
+    s.e.PlaceCaret(1);
+    expect([s.e.m_nCaret, s.e.m_nFirstVisible, s.xs]).toEqual([1, 4, []]);
+  });
+});

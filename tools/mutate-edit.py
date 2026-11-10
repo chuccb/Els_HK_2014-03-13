@@ -7,11 +7,12 @@ text boxes are run and the script reports whether a test notices (killed) or not
 out; those of imeeditbox.ts are made from its source by operator (`operator_mutants`: every comparison, logical and arithmetic operator, number,
 `!`, condition, `?:`, `.left` / `.top` / `.x` / ..., colour field and statement of the drawing, one at a time), so their names are the text of the line.
 
-    python3 tools/mutate-edit.py [--list] [--check] [--survivors=LOG] [substring of a mutant name ...]
+    python3 tools/mutate-edit.py [--list] [--check] [--survivors=LOG] [--shard=K/N] [substring of a mutant name ...]
 
 A mutant that must be killed and survives makes the exit code 1; so does a mutant with a reason that is killed (the reason is out of
 date).  The reason (the last argument of `m(...)`) says why no input can tell the mutant from the original.  `--check` only verifies that
-every anchor text occurs exactly once; `--survivors=LOG` runs only the mutants that survived in an earlier run's output.  The source is
+every anchor text occurs exactly once; `--survivors=LOG` runs only the mutants that survived in an earlier run's output; `--shard=K/N` runs every N-th of the mutants (K = 0 ..
+N - 1) so that N copies of the tree (each is mutated in place) can share a run.  The source is
 restored after every mutant (also on Ctrl-C), but do not run this with edits you cannot afford to lose in the mutated files and edit
 nothing meanwhile.  Needs `bun` in ./node_modules/.bin.  Each run has a 90 s timeout and an 8 GB address-space limit: a mutant that
 loops or blows up is killed, too.
@@ -31,6 +32,8 @@ TESTS = {
 }
 # seconds a run of the tests may take before the mutant counts as killed (a mutant that loops for ever): the unmutated tests take 2
 TIMEOUT = {'imeeditbox.ts': 40}
+# file -> function(mutant name) -> a `bun test -t` pattern: the tests that are likely to kill the mutant, run first (a mutant they do not kill is run against all the tests)
+QUICK = {}
 
 M = []
 
@@ -894,6 +897,10 @@ def line_mutants(line):
     return out
 
 
+# the line that starts a function (its name is the group of the mutants that follow)
+FUNC_RE = re.compile(r'  (?:private |override |static )*(\w+)\(')
+
+
 def operator_mutants(f, regions):
     """[(name, anchor, replacement)] for the code of the file between each pair of markers (see `line_mutants`)."""
     src = open(path_of(f)).read()
@@ -909,7 +916,7 @@ def operator_mutants(f, regions):
         spans.append((a, b))
     result, seen, func = [], {}, ''
     for n, line in enumerate(lines):
-        mo = re.match(r'  (?:private |override |static )*(\w+)\(', line)
+        mo = FUNC_RE.match(line)
         if mo:
             func = mo.group(1)
         if not any(a <= pos[n] < b for a, b in spans):
@@ -1046,6 +1053,16 @@ def limits():
     resource.setrlimit(resource.RLIMIT_AS, (8 * 2**30, 8 * 2**30))
 
 
+def no_test_failed(r):
+    """'' when a test of the run failed; else what bun said instead (a mutant that does not load, or a run that bun itself lost): such a kill says nothing of the
+    tests, and a `crash` that is no mutant's doing shows here"""
+    out = (r.stdout or '') + (r.stderr or '')
+    if re.search(r'^\(fail\)|^\s*[1-9][0-9]* fail\b', out, re.M):
+        return ''
+    lines = [ln for ln in out.strip().splitlines() if ln.strip()]
+    return f'   (no test failed: exit {r.returncode}, ' + (lines[-1][:100] if lines else 'no output') + ')'
+
+
 def main():
     args = sys.argv[1:]
     mutants = M
@@ -1056,9 +1073,13 @@ def main():
         return 0
     pick = [a for a in args if not a.startswith('--')]
     for a in args:
+        if a.startswith('--shard='):
+            shard, shards = (int(n) for n in a.split('=', 1)[1].split('/'))
+            assert 0 <= shard < shards, a
+            mutants = [mu for n, mu in enumerate(mutants) if n % shards == shard]
         if a.startswith('--survivors='):
             # only the mutants that survived in an earlier run (its log): to see which a new test now kills
-            gone = {m_.group(1) + ': ' + m_.group(2) for m_ in (re.match(r'SURVIVED  (\S+): (.*?)(   |$)', ln) for ln in open(a.split('=', 1)[1])) if m_}
+            gone = {m_.group(1) + ': ' + m_.group(2) for m_ in (re.match(r'(?:SURVIVED|killed)  (\S+): (.*?)(   \(timeout\)|   |$)', ln) for ln in open(a.split('=', 1)[1])) if m_ and (m_.group(0).startswith('SURVIVED') or m_.group(3).strip() == '(timeout)')}
             mutants = [mu for mu in mutants if mu[0] + ': ' + mu[1] in gone]
     sources = {}
     errors = []
@@ -1079,7 +1100,7 @@ def main():
     if '--check' in args:
         print(f'{len(mutants)} mutants, every anchor occurs exactly once')
         return 0
-    bad = survived = run = stale = 0
+    bad = survived = run = stale = timeouts = 0
     try:
         for f, name, a, b, why in mutants:
             if pick and not any(p in name for p in pick):
@@ -1087,20 +1108,39 @@ def main():
             path = path_of(f)
             orig = sources[path]
             open(path, 'w').write(orig.replace(a, b, 1))
+            timed_out, crash = False, ''
+            limit = TIMEOUT.get(f, 90) * float(os.environ.get('MUTATE_TIMEOUT_SCALE', '1'))
             try:
-                r = subprocess.run([BUN, 'test', '--bail', *TESTS[f]], cwd=ROOT, capture_output=True, text=True, timeout=TIMEOUT.get(f, 90), preexec_fn=limits)
-                killed = r.returncode != 0
+                killed = False
+                pattern = QUICK[f](name) if f in QUICK else None
+                if pattern:
+                    try:
+                        r = subprocess.run([BUN, 'test', '--bail', *TESTS[f], '-t', pattern], cwd=ROOT, capture_output=True, text=True, timeout=limit, preexec_fn=limits)
+                        # (a pattern that matches no test makes bun exit with 1, too: that is no kill)
+                        killed = r.returncode != 0 and 'matched 0 tests' not in r.stderr + r.stdout
+                        if killed:
+                            crash = no_test_failed(r)
+                    except subprocess.TimeoutExpired:
+                        killed = timed_out = True
+                if not killed:
+                    r = subprocess.run([BUN, 'test', '--bail', *TESTS[f]], cwd=ROOT, capture_output=True, text=True, timeout=limit, preexec_fn=limits)
+                    killed = r.returncode != 0
+                    if killed:
+                        crash = no_test_failed(r)
             except subprocess.TimeoutExpired:
-                killed = True
+                killed = timed_out = True
             finally:
                 open(path, 'w').write(orig)
             run += 1
             if killed:
+                # (a mutant that only the clock killed may be a loop, or a survivor on a busy machine: `--survivors=LOG` runs it again)
+                late = '   (timeout)' if timed_out else crash
+                timeouts += timed_out
                 if why:
                     stale += 1
-                    print(f'killed    {f}: {name}   <-- its reason to survive is out of date: {why}', flush=True)
+                    print(f'killed    {f}: {name}   <-- its reason to survive is out of date: {why}{late}', flush=True)
                 else:
-                    print(f'killed    {f}: {name}', flush=True)
+                    print(f'killed    {f}: {name}{late}', flush=True)
             else:
                 survived += 1
                 if why:
@@ -1111,7 +1151,7 @@ def main():
     finally:
         for path, orig in sources.items():
             open(path, 'w').write(orig)
-    print(f'{run} mutants: {run - survived} killed, {survived} survived ({survived - bad} expected, {bad} not), {stale} reasons out of date')
+    print(f'{run} mutants: {run - survived} killed, {survived} survived ({survived - bad} expected, {bad} not), {stale} reasons out of date' + (f', {timeouts} of the kills by the clock' if timeouts else ''))
     return 1 if (bad or stale) else 0
 
 

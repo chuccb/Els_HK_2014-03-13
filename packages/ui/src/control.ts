@@ -1357,6 +1357,20 @@ export class CKTDGUIControl implements Partial<CKTDGUIControl_Methods> {
     return dialog !== null ? dialog.m_Pos : NULL_DIALOG_POS;
   }
 
+  /**
+   * `CKTDGUIEditBox::ContainPTForEditBox(pt)` (329331C0), which the plain edit box and the IME edit box both call on themselves (the function reads only
+   * what every control has): the point (the position the box's `HandleMouse` worked out, in layout pixels) is inside the control's current quad: its four
+   * corners moved by the dialog's position (`dialogPos`) and the control's offset, each sum rounded to a float; the test of `Pick2DRect`, with every step in
+   * single precision (`Pick2DRect`'s own code is not called: the edit boxes have their copy).
+   */
+  protected containPTForEditBox(x: number, y: number): boolean {
+    const pos = this.dialogPos();
+    const offset = this.m_OffsetPos;
+    const corner = (p: { readonly x: number; readonly y: number }) => ({ x: f(f(pos.x + p.x) + offset.x), y: f(f(pos.y + p.y) + offset.y) });
+    const q = this.m_NowPoint;
+    return pick2DRect(x, y, corner(q.leftTopPoint), corner(q.rightTopPoint), corner(q.leftBottomPoint), corner(q.rightBottomPoint));
+  }
+
   /** `CanHaveFocus()` (329240B0), virtual slot 14 */
   canHaveFocus(): boolean {
     return this.m_bEnable && this.m_bShow;

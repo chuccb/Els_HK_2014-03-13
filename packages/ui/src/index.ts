@@ -19,6 +19,7 @@ export * from "./movie.ts";
 export * from "./navigation.ts";
 export * from "./unibuffer.ts";
 export * from "./imeeditbox.ts";
+export * from "./imehost.ts";
 export * from "./scrollbar.ts";
 export * from "./combobox.ts";
 export * from "./dialog.ts";

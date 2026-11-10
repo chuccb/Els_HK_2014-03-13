@@ -30,14 +30,15 @@ for _f in (EB, WO, IN, CT):
 # PlaceCaret has its own tests of what it asks the buffer (tools/mutate-edit.py): the mutants that no answer shows are killed there
 me.TESTS[EB].append(T + 'editboxdraw.test.ts')
 
+# (the name of the method the region is, first marker, last marker): `operator_mutants` names a mutant after the last method it saw with a modifier it
+# knows, and `protected` is none of them
 REGIONS = {
-    EB: [('  PlaceCaret(nCP: number): void {', '\n  }\n'), ('  // ---- the input\n', '  /** `SetNormalTex_LUA(file, key)`')],
-    WO: [('  getKeyState(vk: number): number {', '\n  }\n')],
-    IN: [('export class MemoryClipboard', '\n}\n')],
-    CT: [('  protected dialogPos()', '\n  }\n')],
+    EB: [(None, '  PlaceCaret(nCP: number): void {', '\n  }\n'), (None, '  // ---- the input\n', '  /** `SetNormalTex_LUA(file, key)`')],
+    WO: [(None, '  getKeyState(vk: number): number {', '\n  }\n')],
+    IN: [(None, 'export class MemoryClipboard', '\n}\n')],
+    CT: [('dialogPos', '  protected dialogPos()', '\n  }\n'),
+         ('containPTForEditBox', '  protected containPTForEditBox(x: number, y: number): boolean {', '\n  }\n')],
 }
-# `operator_mutants` names a mutant after the last method it saw with a modifier it knows: `protected` is none of them
-RENAME = {CT: 'dialogPos'}
 
 WHY = {}
 
@@ -50,7 +51,7 @@ def src(f):
     return open(me.path_of(f)).read()
 
 
-def swap_mutants(f, regions, patterns):
+def swap_mutants(f, regions, patterns, rename=None):
     """[(name, anchor, replacement)]: in the code of the file between each pair of markers, every match of a pattern of `patterns` ([(regex, [new text])]) is
     replaced, one at a time; the anchor is the line, with the lines before it while it is not unique"""
     text = src(f)
@@ -89,7 +90,7 @@ def swap_mutants(f, regions, patterns):
                         raise SystemExit(f'no unique anchor for line {n + 1}: {st}')
                     snippet = ' '.join(st.split())
                     snippet = snippet if len(snippet) <= 72 else snippet[:72] + '...'
-                    name = f'{RENAME.get(f, func)}: {hit.group()} -> {new} in `{snippet}`'
+                    name = f'{rename or func}: {hit.group()} -> {new} in `{snippet}`'
                     seen[name] = seen.get(name, 0) + 1
                     if seen[name] > 1:
                         name += f' (#{seen[name]})'
@@ -121,10 +122,11 @@ SWAPS = [
 
 MUTANTS = []
 for _f, _regions in REGIONS.items():
-    for _name, _a, _b in me.operator_mutants(_f, _regions):
-        MUTANTS.append((_f, RENAME[_f] + _name[_name.index(':'):] if _f in RENAME else _name, _a, _b))
-    for _name, _a, _b in swap_mutants(_f, _regions, SWAPS):
-        MUTANTS.append((_f, _name, _a, _b))
+    for _rename, _first, _last in _regions:
+        for _name, _a, _b in me.operator_mutants(_f, [(_first, _last)]):
+            MUTANTS.append((_f, _rename + _name[_name.index(':'):] if _rename else _name, _a, _b))
+        for _name, _a, _b in swap_mutants(_f, [(_first, _last)], SWAPS, _rename):
+            MUTANTS.append((_f, _name, _a, _b))
 
 # ---- the mutants that no input can tell from the original (name -> why)
 
