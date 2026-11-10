@@ -70,7 +70,7 @@ CX2QuestManager	53	10445	32D3A750	todo
 CX2UIGuildBoard	53	7345	3320D000	todo		
 CxImage	52	1234	328CFA50	todo		
 CX2StateDungeonRoom	52	9030	32F17C10	todo		
-CKTDGLineMap	51	8291	328C0DE0	todo		
+CKTDGLineMap	51	8291	328C0DE0	partial	packages/world/src/linemap.ts (with intmap.ts, linedata.ts)	17 of 51 functions (FINDINGS 17.31): the constructor 329081A0 (the data; not the ID3DXLine and the vertex buffer of the debug drawing), SetLandHeight, SetTeamStartPos, AddStartPos, AddCameraData_LUA, AddLine_LUA, AddTrigger_LUA, EnableLineData and EnableLineData_LUA, SetStartEndPosAtThisLineMap_LUA, GetNumLineData, GetStartPosition, GetStartLineIndex, LoadLineMap 329127D0, MakeLine 32913120, UpdateLineData, ReBuildLineGroup (AddLineAnim_LUA is the name of an ICF twin: return false); not ported: the queries (GetLandPosition 3290F550 and its _LUA twin, GetNearest_LUA, GetRandomPosition and its _LUA twin, GetRandomPositionDir, GetRandomStartPosIndex), CanDown / CanPassUp / CrossedWall, the fixed-distance positions, the line sets, the getters of the states (team start positions, camera data, start right), the destructor and the debug drawing (OnFrameRender_*, UpdateLineVB, OnLostDevice, OnResetDevice)
 CX2GameEdit	51	5245	32A2B500	todo		
 CKTDGUIComboBox	50	4330	328CD110	partial	packages/ui/src/combobox.ts	constructor, UpdateRects (32940DE0), all 34 Lua methods; OnFrameMove (3293D960); OnFrameRender (3293DB00: the button, the text rectangle, the selected row, the first-box rule of the scroll bar's page size) and OnFrameRenderEnd (3293E390: the layout of the rows, the dropdown, its highlight, rows and bar); the destructor (3293C440: the rows' controls, the scroll bar, then the textures it held); the input (FINDINGS 17.23): HandleMouse 3293D340 (its scroll bar is asked first: move, press, release, wheel; then the row pick), OnFocusOut 3293D930, OnHotkey 3293F790 (the box has no MsgProc or HandleKeyboard of its own)
 CX2Camera	50	5039	32A28A60	todo		
@@ -704,7 +704,7 @@ std::vector<CKTDGManager::KObjectRenderHint>	3	177	328F2BB0	n/a	-	C++ runtime li
 CKTDGParticleSystem::CParticle	3	424	328F5CA0	todo		
 CKTDGParticleSystem::CParticleEvent	3	147	32903290	done	packages/assets/src/effectscript.ts (expectEquals, MSG_EQUALS_*)	the three ProcessPropEqualsValue overloads
 CKTDGLineMap::LineAnimData	3	71	32908500	todo		
-CKTDGLineMap::TRIGGER_DATA	3	302	329087A0	todo		
+CKTDGLineMap::TRIGGER_DATA	3	302	329087A0	done	packages/world/src/linedata.ts, linemap.ts	the records of the line map: the constructors give the field defaults (LineData 0xFC bytes: the 56 mutants of its constructor are all killed; the group ids -1 / -1; the trigger records are the object literals AddTrigger_LUA fills); copying a record is a JS copy
 std::vector<CX2UIQuestNew::QuestInfo>	3	116	32913E90	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDGXMeshPlayer::XMeshTemplet	3	371	329165A0	partial	packages/assets/src/xmeshplayer.ts (newXMeshTemplet, XMeshTemplet)	constructor defaults ported; destructor and assignment are C++ ownership
 CKTDSManager	3	152	329620F0	todo		
@@ -921,7 +921,7 @@ std::vector<CKTDGLineMap::CameraData>	2	120	32905950	n/a	-	C++ runtime library (
 std::vector<CKTDGLineMap::TRIGGER_DATA>	2	107	32905B10	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<CKTDGLineMap::TRIGGER_DATA_MESH>	2	148	32906020	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<CKTDGLineMap::TRIGGER_SEGMENT>	2	149	32906240	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDGLineMap::TRIGGER_SEGMENT	2	32	32909190	todo		
+CKTDGLineMap::TRIGGER_SEGMENT	2	32	32909190	done	packages/world/src/linedata.ts, linemap.ts	the records of the line map: the constructors give the field defaults (LineData 0xFC bytes: the 56 mutants of its constructor are all killed; the group ids -1 / -1; the trigger records are the object literals AddTrigger_LUA fills); copying a record is a JS copy
 std::vector<CKTDXDeviceXET *>	2	134	32913FD0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 CKTDGXRenderer::RenderParam	2	97	329141C0	partial	packages/d3d9/src/effect.ts, xrenderer-shaders.ts, vshader.ts	the effect it loads in OnResetDevice (329749E0) - XRenderer.fx with 19 techniques, 19 parameters and 80 vs_1_1 shaders - is emulated (FINDINGS 12.7); the class itself is not ported: render types, SetColor / SetRenderPassFog, the shader-index rule of _CommitChanges, the draw paths, the Cartoon*.bmp ramps
 std::vector<CKTDGXMeshPlayer::CXMeshPlayerToken>	2	167	32914D60	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -1148,7 +1148,7 @@ CX2GUNPC::AttachedParticle	2	35	32E16320	todo
 std::vector<KObserverPtr<CX2GameUnit>>	2	161	32E53690	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 boost::exception_detail::error_info_injector<std::length_error>	2	41	32E57300	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::length_error	2	27	32E578A0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDGLineMap::LineGroupID	2	16	32E57EB0	todo		
+CKTDGLineMap::LineGroupID	2	16	32E57EB0	done	packages/world/src/linedata.ts, linemap.ts	the records of the line map: the constructors give the field defaults (LineData 0xFC bytes: the 56 mutants of its constructor are all killed; the group ids -1 / -1; the trigger records are the object literals AddTrigger_LUA fills); copying a record is a JS copy
 boost::cb_details::iterator<boost::circular_buffer<D3DXVECTOR3,std::allocator<D3DXVECTOR3>>,boost::cb_details::nonconst_traits<std::allocator<D3DXVECTOR3>>>	2	64	32E57FC0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 boost::cb_details::iterator<boost::circular_buffer<CX2GUNPC::KNonHostReaction::KNonHostSimState,std::allocator<CX2GUNPC::KNonHostReaction::KNonHostSimState>>,boost::cb_details::nonconst_traits<std::allocator<CX2GUNPC::KNonHostReaction::KNonHostSimState>>>	2	64	32E58040	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<KXPT_UNIT_PET_SYNC>	2	129	32E6B350	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -1485,7 +1485,7 @@ std::vector<CKTDGLineMap::TRIGGER_DATA_ETC>	1	102	32905CC0	n/a	-	C++ runtime lib
 std::vector<CKTDGLineMap::TRIGGER_DATA_LINE>	1	73	32905EA0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::_Tree_val<std::_Tree_simple_types<std::pair<int const,CKTDGLineMap::StartInfo>>>	1	22	32906450	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::_Default_allocator_traits<std::allocator<CKTDGLineMap::TRIGGER_SEGMENT>>	1	54	32907EF0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDGLineMap::LineData	1	67	329085C0	todo		
+CKTDGLineMap::LineData	1	67	329085C0	done	packages/world/src/linedata.ts, linemap.ts	the records of the line map: the constructors give the field defaults (LineData 0xFC bytes: the 56 mutants of its constructor are all killed; the group ids -1 / -1; the trigger records are the object literals AddTrigger_LUA fills); copying a record is a JS copy
 std::_Tidy_guard<std::vector<CKTDGLineMap::TRIGGER_DATA>>	1	11	32908C30	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::_Tidy_guard<std::vector<CX2GameUnit::SoundPlayData>>	1	11	32908C40	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::_Tidy_guard<std::vector<CKTDGLineMap::TRIGGER_DATA_MESH>>	1	11	32908C50	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
@@ -1493,9 +1493,9 @@ std::map<int,CKTDGLineMap::StartInfo>	1	21	32908C60	n/a	-	C++ runtime library (S
 std::_Uninitialized_backout_al<std::allocator<CKTDGLineMap::TRIGGER_DATA>>	1	22	32908CA0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::_Uninitialized_backout_al<std::allocator<CKTDGLineMap::TRIGGER_DATA_ETC>>	1	20	32908CE0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::_Uninitialized_backout_al<std::allocator<CKTDGLineMap::TRIGGER_DATA_MESH>>	1	21	32908D10	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
-CKTDGLineMap::LINEMAP_TRIGGER	1	7	32909100	todo		
+CKTDGLineMap::LINEMAP_TRIGGER	1	7	32909100	done	packages/world/src/linedata.ts, linemap.ts	the records of the line map: the constructors give the field defaults (LineData 0xFC bytes: the 56 mutants of its constructor are all killed; the group ids -1 / -1; the trigger records are the object literals AddTrigger_LUA fills); copying a record is a JS copy
 CX2EventScene::SoundPlayData	1	6	32909160	todo		
-CKTDGLineMap::TRIGGER_DATA_MESH	1	7	32909170	todo		
+CKTDGLineMap::TRIGGER_DATA_MESH	1	7	32909170	done	packages/world/src/linedata.ts, linemap.ts	the records of the line map: the constructors give the field defaults (LineData 0xFC bytes: the 56 mutants of its constructor are all killed; the group ids -1 / -1; the trigger records are the object literals AddTrigger_LUA fills); copying a record is a JS copy
 std::vector<CKTDGLineMap::TRIGGER_DATA>::_Reallocation_guard2	1	20	329091A0	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<CKTDGLineMap::TRIGGER_DATA_ETC>::_Reallocation_guard2	1	24	32909200	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library
 std::vector<CKTDGLineMap::TRIGGER_DATA_MESH>::_Reallocation_guard2	1	27	32909260	n/a	-	C++ runtime library (STL, boost, ATL, debug CRT) and compiler-generated thunks: replaced by the JS standard library

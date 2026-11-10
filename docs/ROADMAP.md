@@ -136,9 +136,9 @@ Plan: generate typed TS stubs from `docs/host_api.tsv`, then implement the manag
 **Status.** Done: the binder (`packages/host`: `lua_tinker` semantics read off the decompile, 34 tests with the script tests), the
 generated typed API (`tools/gen-host-api.ts`), `KLuaManager` (the getters the `_LUA` functions use), the typed-stub record mode and the
 census (`docs/HOST_CENSUS.md`): 4,422 of the 4,498 scripts run to the end on the registered API in one shared state (the 76 others need
-23 names that are not strings of `x2.exe`); the first real host class, `KGCMassFileManager` (`AddMappingList` / `AddMappingTime`); the UI classes of Phase 4. The 4,422 runnable scripts call 440 distinct registered methods:
-**263 are implemented** (the UI classes and the mass-file manager), **177 are left in 42 classes** - `CX2World` 19, `CX2ItemManager` 14, `CX2WorldObjectSkinMesh` 12, `CX2Main` 12, `CKTDGSkyDome` 11, `CX2WorldObject` 9, `CX2WorldObjectMesh` 8,
-`CX2WorldLayer` 8, `CX2WorldObjectParticle` 7, `CX2WorldObjectLightFlow` 7, `CKTDGLineMap` 6, `CX2GuildManager` 6, `CX2SkillTree` 6, `CX2PVPResultTable` 6, then 28 classes with 4 or fewer (the item, NPC, quest, title, buff, socket, enchant and
+23 names that are not strings of `x2.exe`); the first real host class, `KGCMassFileManager` (`AddMappingList` / `AddMappingTime`); the UI classes of Phase 4; the line map `CKTDGLineMap` of `@els/world` (12 of its 18 methods: the six that the 523 `*_LINEMAP.LUA` scripts call and what stands under them, FINDINGS 17.31; the six queries are called while a stage runs, not while a script loads: they are next). The 4,422 runnable scripts call 440 distinct registered methods:
+**270 are implemented** (the UI classes, the mass-file manager and the line map; `tools/host-left.ts` counts them), **170 are left in 41 classes** - `CX2World` 19, `CX2ItemManager` 14, `CX2WorldObjectSkinMesh` 12, `CKTDGSkyDome` 11, `CX2Main` 11, `CX2WorldObject` 9, `CX2WorldObjectMesh` 8,
+`CX2WorldLayer` 8, `CX2WorldObjectParticle` 7, `CX2WorldObjectLightFlow` 7, `CX2GuildManager` 6, `CX2SkillTree` 6, `CX2PVPResultTable` 6, then 28 classes with 4 or fewer (the item, NPC, quest, title, buff, socket, enchant and
 dungeon managers among them). Next: those managers, one at a time, each ported from its decompile and checked by running the real scripts (FINDINGS section 8: `item.kim` is the ground truth for what an `AddItemTemplet` manager fed by `Item.lua` makes).
 
 ## Phase 6 - Boot, login, character select (the slice)

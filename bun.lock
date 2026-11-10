@@ -13,6 +13,7 @@
         "@els/kom": "workspace:*",
         "@els/lua": "workspace:*",
         "@els/ui": "workspace:*",
+        "@els/world": "workspace:*",
         "@types/bun": "1.4.4",
         "@webgpu/types": "0.1.74",
         "bun": "1.4.4",
@@ -96,6 +97,15 @@
         "@els/lua": "workspace:*",
       },
     },
+    "packages/world": {
+      "name": "@els/world",
+      "version": "0.0.0",
+      "dependencies": {
+        "@els/d3d9": "workspace:*",
+        "@els/host": "workspace:*",
+        "@els/lua": "workspace:*",
+      },
+    },
   },
   "packages": {
     "@els/assets": ["@els/assets@workspace:packages/assets"],
@@ -117,6 +127,8 @@
     "@els/server": ["@els/server@workspace:apps/server"],
 
     "@els/ui": ["@els/ui@workspace:packages/ui"],
+
+    "@els/world": ["@els/world@workspace:packages/world"],
 
     "@oven/bun-darwin-aarch64": ["@oven/bun-darwin-aarch64@1.4.4", "", { "os": "darwin", "cpu": "arm64" }, "sha512-zW/hxwc8sJAILGwB5eTC4i48ouGXf0V4lrxmEOk3JIE6JkYVW1TZh1E2pIempqsezgW1sckTIIDudFON8bJ2Mw=="],
 
